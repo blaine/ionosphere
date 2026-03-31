@@ -283,87 +283,76 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
 
     let rafId: number;
 
+    // Build a sorted list of text lines with their time ranges.
+    // Computed once and cached until words change.
+    let cachedLines: Array<{
+      top: number; bottom: number;
+      startTime: number; endTime: number;
+    }> | null = null;
+
+    const getLines = () => {
+      if (cachedLines) return cachedLines;
+      // Group words by line (same top position)
+      const lineMap = new Map<number, { startTime: number; endTime: number; bottom: number }>();
+      for (const [idx, el] of wordRefsMap.current) {
+        if (idx >= words.length) continue;
+        const rect = el.getBoundingClientRect();
+        const top = Math.round(rect.top); // round to group same-line words
+        const existing = lineMap.get(top);
+        if (existing) {
+          existing.startTime = Math.min(existing.startTime, words[idx].startTime);
+          existing.endTime = Math.max(existing.endTime, words[idx].endTime);
+        } else {
+          lineMap.set(top, {
+            startTime: words[idx].startTime,
+            endTime: words[idx].endTime,
+            bottom: rect.bottom,
+          });
+        }
+      }
+      cachedLines = [...lineMap.entries()]
+        .map(([top, v]) => ({ top, bottom: v.bottom, startTime: v.startTime, endTime: v.endTime }))
+        .sort((a, b) => a.top - b.top);
+      return cachedLines;
+    };
+
     const findWordAtPlayhead = () => {
       const containerRect = container.getBoundingClientRect();
       const targetY = containerRect.top + containerRect.height * 0.33;
+      const lines = getLines();
+      if (lines.length === 0) return;
 
-      // Find the two words whose vertical extents straddle the target Y,
-      // or the single closest word if the target is squarely inside one.
-      let bestIndex = -1;
-      let bestDist = Infinity;
+      // Invalidate cache on next call (positions change after scroll)
+      cachedLines = null;
 
-      for (const [idx, el] of wordRefsMap.current) {
-        const rect = el.getBoundingClientRect();
-        const mid = (rect.top + rect.bottom) / 2;
-        const dist = Math.abs(mid - targetY);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIndex = idx;
+      // Find which line the playhead is on or between
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        if (targetY >= line.top && targetY <= line.bottom) {
+          // Playhead is on this line — interpolate within it
+          const frac = (targetY - line.top) / (line.bottom - line.top);
+          const time = line.startTime + frac * (line.endTime - line.startTime);
+          seekTo(time);
+          return;
         }
-      }
 
-      if (bestIndex < 0 || bestIndex >= words.length) return;
-
-      const el = wordRefsMap.current.get(bestIndex);
-      if (!el) return;
-
-      const rect = el.getBoundingClientRect();
-      const word = words[bestIndex];
-
-      // Interpolate within the word: how far through it is the playhead line?
-      // Use the word's vertical extent on screen as the interpolation range.
-      // Words on the same line share the same top/bottom, so also consider
-      // horizontal position for words on the playhead line.
-      const lineTop = rect.top;
-      const lineBottom = rect.bottom;
-
-      if (targetY >= lineTop && targetY <= lineBottom) {
-        // Playhead is on this word's line — interpolate by fraction through the line
-        const lineFraction = (targetY - lineTop) / (lineBottom - lineTop);
-
-        // Find all words on this same line (same top)
-        const lineWords: Array<{ idx: number; left: number; right: number }> = [];
-        for (const [idx, wordEl] of wordRefsMap.current) {
-          const wr = wordEl.getBoundingClientRect();
-          // Same line if top is within 1px (tighter tolerance)
-          if (Math.abs(wr.top - lineTop) < 1) {
-            lineWords.push({ idx, left: wr.left, right: wr.right });
+        if (targetY < line.top) {
+          if (i === 0) {
+            seekTo(line.startTime);
+            return;
           }
-        }
-        lineWords.sort((a, b) => a.left - b.left);
-
-        if (lineWords.length > 0) {
-          // Compute a continuous time across the entire line
-          const firstWord = words[lineWords[0].idx];
-          const lastWord = words[lineWords[lineWords.length - 1].idx];
-          const lineStartTime = firstWord.startTime;
-          const lineEndTime = lastWord.endTime;
-
-          // Use vertical fraction as progress through the line
-          // (top of line = start of first word, bottom = end of last word)
-          const time = lineStartTime + lineFraction * (lineEndTime - lineStartTime);
-          seekTo(time);
+          // Between lines — snap to whichever is closer
+          const prev = lines[i - 1];
+          const distToPrev = targetY - prev.bottom;
+          const distToNext = line.top - targetY;
+          seekTo(distToPrev <= distToNext ? prev.endTime : line.startTime);
           return;
         }
       }
 
-      // Fallback: between lines — interpolate between this word and the next/prev
-      if (targetY < rect.top && bestIndex > 0) {
-        // Between previous line and this line
-        const prevWord = words[bestIndex - 1];
-        const prevEl = wordRefsMap.current.get(bestIndex - 1);
-        if (prevEl) {
-          const prevRect = prevEl.getBoundingClientRect();
-          const gap = rect.top - prevRect.bottom;
-          const inGap = targetY - prevRect.bottom;
-          const frac = gap > 0 ? inGap / gap : 0;
-          const time = prevWord.endTime + frac * (word.startTime - prevWord.endTime);
-          seekTo(time);
-          return;
-        }
-      }
-
-      seekTo(word.startTime);
+      // Below the last line
+      seekTo(lines[lines.length - 1].endTime);
     };
 
     const onScroll = () => {
