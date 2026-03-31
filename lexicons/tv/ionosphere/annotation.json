@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.annotation",
+  "revision": 1,
+  "description": "A semantic annotation linking a concept (or other entity) to a specific byte range in a transcript. Produced by enrichment, indexed by the appview.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["transcriptUri", "conceptUri", "byteStart", "byteEnd"],
+        "properties": {
+          "transcriptUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the tv.ionosphere.transcript this annotates."
+          },
+          "talkUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the tv.ionosphere.talk (denormalized for convenience)."
+          },
+          "conceptUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the tv.ionosphere.concept being referenced."
+          },
+          "byteStart": {
+            "type": "integer",
+            "description": "Start byte offset in the transcript text."
+          },
+          "byteEnd": {
+            "type": "integer",
+            "description": "End byte offset in the transcript text."
+          },
+          "text": {
+            "type": "string",
+            "description": "The matched text span (for human readability)."
+          }
+        }
+      }
+    }
+  }
+}

@@ -282,9 +282,18 @@ async function main() {
   console.log(`  Cross-refs: ${result.crossRefs.length}`);
   console.log(`  Links: ${result.links.length}`);
 
-  // 5. Write concept records to PDS
+  // 5. Write concept records and annotation records to PDS
+  const encoder = new TextEncoder();
+  const transcriptLower = transcript.toLowerCase();
+  const talkUri = `at://${did}/tv.ionosphere.talk/${rkey}`;
+  const transcriptUri = `at://${did}/tv.ionosphere.transcript/${transcriptRkey}`;
+  let annotationCount = 0;
+
   for (const concept of result.concepts) {
     const conceptRkey = slugToRkey(concept.name);
+    const conceptUri = `at://${did}/tv.ionosphere.concept/${conceptRkey}`;
+
+    // Write concept record
     await pds.putRecord("tv.ionosphere.concept", conceptRkey, {
       $type: "tv.ionosphere.concept",
       name: concept.name,
@@ -293,10 +302,55 @@ async function main() {
       ...(concept.wikidataId && { wikidataId: concept.wikidataId }),
       ...(concept.url && { url: concept.url }),
     });
-    console.log(`  + concept: ${concept.name} → at://${did}/tv.ionosphere.concept/${conceptRkey}`);
+
+    // Find all mentions in the transcript and write annotation records
+    const terms = [concept.name, ...(concept.aliases || [])];
+    for (const term of terms) {
+      const termLower = term.toLowerCase();
+      let searchFrom = 0;
+
+      while (true) {
+        const idx = transcriptLower.indexOf(termLower, searchFrom);
+        if (idx === -1) break;
+
+        // Word boundary check
+        const before = idx > 0 ? transcript[idx - 1] : " ";
+        const after =
+          idx + term.length < transcript.length
+            ? transcript[idx + term.length]
+            : " ";
+        if (/\w/.test(before) || /\w/.test(after)) {
+          searchFrom = idx + 1;
+          continue;
+        }
+
+        const byteStart = encoder.encode(transcript.slice(0, idx)).length;
+        const byteEnd = encoder.encode(
+          transcript.slice(0, idx + term.length)
+        ).length;
+
+        const annotRkey = `${rkey}-${conceptRkey}-${byteStart}`;
+        await pds.putRecord("tv.ionosphere.annotation", annotRkey, {
+          $type: "tv.ionosphere.annotation",
+          transcriptUri,
+          talkUri,
+          conceptUri,
+          byteStart,
+          byteEnd,
+          text: transcript.slice(idx, idx + term.length),
+        });
+        annotationCount++;
+
+        searchFrom = idx + term.length;
+      }
+    }
+
+    console.log(`  + concept: ${concept.name}`);
   }
 
-  // Print full results for review
+  console.log(`  ${annotationCount} annotations written`);
+
+  // Print summary
   console.log("\n--- Full enrichment output ---");
   console.log(JSON.stringify(result, null, 2));
 }

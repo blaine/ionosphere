@@ -24,6 +24,7 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.speaker",
   "tv.ionosphere.concept",
   "tv.ionosphere.transcript",
+  "tv.ionosphere.annotation",
 ];
 
 const COLLECTIONS_SET = new Set(IONOSPHERE_COLLECTIONS);
@@ -62,6 +63,11 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       case "tv.ionosphere.transcript":
         db.prepare("DELETE FROM transcripts WHERE uri = ?").run(uri);
         break;
+      case "tv.ionosphere.annotation":
+        db.prepare("DELETE FROM annotations WHERE uri = ?").run(uri);
+        // Recompute talk_concepts for affected talk
+        rebuildTalkConcepts(db, uri);
+        break;
     }
     return;
   }
@@ -85,6 +91,9 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "tv.ionosphere.transcript":
       indexTranscript(db, event.did, rkey, uri, record);
+      break;
+    case "tv.ionosphere.annotation":
+      indexAnnotation(db, event.did, rkey, uri, record);
       break;
   }
 }
@@ -225,4 +234,60 @@ function indexTranscript(
     record.startMs as number,
     JSON.stringify(record.timings)
   );
+}
+
+function indexAnnotation(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  const talkUri = (record.talkUri as string) || null;
+  const transcriptUri = record.transcriptUri as string;
+  const conceptUri = record.conceptUri as string;
+
+  db.prepare(
+    `INSERT OR REPLACE INTO annotations
+     (uri, did, rkey, transcript_uri, talk_uri, concept_uri, byte_start, byte_end, text)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri,
+    did,
+    rkey,
+    transcriptUri,
+    talkUri,
+    conceptUri,
+    record.byteStart as number,
+    record.byteEnd as number,
+    (record.text as string) || null
+  );
+
+  // Maintain talk_concepts join: if this annotation links a concept to a talk,
+  // ensure there's a row in talk_concepts
+  if (talkUri && conceptUri) {
+    db.prepare(
+      `INSERT OR IGNORE INTO talk_concepts (talk_uri, concept_uri, mention_count)
+       VALUES (?, ?, 1)`
+    ).run(talkUri, conceptUri);
+
+    // Update mention count
+    db.prepare(
+      `UPDATE talk_concepts SET mention_count = (
+        SELECT COUNT(*) FROM annotations
+        WHERE talk_uri = ? AND concept_uri = ?
+      ) WHERE talk_uri = ? AND concept_uri = ?`
+    ).run(talkUri, conceptUri, talkUri, conceptUri);
+  }
+}
+
+function rebuildTalkConcepts(db: Database.Database, _deletedUri: string): void {
+  // Full rebuild — simple and correct for now
+  db.prepare("DELETE FROM talk_concepts").run();
+  db.prepare(
+    `INSERT INTO talk_concepts (talk_uri, concept_uri, mention_count)
+     SELECT talk_uri, concept_uri, COUNT(*) FROM annotations
+     WHERE talk_uri IS NOT NULL
+     GROUP BY talk_uri, concept_uri`
+  ).run();
 }

@@ -125,6 +125,19 @@ export function migrate(db: Database.Database): void {
       FOREIGN KEY (talk_uri) REFERENCES talks(uri) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS annotations (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      transcript_uri TEXT NOT NULL,
+      talk_uri TEXT,
+      concept_uri TEXT NOT NULL,
+      byte_start INTEGER NOT NULL,
+      byte_end INTEGER NOT NULL,
+      text TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),

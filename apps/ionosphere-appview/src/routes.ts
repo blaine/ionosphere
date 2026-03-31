@@ -7,88 +7,50 @@ import {
 } from "@ionosphere/format/transcript-encoding";
 
 /**
- * Overlay concept-ref facets onto a document by finding concept names
- * and aliases in the transcript text. Each match gets a facet with
- * byte range and concept URI, plus the timestamp from the nearest
- * word-level timestamp facet.
+ * Overlay concept-ref facets onto a document from annotation records.
+ * Reads pre-computed annotations from the DB — no text matching at serve time.
  */
-function overlayConceptFacets(
+function overlayAnnotations(
   doc: Document,
-  concepts: Array<{ uri: string; rkey: string; name: string; aliases: string | null }>
+  annotations: Array<{
+    concept_uri: string;
+    byte_start: number;
+    byte_end: number;
+    text: string | null;
+    concept_name: string;
+    concept_rkey: string;
+  }>
 ): Document {
-  if (concepts.length === 0) return doc;
-
-  const encoder = new TextEncoder();
-  const textLower = doc.text.toLowerCase();
-  const conceptFacets: DocumentFacet[] = [];
-
-  for (const concept of concepts) {
-    // Build search terms: name + aliases
-    const terms = [concept.name];
-    if (concept.aliases) {
-      try {
-        const parsed = JSON.parse(concept.aliases);
-        if (Array.isArray(parsed)) terms.push(...parsed);
-      } catch {}
-    }
-
-    for (const term of terms) {
-      const termLower = term.toLowerCase();
-      let searchFrom = 0;
-
-      while (true) {
-        const idx = textLower.indexOf(termLower, searchFrom);
-        if (idx === -1) break;
-
-        // Verify word boundary (don't match "AT" inside "THAT")
-        const before = idx > 0 ? doc.text[idx - 1] : " ";
-        const after =
-          idx + term.length < doc.text.length
-            ? doc.text[idx + term.length]
-            : " ";
-        if (/\w/.test(before) || /\w/.test(after)) {
-          searchFrom = idx + 1;
-          continue;
-        }
-
-        const byteStart = encoder.encode(doc.text.slice(0, idx)).length;
-        const byteEnd = encoder.encode(
-          doc.text.slice(0, idx + term.length)
-        ).length;
-
-        // Find the timestamp of the nearest word facet to get temporal position
-        let nearestTime = 0;
-        for (const f of doc.facets) {
-          const ts = f.features.find(
-            (feat) => feat.$type === "tv.ionosphere.facet#timestamp"
-          );
-          if (ts && Math.abs(f.index.byteStart - byteStart) < 50) {
-            nearestTime = ts.startTime;
-            break;
-          }
-        }
-
-        conceptFacets.push({
-          index: { byteStart, byteEnd },
-          features: [
-            {
-              $type: "tv.ionosphere.facet#concept-ref",
-              conceptUri: concept.uri,
-              conceptRkey: concept.rkey,
-              conceptName: concept.name,
-              startTime: nearestTime,
-            },
-          ],
-        });
-
-        searchFrom = idx + term.length;
+  const facets: DocumentFacet[] = annotations.map((a) => {
+    // Find nearest timestamp facet for temporal position
+    let nearestTime = 0;
+    for (const f of doc.facets) {
+      const ts = f.features.find(
+        (feat) => feat.$type === "tv.ionosphere.facet#timestamp"
+      );
+      if (ts && Math.abs(f.index.byteStart - a.byte_start) < 50) {
+        nearestTime = ts.startTime;
+        break;
       }
     }
-  }
+
+    return {
+      index: { byteStart: a.byte_start, byteEnd: a.byte_end },
+      features: [
+        {
+          $type: "tv.ionosphere.facet#concept-ref",
+          conceptUri: a.concept_uri,
+          conceptRkey: a.concept_rkey,
+          conceptName: a.concept_name,
+          startTime: nearestTime,
+        },
+      ],
+    };
+  });
 
   return {
     text: doc.text,
-    facets: [...doc.facets, ...conceptFacets],
+    facets: [...doc.facets, ...facets],
   };
 }
 
@@ -126,18 +88,22 @@ export function createRoutes(db: Database.Database): Hono {
       )
       .all((talk as any).uri);
 
-    // Decode compact transcript into full RelationalText document
+    // Get concepts linked to this talk via annotations
+    const concepts = db
+      .prepare(
+        `SELECT DISTINCT c.* FROM concepts c
+         JOIN talk_concepts tc ON c.uri = tc.concept_uri
+         WHERE tc.talk_uri = ?
+         ORDER BY c.name ASC`
+      )
+      .all((talk as any).uri);
+
+    // Decode compact transcript into full document
     const transcript = db
       .prepare("SELECT * FROM transcripts WHERE talk_uri = ?")
       .get((talk as any).uri) as any;
 
-    // Get ALL concepts for text-matching overlay (not from join table)
-    const allConcepts = db
-      .prepare("SELECT * FROM concepts ORDER BY name ASC")
-      .all() as any[];
-
     let document = null;
-    let matchedConcepts: any[] = [];
     if (transcript) {
       const compact = {
         text: transcript.text,
@@ -146,38 +112,45 @@ export function createRoutes(db: Database.Database): Hono {
       };
       let doc = decodeToDocument(compact);
 
-      // Overlay concept-ref facets via text matching
-      if (allConcepts.length > 0) {
-        doc = overlayConceptFacets(doc, allConcepts);
+      // Overlay concept annotations from the DB
+      const annotations = db
+        .prepare(
+          `SELECT a.*, c.name as concept_name, c.rkey as concept_rkey
+           FROM annotations a
+           JOIN concepts c ON c.uri = a.concept_uri
+           WHERE a.transcript_uri = ?`
+        )
+        .all(transcript.uri) as any[];
 
-        // Derive which concepts actually matched this talk's transcript
-        const matchedUris = new Set(
-          doc.facets
-            .flatMap((f) => f.features)
-            .filter((feat) => feat.$type === "tv.ionosphere.facet#concept-ref")
-            .map((feat) => feat.conceptUri)
-        );
-        matchedConcepts = allConcepts.filter((c) => matchedUris.has(c.uri));
+      if (annotations.length > 0) {
+        doc = overlayAnnotations(doc, annotations);
       }
 
       document = doc;
     }
 
     return c.json({
-      talk: { ...(talk as any), document: document ? JSON.stringify(document) : null },
+      talk: {
+        ...(talk as any),
+        document: document ? JSON.stringify(document) : null,
+      },
       speakers,
-      concepts: matchedConcepts,
+      concepts,
     });
   });
 
   app.get("/speakers", (c) => {
-    const speakers = db.prepare("SELECT * FROM speakers ORDER BY name ASC").all();
+    const speakers = db
+      .prepare("SELECT * FROM speakers ORDER BY name ASC")
+      .all();
     return c.json({ speakers });
   });
 
   app.get("/speakers/:rkey", (c) => {
     const { rkey } = c.req.param();
-    const speaker = db.prepare("SELECT * FROM speakers WHERE rkey = ?").get(rkey);
+    const speaker = db
+      .prepare("SELECT * FROM speakers WHERE rkey = ?")
+      .get(rkey);
     if (!speaker) return c.json({ error: "not found" }, 404);
 
     const talks = db
@@ -201,7 +174,9 @@ export function createRoutes(db: Database.Database): Hono {
 
   app.get("/concepts/:rkey", (c) => {
     const { rkey } = c.req.param();
-    const concept = db.prepare("SELECT * FROM concepts WHERE rkey = ?").get(rkey);
+    const concept = db
+      .prepare("SELECT * FROM concepts WHERE rkey = ?")
+      .get(rkey);
     if (!concept) return c.json({ error: "not found" }, 404);
 
     const talks = db
