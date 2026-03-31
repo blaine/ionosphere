@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.event",
+  "revision": 1,
+  "description": "A conference or event whose talks are archived.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "startsAt", "endsAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Event name."
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description."
+          },
+          "location": {
+            "type": "string",
+            "description": "Venue and city."
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Event start date (ISO 8601)."
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Event end date (ISO 8601)."
+          },
+          "tracks": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Room/track names."
+          },
+          "scheduleRepo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repo containing schedule records."
+          },
+          "vodRepo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repo containing VOD records."
+          }
+        }
+      }
+    }
+  }
+}

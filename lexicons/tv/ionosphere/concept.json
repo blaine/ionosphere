@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.concept",
+  "revision": 1,
+  "description": "A knowledge entity referenced in talk transcripts.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Canonical concept name."
+          },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Alternative names for matching."
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description of the concept."
+          },
+          "wikidataId": {
+            "type": "string",
+            "description": "Wikidata Q-identifier (e.g., 'Q123456')."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Canonical external URL for the concept."
+          }
+        }
+      }
+    }
+  }
+}

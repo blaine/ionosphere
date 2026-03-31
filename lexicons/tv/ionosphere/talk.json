@@ -1,0 +1,78 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.talk",
+  "revision": 1,
+  "description": "A conference talk with video reference and enriched transcript document.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["title", "eventUri"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Talk title."
+          },
+          "document": {
+            "type": "ref",
+            "ref": "org.relationaltext.richtext.document",
+            "description": "Enriched transcript document with temporal and semantic facets."
+          },
+          "speakerUris": {
+            "type": "array",
+            "items": { "type": "string", "format": "at-uri" },
+            "description": "AT URIs of tv.ionosphere.speaker records."
+          },
+          "videoUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI to place.stream.video record."
+          },
+          "scheduleUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI to source community.lexicon.calendar.event record."
+          },
+          "eventUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI to tv.ionosphere.event record."
+          },
+          "room": {
+            "type": "string",
+            "description": "Room or track name."
+          },
+          "category": {
+            "type": "string",
+            "description": "Talk category from schedule."
+          },
+          "talkType": {
+            "type": "string",
+            "description": "Type: presentation, lightning-talk, panel, workshop, etc."
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Scheduled start time (ISO 8601)."
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Scheduled end time (ISO 8601)."
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Video duration in nanoseconds (from VOD record)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Talk description/abstract from schedule."
+          }
+        }
+      }
+    }
+  }
+}

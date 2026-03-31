@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.speaker",
+  "revision": 1,
+  "description": "A conference speaker.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Speaker display name."
+          },
+          "handle": {
+            "type": "string",
+            "description": "AT Protocol handle (e.g., 'signez.fr')."
+          },
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "Speaker's DID, if known."
+          },
+          "bio": {
+            "type": "string",
+            "description": "Speaker bio."
+          },
+          "affiliations": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Organizations, projects, or affiliations."
+          }
+        }
+      }
+    }
+  }
+}
