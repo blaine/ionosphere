@@ -1,16 +1,17 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { useTimestamp } from "./TimestampProvider";
 
 interface VideoPlayerProps {
   videoUri: string;
-  onTimeUpdate?: (timeNs: number) => void;
 }
 
 const VOD_ENDPOINT = "https://vod-beta.stream.place/xrpc/place.stream.playback.getVideoPlaylist";
 
-export default function VideoPlayer({ videoUri, onTimeUpdate }: VideoPlayerProps) {
+export default function VideoPlayer({ videoUri }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { setCurrentTimeNs, onSeek } = useTimestamp();
   const playlistUrl = `${VOD_ENDPOINT}?uri=${encodeURIComponent(videoUri)}`;
 
   useEffect(() => {
@@ -36,14 +37,25 @@ export default function VideoPlayer({ videoUri, onTimeUpdate }: VideoPlayerProps
     return () => { if (hls) hls.destroy(); };
   }, [playlistUrl]);
 
+  // Broadcast current time to timestamp context
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !onTimeUpdate) return;
+    if (!video) return;
 
-    const handler = () => { onTimeUpdate(video.currentTime * 1e9); };
+    const handler = () => { setCurrentTimeNs(video.currentTime * 1e9); };
     video.addEventListener("timeupdate", handler);
     return () => video.removeEventListener("timeupdate", handler);
-  }, [onTimeUpdate]);
+  }, [setCurrentTimeNs]);
+
+  // Listen for seek requests from transcript clicks
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    return onSeek((ns: number) => {
+      video.currentTime = ns / 1e9;
+    });
+  }, [onSeek]);
 
   return (
     <video ref={videoRef} controls className="w-full rounded-lg bg-black aspect-video" />
