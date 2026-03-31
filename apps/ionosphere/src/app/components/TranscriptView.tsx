@@ -243,9 +243,17 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     return -1;
   }, [currentTimeNs, words]);
 
-  // Auto-scroll when playing (not when user is scroll-scrubbing)
+  // Track whether the user is actively scrubbing via scroll.
+  // When they scroll (touch/wheel), we take over for a moment,
+  // then hand back to auto-scroll after a timeout.
+  const userScrolling = useRef(false);
+  const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
+  const programmaticScroll = useRef(false);
+
+  // Auto-scroll: keep the active word at the 1/3 mark.
+  // Suppressed while user is scroll-scrubbing.
   useEffect(() => {
-    if (paused) return; // user controls scroll when paused
+    if (userScrolling.current) return;
     if (activeIndex !== activeIndexRef.current && activeIndex >= 0) {
       activeIndexRef.current = activeIndex;
       const container = containerRef.current;
@@ -254,57 +262,70 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
 
       const rect = activeEl.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
-      // Keep playhead at ~1/3 from top
       const targetY = containerRect.top + containerRect.height * 0.33;
       const diff = rect.top - targetY;
       if (Math.abs(diff) > 20) {
+        programmaticScroll.current = true;
         container.scrollBy({ top: diff, behavior: "smooth" });
+        // Clear the flag after the smooth scroll completes (~300ms)
+        setTimeout(() => { programmaticScroll.current = false; }, 400);
       }
     }
-  }, [activeIndex, paused]);
+  }, [activeIndex]);
 
-  // Scroll-to-scrub: when paused, scrolling the transcript moves the playhead
+  // Scroll-to-scrub: always active. User scrolling seeks the video.
+  // During playback, auto-scroll resumes after 2s of no user scrolling.
   useEffect(() => {
-    if (!paused) return;
     const container = containerRef.current;
     if (!container) return;
 
     let rafId: number;
+
+    const findWordAtPlayhead = () => {
+      const containerRect = container.getBoundingClientRect();
+      const targetY = containerRect.top + containerRect.height * 0.33;
+
+      let closestIndex = -1;
+      let closestDist = Infinity;
+
+      for (const [idx, el] of wordRefsMap.current) {
+        const rect = el.getBoundingClientRect();
+        const mid = (rect.top + rect.bottom) / 2;
+        const dist = Math.abs(mid - targetY);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestIndex = idx;
+        }
+      }
+
+      if (closestIndex >= 0 && closestIndex < words.length) {
+        seekTo(words[closestIndex].startTime);
+      }
+    };
+
     const onScroll = () => {
+      // Ignore scrolls we triggered programmatically
+      if (programmaticScroll.current) return;
+
+      userScrolling.current = true;
+
+      // Reset the "hand back to auto-scroll" timer
+      clearTimeout(userScrollTimer.current);
+      userScrollTimer.current = setTimeout(() => {
+        userScrolling.current = false;
+      }, paused ? 999999 : 2000); // stay in user mode indefinitely when paused
+
       cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const containerRect = container.getBoundingClientRect();
-        // The "playhead" position is 1/3 from the top
-        const targetY = containerRect.top + containerRect.height * 0.33;
-
-        // Find the word span closest to the target Y position
-        let closestIndex = -1;
-        let closestDist = Infinity;
-
-        for (const [idx, el] of wordRefsMap.current) {
-          const rect = el.getBoundingClientRect();
-          const mid = (rect.top + rect.bottom) / 2;
-          const dist = Math.abs(mid - targetY);
-          if (dist < closestDist) {
-            closestDist = dist;
-            closestIndex = idx;
-          }
-        }
-
-        if (closestIndex >= 0 && closestIndex < words.length) {
-          const word = words[closestIndex];
-          // Interpolate within the word based on exact Y position
-          seekTo(word.startTime);
-        }
-      });
+      rafId = requestAnimationFrame(findWordAtPlayhead);
     };
 
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       container.removeEventListener("scroll", onScroll);
       cancelAnimationFrame(rafId);
+      clearTimeout(userScrollTimer.current);
     };
-  }, [paused, words, seekTo]);
+  }, [words, seekTo, paused]);
 
   const handleSeek = useCallback(
     (ns: number) => seekTo(ns),
