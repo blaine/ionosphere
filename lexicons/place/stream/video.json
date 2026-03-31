@@ -1,0 +1,80 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "place.stream.video",
+  "revision": 1,
+  "description": "A video-on-demand record from stream.place, representing an archived livestream recording.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["title", "source", "creator", "duration", "createdAt"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Video title."
+          },
+          "source": {
+            "type": "ref",
+            "ref": "#archiveBlob",
+            "description": "Source video blob reference."
+          },
+          "creator": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the creator who streamed the video."
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Video duration in nanoseconds."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Record creation time (ISO 8601)."
+          },
+          "livestream": {
+            "type": "ref",
+            "ref": "#livestreamRef",
+            "description": "Reference to the original livestream record."
+          }
+        }
+      }
+    },
+    "archiveBlob": {
+      "type": "object",
+      "required": ["ref", "size", "mimeType"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "CID reference to the archived video blob."
+        },
+        "size": {
+          "type": "integer",
+          "description": "File size in bytes."
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "MIME type of the video, e.g. video/mp4."
+        }
+      }
+    },
+    "livestreamRef": {
+      "type": "object",
+      "required": ["uri", "cid"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of the original livestream record."
+        },
+        "cid": {
+          "type": "string",
+          "description": "CID of the livestream record."
+        }
+      }
+    }
+  }
+}

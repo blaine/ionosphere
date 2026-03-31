@@ -1,0 +1,141 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "community.lexicon.calendar.event",
+  "revision": 1,
+  "description": "A calendar event from the community.lexicon.calendar collection, used for conference schedules.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["name", "startsAt", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Event title."
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description or abstract."
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Scheduled start time (ISO 8601)."
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Scheduled end time (ISO 8601)."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Record creation time (ISO 8601)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Event status, e.g. community.lexicon.calendar.event#scheduled."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Event mode, e.g. community.lexicon.calendar.event#hybrid."
+          },
+          "media": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#media" },
+            "description": "Attached media (thumbnails, headers)."
+          },
+          "additionalData": {
+            "type": "ref",
+            "ref": "#additionalData",
+            "description": "Extended metadata including room, category, speakers, etc."
+          }
+        }
+      }
+    },
+    "additionalData": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "type": "string",
+          "description": "Room or track name."
+        },
+        "category": {
+          "type": "string",
+          "description": "Event category, e.g. Development and Protocol."
+        },
+        "type": {
+          "type": "string",
+          "description": "Event type: presentation, lightning-talk, panel, workshop, etc."
+        },
+        "speakers": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#speaker" },
+          "description": "List of speakers."
+        },
+        "sourceId": {
+          "type": "string",
+          "description": "Original source identifier."
+        },
+        "isAtmosphereconf": {
+          "type": "boolean",
+          "description": "Whether this event is part of ATmosphereconf."
+        }
+      }
+    },
+    "speaker": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Speaker identifier (e.g. handle or DID)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Speaker display name."
+        }
+      }
+    },
+    "media": {
+      "type": "object",
+      "required": ["role", "content"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "Media role: thumbnail, header, etc."
+        },
+        "alt": {
+          "type": "string",
+          "description": "Alt text for the media."
+        },
+        "content": {
+          "type": "blob",
+          "description": "Media blob reference."
+        },
+        "aspect_ratio": {
+          "type": "ref",
+          "ref": "#aspectRatio",
+          "description": "Aspect ratio of the media."
+        }
+      }
+    },
+    "aspectRatio": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "description": "Width in pixels."
+        },
+        "height": {
+          "type": "integer",
+          "description": "Height in pixels."
+        }
+      }
+    }
+  }
+}

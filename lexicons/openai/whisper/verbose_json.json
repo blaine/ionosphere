@@ -1,0 +1,110 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "openai.whisper.verbose_json",
+  "revision": 1,
+  "description": "OpenAI Whisper API verbose_json transcription response. Not a native ATProto record; defined as a lexicon for panproto lens generation.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Full transcription text."
+          },
+          "task": {
+            "type": "string",
+            "description": "Task type, e.g. transcribe."
+          },
+          "language": {
+            "type": "string",
+            "description": "Detected language code."
+          },
+          "duration": {
+            "type": "number",
+            "description": "Audio duration in seconds."
+          },
+          "words": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#word" },
+            "description": "Word-level timestamps."
+          },
+          "segments": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "#segment" },
+            "description": "Segment-level transcription chunks."
+          }
+        }
+      }
+    },
+    "word": {
+      "type": "object",
+      "required": ["word", "start", "end"],
+      "properties": {
+        "word": {
+          "type": "string",
+          "description": "The transcribed word."
+        },
+        "start": {
+          "type": "number",
+          "description": "Start time in seconds."
+        },
+        "end": {
+          "type": "number",
+          "description": "End time in seconds."
+        }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "required": ["id", "text", "start", "end"],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Segment index."
+        },
+        "text": {
+          "type": "string",
+          "description": "Segment text."
+        },
+        "start": {
+          "type": "number",
+          "description": "Start time in seconds."
+        },
+        "end": {
+          "type": "number",
+          "description": "End time in seconds."
+        },
+        "seek": {
+          "type": "integer",
+          "description": "Seek offset."
+        },
+        "tokens": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Token IDs."
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature used."
+        },
+        "avg_logprob": {
+          "type": "number",
+          "description": "Average log probability."
+        },
+        "compression_ratio": {
+          "type": "number",
+          "description": "Compression ratio."
+        },
+        "no_speech_prob": {
+          "type": "number",
+          "description": "Probability of no speech."
+        }
+      }
+    }
+  }
+}
