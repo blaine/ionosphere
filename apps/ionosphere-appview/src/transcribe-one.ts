@@ -2,6 +2,7 @@
  * Transcribe a single talk for testing.
  * Usage: tsx src/transcribe-one.ts <rkey>
  */
+import "./env.js";
 import { openaiWhisperProvider } from "./providers/openai-whisper.js";
 import { transcribeTalk } from "./transcribe.js";
 import { openDb } from "./db.js";

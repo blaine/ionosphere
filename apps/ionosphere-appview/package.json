@@ -19,8 +19,11 @@
   },
   "scripts": {
     "appview": "tsx src/appview.ts",
+    "setup": "tsx src/setup.ts",
     "ingest": "tsx src/ingest.ts",
+    "publish": "tsx src/publish.ts",
     "transcribe": "tsx src/transcribe.ts",
+    "enrich": "tsx src/enrich.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   }

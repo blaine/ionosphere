@@ -6,24 +6,26 @@
  *
  * Usage: OPENAI_API_KEY=... npx tsx src/enrich.ts <rkey>
  */
+import "./env.js";
 import OpenAI from "openai";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { openDb } from "./db.js";
 
-// Read API key from .env file if present
-import path from "node:path";
-const envPath = path.resolve(import.meta.dirname, "../.env");
-try {
-  const envContent = readFileSync(envPath, "utf-8");
-  for (const line of envContent.split("\n")) {
-    const match = line.match(/^([^=]+)=(.+)$/);
-    if (match && !process.env[match[1].trim()]) {
-      process.env[match[1].trim()] = match[2].trim();
+// Load .env manually for the API key (env.ts may run too late for module-level imports)
+function loadApiKey(): string {
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  try {
+    const envContent = readFileSync(path.resolve(import.meta.dirname, "../.env"), "utf-8");
+    for (const line of envContent.split("\n")) {
+      const match = line.match(/^OPENAI_API_KEY=(.+)$/);
+      if (match) return match[1].trim();
     }
-  }
-} catch {}
+  } catch {}
+  throw new Error("OPENAI_API_KEY not found in environment or .env file");
+}
 
-const client = new OpenAI();
+const client = new OpenAI({ apiKey: loadApiKey() });
 
 interface ConceptMention {
   name: string;
