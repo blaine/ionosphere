@@ -258,7 +258,17 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   const scrollTarget = useRef<number | null>(null);
   const animFrameId = useRef<number>(0);
 
-  // Compute the desired scroll target whenever time changes
+  // Compute the desired scroll target whenever time changes.
+  //
+  // The key insight: we need a CONTINUOUS time→Y mapping with no jumps.
+  // Text lines have gaps between them (line spacing), but speech is
+  // continuous across those gaps. If we just interpolate within each line
+  // and jump between them, the target Y is discontinuous at line boundaries.
+  //
+  // Fix: split each inter-line gap at its midpoint. Each line's Y range
+  // extends from the midpoint of the gap above to the midpoint of the gap
+  // below. This creates a seamless, continuous mapping — line N's extended
+  // bottom == line N+1's extended top.
   useEffect(() => {
     if (userScrolling.current) return;
     const container = containerRef.current;
@@ -283,33 +293,50 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
         });
       }
     }
-    const lines = [...lineMap.entries()]
+    const rawLines = [...lineMap.entries()]
       .map(([top, v]) => ({ top, bottom: v.bottom, startTime: v.startTime, endTime: v.endTime }))
       .sort((a, b) => a.top - b.top);
 
-    if (lines.length === 0) return;
+    if (rawLines.length === 0) return;
+
+    // Build continuous segments by splitting inter-line gaps at midpoints
+    const segments: Array<{ yStart: number; yEnd: number; timeStart: number; timeEnd: number }> = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const line = rawLines[i];
+      const yStart = i === 0
+        ? line.top
+        : (rawLines[i - 1].bottom + line.top) / 2; // midpoint of gap above
+      const yEnd = i === rawLines.length - 1
+        ? line.bottom
+        : (line.bottom + rawLines[i + 1].top) / 2; // midpoint of gap below
+      segments.push({
+        yStart,
+        yEnd,
+        timeStart: line.startTime,
+        timeEnd: line.endTime,
+      });
+    }
 
     const containerRect = container.getBoundingClientRect();
     const playheadY = containerRect.top + containerRect.height * 0.33;
 
     let targetY: number | null = null;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (currentTimeNs >= line.startTime && currentTimeNs <= line.endTime) {
-        const frac = (currentTimeNs - line.startTime) / (line.endTime - line.startTime);
-        targetY = line.top + frac * (line.bottom - line.top);
+    for (const seg of segments) {
+      if (currentTimeNs >= seg.timeStart && currentTimeNs <= seg.timeEnd) {
+        const frac = (currentTimeNs - seg.timeStart) / (seg.timeEnd - seg.timeStart);
+        targetY = seg.yStart + frac * (seg.yEnd - seg.yStart);
         break;
       }
-      if (currentTimeNs < line.startTime) {
-        targetY = line.top;
+      if (currentTimeNs < seg.timeStart) {
+        targetY = seg.yStart;
         break;
       }
     }
     if (targetY === null) {
-      targetY = lines[lines.length - 1].bottom;
+      const last = segments[segments.length - 1];
+      targetY = last.yEnd;
     }
 
-    // Set absolute scroll target
     scrollTarget.current = container.scrollTop + (targetY - playheadY);
   }, [currentTimeNs, words]);
 
