@@ -253,6 +253,7 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
   const programmaticScroll = useRef(false);
+  const programmaticScrollTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-scroll: keep the active word at the 1/3 mark.
   // Suppressed while user is scroll-scrubbing.
@@ -270,13 +271,12 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       const diff = rect.top - targetY;
       if (Math.abs(diff) > 5) {
         programmaticScroll.current = true;
-        container.scrollBy({ top: diff, behavior: "instant" });
-        // Use rAF to clear the flag after the browser processes the scroll
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            programmaticScroll.current = false;
-          });
-        });
+        container.scrollBy({ top: diff, behavior: "smooth" });
+        // Hold the programmatic flag for the duration of the smooth scroll
+        clearTimeout(programmaticScrollTimer.current);
+        programmaticScrollTimer.current = setTimeout(() => {
+          programmaticScroll.current = false;
+        }, 500);
       }
     }
   }, [activeIndex]);
