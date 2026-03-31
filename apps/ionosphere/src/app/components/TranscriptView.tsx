@@ -253,16 +253,18 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
   // Auto-scroll: continuously position based on currentTimeNs.
-  // Computes the exact Y position for the current time by interpolating
-  // within text lines — the inverse of what the scrub handler does.
-  // Suppressed while user is scroll-scrubbing.
+  // Uses an animation loop that eases toward the target scroll position
+  // for buttery smooth movement between timeupdate events.
+  const scrollTarget = useRef<number | null>(null);
+  const animFrameId = useRef<number>(0);
+
+  // Compute the desired scroll target whenever time changes
   useEffect(() => {
     if (userScrolling.current) return;
     const container = containerRef.current;
-    if (!container) return;
-    if (currentTimeNs <= 0) return;
+    if (!container || currentTimeNs <= 0) return;
 
-    // Build line map (same logic as scrub handler)
+    // Build line map
     const lineMap = new Map<number, { startTime: number; endTime: number; bottom: number }>();
     for (const [idx, el] of wordRefsMap.current) {
       if (idx >= words.length) continue;
@@ -290,34 +292,47 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     const containerRect = container.getBoundingClientRect();
     const playheadY = containerRect.top + containerRect.height * 0.33;
 
-    // Find where currentTimeNs falls in the lines and compute target Y
     let targetY: number | null = null;
-
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (currentTimeNs >= line.startTime && currentTimeNs <= line.endTime) {
-        // Time is within this line — interpolate Y position
         const frac = (currentTimeNs - line.startTime) / (line.endTime - line.startTime);
         targetY = line.top + frac * (line.bottom - line.top);
         break;
       }
       if (currentTimeNs < line.startTime) {
-        // Time is before this line — use the start of the line
         targetY = line.top;
         break;
       }
     }
-
     if (targetY === null) {
-      // Past the last line
       targetY = lines[lines.length - 1].bottom;
     }
 
-    const diff = targetY - playheadY;
-    if (Math.abs(diff) > 2) {
-      container.scrollBy({ top: diff, behavior: "instant" });
-    }
+    // Set absolute scroll target
+    scrollTarget.current = container.scrollTop + (targetY - playheadY);
   }, [currentTimeNs, words]);
+
+  // Animation loop: ease toward scrollTarget
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const LERP = 0.15; // easing factor — higher = snappier
+
+    const animate = () => {
+      if (!userScrolling.current && scrollTarget.current !== null) {
+        const diff = scrollTarget.current - container.scrollTop;
+        if (Math.abs(diff) > 0.5) {
+          container.scrollTop += diff * LERP;
+        }
+      }
+      animFrameId.current = requestAnimationFrame(animate);
+    };
+
+    animFrameId.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animFrameId.current);
+  }, []);
 
   // Scroll-to-scrub: always active. User scrolling seeks the video.
   // During playback, auto-scroll resumes after 2s of no user scrolling.
