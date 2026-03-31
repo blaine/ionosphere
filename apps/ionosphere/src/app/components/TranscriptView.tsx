@@ -430,6 +430,8 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
           background: "linear-gradient(to right, rgba(255,255,255,0.35), rgba(255,255,255,0.35) 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) calc(100% - 10px), rgba(255,255,255,0.35) calc(100% - 10px), rgba(255,255,255,0.35))"
         }} />
       </div>
+      {/* Top spacer: pushes first word down to the playhead (33% mark) */}
+      <div style={{ height: "calc(33% + 1rem)" }} />
       {conceptCount > 0 && (
         <div className="text-xs text-amber-500/60 mb-3">
           {conceptCount} words linked to concepts
@@ -446,6 +448,8 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
           onSeek={handleSeek}
         />
       ))}
+      {/* Bottom spacer: lets last word scroll up to the playhead (33% mark) */}
+      <div style={{ height: "calc(67% + 1rem)" }} />
     </div>
   );
 }
