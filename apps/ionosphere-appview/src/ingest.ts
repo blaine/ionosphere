@@ -1,6 +1,7 @@
 import { openDb, migrate } from "./db.js";
 import { correlate, type ScheduleEvent, type VodRecord } from "./correlate.js";
 import { loadLens, applyLens } from "@ionosphere/format/lenses";
+import { resolveLensRecord } from "./lens-resolver.js";
 
 const scheduleLens = loadLens("schedule-to-talk.lens.json");
 
@@ -37,7 +38,7 @@ async function fetchAllRecords(
   return records;
 }
 
-function parseScheduleEvent(record: any): ScheduleEvent | null {
+function parseScheduleEvent(record: any, lens: any): ScheduleEvent | null {
   const v = record.value;
   const ad = v.additionalData;
   if (!ad?.isAtmosphereconf) return null;
@@ -45,7 +46,7 @@ function parseScheduleEvent(record: any): ScheduleEvent | null {
   const type = ad?.type || "";
   if (["info", "food"].includes(type)) return null;
 
-  const mapped = applyLens(scheduleLens, v);
+  const mapped = applyLens(lens, v);
 
   return {
     uri: record.uri,
@@ -84,6 +85,13 @@ function slugify(name: string): string {
 }
 
 async function main() {
+  let scheduleLensResolved;
+  try {
+    const resolved = await resolveLensRecord("community.lexicon.calendar.event", "tv.ionosphere.talk");
+    if (resolved?.chainJson) scheduleLensResolved = JSON.parse(resolved.chainJson);
+  } catch {}
+  const effectiveLens = scheduleLensResolved ?? scheduleLens;
+
   console.log("Fetching schedule events...");
   const scheduleRaw = await fetchAllRecords(
     BSKY_API,
@@ -91,7 +99,7 @@ async function main() {
     SCHEDULE_COLLECTION
   );
   const schedule = scheduleRaw
-    .map(parseScheduleEvent)
+    .map((r) => parseScheduleEvent(r, effectiveLens))
     .filter((e): e is ScheduleEvent => e !== null);
   console.log(
     `  ${schedule.length} schedule events (filtered from ${scheduleRaw.length})`
