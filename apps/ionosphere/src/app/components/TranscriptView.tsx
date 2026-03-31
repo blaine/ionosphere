@@ -406,10 +406,6 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     []
   );
 
-  const conceptCount = useMemo(
-    () => words.filter((_, i) => wordConcepts[i]?.length > 0).length,
-    [words, wordConcepts]
-  );
 
   return (
     <div
@@ -432,11 +428,6 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       </div>
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
-      {conceptCount > 0 && (
-        <div className="text-xs text-amber-500/60 mb-3">
-          {conceptCount} words linked to concepts
-        </div>
-      )}
       {words.map((word, i) => (
         <WordSpanComponent
           key={i}
