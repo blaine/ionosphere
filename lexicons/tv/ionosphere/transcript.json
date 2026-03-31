@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.transcript",
+  "revision": 1,
+  "description": "A compact word-level transcript with timing data. Words are derived from whitespace-splitting the text. Timings is a flat array: positive numbers are word durations (ms), negative numbers are silence gaps (abs value ms) before the next word. Words are assumed contiguous by default.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["talkUri", "text", "timings", "startMs"],
+        "properties": {
+          "talkUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI to the tv.ionosphere.talk this transcribes."
+          },
+          "text": {
+            "type": "string",
+            "description": "Full transcript text. Word boundaries derived from whitespace tokenization."
+          },
+          "startMs": {
+            "type": "integer",
+            "description": "Absolute start time of the first word in milliseconds from video start."
+          },
+          "timings": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Flat array: positive = word duration (ms), next word starts immediately. Negative = silence gap (abs ms) before next word. Nth positive value corresponds to Nth whitespace token in text."
+          }
+        }
+      }
+    }
+  }
+}

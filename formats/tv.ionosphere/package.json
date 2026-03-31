@@ -6,7 +6,8 @@
   "exports": {
     ".": "./ts/index.ts",
     "./assemble": "./ts/assemble.ts",
-    "./lenses": "./ts/lenses.ts"
+    "./lenses": "./ts/lenses.ts",
+    "./transcript-encoding": "./ts/transcript-encoding.ts"
   },
   "dependencies": {
     "relational-text": "^0.1.1"
