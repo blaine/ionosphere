@@ -1,0 +1,10 @@
+{
+  "name": "ionosphere-workspace",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter ionosphere dev",
+    "build": "pnpm --filter ionosphere build",
+    "appview": "pnpm --filter ionosphere-appview appview"
+  },
+  "devDependencies": {}
+}
