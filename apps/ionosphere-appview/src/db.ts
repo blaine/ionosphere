@@ -138,6 +138,17 @@ export function migrate(db: Database.Database): void {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS lenses (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      source_nsid TEXT,
+      target_nsid TEXT,
+      version INTEGER DEFAULT 1,
+      chain_json TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),
