@@ -1,0 +1,26 @@
+{
+  "name": "ionosphere-appview",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@atproto/api": "^0.15.0",
+    "@hono/node-server": "^1.13.0",
+    "@ionosphere/format": "workspace:*",
+    "better-sqlite3": "^12.8.0",
+    "hono": "^4.7.0",
+    "relational-text": "^0.1.1",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "scripts": {
+    "appview": "tsx src/appview.ts",
+    "ingest": "tsx src/ingest.ts",
+    "transcribe": "tsx src/transcribe.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}

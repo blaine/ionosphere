@@ -6,5 +6,8 @@
     "build": "pnpm --filter ionosphere build",
     "appview": "pnpm --filter ionosphere-appview appview"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
+  }
 }
