@@ -283,22 +283,82 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       const containerRect = container.getBoundingClientRect();
       const targetY = containerRect.top + containerRect.height * 0.33;
 
-      let closestIndex = -1;
-      let closestDist = Infinity;
+      // Find the two words whose vertical extents straddle the target Y,
+      // or the single closest word if the target is squarely inside one.
+      let bestIndex = -1;
+      let bestDist = Infinity;
 
       for (const [idx, el] of wordRefsMap.current) {
         const rect = el.getBoundingClientRect();
         const mid = (rect.top + rect.bottom) / 2;
         const dist = Math.abs(mid - targetY);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestIndex = idx;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = idx;
         }
       }
 
-      if (closestIndex >= 0 && closestIndex < words.length) {
-        seekTo(words[closestIndex].startTime);
+      if (bestIndex < 0 || bestIndex >= words.length) return;
+
+      const el = wordRefsMap.current.get(bestIndex);
+      if (!el) return;
+
+      const rect = el.getBoundingClientRect();
+      const word = words[bestIndex];
+
+      // Interpolate within the word: how far through it is the playhead line?
+      // Use the word's vertical extent on screen as the interpolation range.
+      // Words on the same line share the same top/bottom, so also consider
+      // horizontal position for words on the playhead line.
+      const lineTop = rect.top;
+      const lineBottom = rect.bottom;
+
+      if (targetY >= lineTop && targetY <= lineBottom) {
+        // Playhead is on this word's line — interpolate by fraction through the line
+        const lineFraction = (targetY - lineTop) / (lineBottom - lineTop);
+
+        // Find all words on this same line (same top)
+        const lineWords: Array<{ idx: number; left: number; right: number }> = [];
+        for (const [idx, wordEl] of wordRefsMap.current) {
+          const wr = wordEl.getBoundingClientRect();
+          if (Math.abs(wr.top - lineTop) < 2) {
+            lineWords.push({ idx, left: wr.left, right: wr.right });
+          }
+        }
+        lineWords.sort((a, b) => a.left - b.left);
+
+        if (lineWords.length > 0) {
+          // Compute a continuous time across the entire line
+          const firstWord = words[lineWords[0].idx];
+          const lastWord = words[lineWords[lineWords.length - 1].idx];
+          const lineStartTime = firstWord.startTime;
+          const lineEndTime = lastWord.endTime;
+
+          // Use vertical fraction as progress through the line
+          // (top of line = start of first word, bottom = end of last word)
+          const time = lineStartTime + lineFraction * (lineEndTime - lineStartTime);
+          seekTo(time);
+          return;
+        }
       }
+
+      // Fallback: between lines — interpolate between this word and the next/prev
+      if (targetY < rect.top && bestIndex > 0) {
+        // Between previous line and this line
+        const prevWord = words[bestIndex - 1];
+        const prevEl = wordRefsMap.current.get(bestIndex - 1);
+        if (prevEl) {
+          const prevRect = prevEl.getBoundingClientRect();
+          const gap = rect.top - prevRect.bottom;
+          const inGap = targetY - prevRect.bottom;
+          const frac = gap > 0 ? inGap / gap : 0;
+          const time = prevWord.endTime + frac * (word.startTime - prevWord.endTime);
+          seekTo(time);
+          return;
+        }
+      }
+
+      seekTo(word.startTime);
     };
 
     const onScroll = () => {
