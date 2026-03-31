@@ -360,9 +360,9 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
         <div className="h-[10px] -mt-[5px]" style={{
           background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.03) 30%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 70%, transparent)"
         }} />
-        {/* Sharp line */}
+        {/* Sharp line — bright at edges, fading toward center */}
         <div className="h-px -mt-[5px]" style={{
-          background: "linear-gradient(to right, transparent 5%, rgba(255,255,255,0.25) 15%, rgba(255,255,255,0.25) 85%, transparent 95%)"
+          background: "linear-gradient(to right, transparent 2%, rgba(255,255,255,0.35) 8%, transparent 40%, transparent 60%, rgba(255,255,255,0.35) 92%, transparent 98%)"
         }} />
       </div>
       {conceptCount > 0 && (
