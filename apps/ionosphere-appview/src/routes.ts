@@ -1,6 +1,96 @@
 import { Hono } from "hono";
 import type Database from "better-sqlite3";
-import { decodeToDocument } from "@ionosphere/format/transcript-encoding";
+import {
+  decodeToDocument,
+  type Document,
+  type DocumentFacet,
+} from "@ionosphere/format/transcript-encoding";
+
+/**
+ * Overlay concept-ref facets onto a document by finding concept names
+ * and aliases in the transcript text. Each match gets a facet with
+ * byte range and concept URI, plus the timestamp from the nearest
+ * word-level timestamp facet.
+ */
+function overlayConceptFacets(
+  doc: Document,
+  concepts: Array<{ uri: string; rkey: string; name: string; aliases: string | null }>
+): Document {
+  if (concepts.length === 0) return doc;
+
+  const encoder = new TextEncoder();
+  const textLower = doc.text.toLowerCase();
+  const conceptFacets: DocumentFacet[] = [];
+
+  for (const concept of concepts) {
+    // Build search terms: name + aliases
+    const terms = [concept.name];
+    if (concept.aliases) {
+      try {
+        const parsed = JSON.parse(concept.aliases);
+        if (Array.isArray(parsed)) terms.push(...parsed);
+      } catch {}
+    }
+
+    for (const term of terms) {
+      const termLower = term.toLowerCase();
+      let searchFrom = 0;
+
+      while (true) {
+        const idx = textLower.indexOf(termLower, searchFrom);
+        if (idx === -1) break;
+
+        // Verify word boundary (don't match "AT" inside "THAT")
+        const before = idx > 0 ? doc.text[idx - 1] : " ";
+        const after =
+          idx + term.length < doc.text.length
+            ? doc.text[idx + term.length]
+            : " ";
+        if (/\w/.test(before) || /\w/.test(after)) {
+          searchFrom = idx + 1;
+          continue;
+        }
+
+        const byteStart = encoder.encode(doc.text.slice(0, idx)).length;
+        const byteEnd = encoder.encode(
+          doc.text.slice(0, idx + term.length)
+        ).length;
+
+        // Find the timestamp of the nearest word facet to get temporal position
+        let nearestTime = 0;
+        for (const f of doc.facets) {
+          const ts = f.features.find(
+            (feat) => feat.$type === "tv.ionosphere.facet#timestamp"
+          );
+          if (ts && Math.abs(f.index.byteStart - byteStart) < 50) {
+            nearestTime = ts.startTime;
+            break;
+          }
+        }
+
+        conceptFacets.push({
+          index: { byteStart, byteEnd },
+          features: [
+            {
+              $type: "tv.ionosphere.facet#concept-ref",
+              conceptUri: concept.uri,
+              conceptRkey: concept.rkey,
+              conceptName: concept.name,
+              startTime: nearestTime,
+            },
+          ],
+        });
+
+        searchFrom = idx + term.length;
+      }
+    }
+  }
+
+  return {
+    text: doc.text,
+    facets: [...doc.facets, ...conceptFacets],
+  };
+}
 
 export function createRoutes(db: Database.Database): Hono {
   const app = new Hono();
@@ -56,7 +146,14 @@ export function createRoutes(db: Database.Database): Hono {
         startMs: transcript.start_ms,
         timings: JSON.parse(transcript.timings),
       };
-      document = decodeToDocument(compact);
+      let doc = decodeToDocument(compact);
+
+      // Overlay concept-ref facets
+      if (concepts.length > 0) {
+        doc = overlayConceptFacets(doc, concepts as any[]);
+      }
+
+      document = doc;
     }
 
     return c.json({ talk: { ...(talk as any), document: document ? JSON.stringify(document) : null }, speakers, concepts });
