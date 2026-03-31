@@ -262,11 +262,15 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       const containerRect = container.getBoundingClientRect();
       const targetY = containerRect.top + containerRect.height * 0.33;
       const diff = rect.top - targetY;
-      if (Math.abs(diff) > 20) {
+      if (Math.abs(diff) > 5) {
         programmaticScroll.current = true;
-        container.scrollBy({ top: diff, behavior: "smooth" });
-        // Clear the flag after the smooth scroll completes (~300ms)
-        setTimeout(() => { programmaticScroll.current = false; }, 400);
+        container.scrollBy({ top: diff, behavior: "instant" });
+        // Use rAF to clear the flag after the browser processes the scroll
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            programmaticScroll.current = false;
+          });
+        });
       }
     }
   }, [activeIndex]);
@@ -321,7 +325,8 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
         const lineWords: Array<{ idx: number; left: number; right: number }> = [];
         for (const [idx, wordEl] of wordRefsMap.current) {
           const wr = wordEl.getBoundingClientRect();
-          if (Math.abs(wr.top - lineTop) < 2) {
+          // Same line if top is within 1px (tighter tolerance)
+          if (Math.abs(wr.top - lineTop) < 1) {
             lineWords.push({ idx, left: wr.left, right: wr.right });
           }
         }
