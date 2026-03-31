@@ -1,7 +1,7 @@
 "use client";
 
 import { useTimestamp } from "./TimestampProvider";
-import { useRef, useEffect, useMemo, useCallback } from "react";
+import { useRef, useEffect, useMemo, useCallback, forwardRef } from "react";
 
 interface TranscriptFacet {
   index: { byteStart: number; byteEnd: number };
@@ -179,19 +179,16 @@ function toColor(
   return `rgb(${r} ${g} ${b})`;
 }
 
-function WordSpanComponent({
-  word,
-  nextWord,
-  concept,
-  currentTimeNs,
-  onSeek,
-}: {
-  word: WordSpan;
-  nextWord: WordSpan | null;
-  concept: ConceptSpan | null;
-  currentTimeNs: number;
-  onSeek: (ns: number) => void;
-}) {
+const WordSpanComponent = forwardRef<
+  HTMLSpanElement,
+  {
+    word: WordSpan;
+    nextWord: WordSpan | null;
+    concept: ConceptSpan | null;
+    currentTimeNs: number;
+    onSeek: (ns: number) => void;
+  }
+>(function WordSpanComponent({ word, nextWord, concept, currentTimeNs, onSeek }, ref) {
   const startB = wordStartBrightness(currentTimeNs, word);
   const endB = wordEndBrightness(currentTimeNs, word, nextWord);
 
@@ -210,6 +207,7 @@ function WordSpanComponent({
 
   return (
     <span
+      ref={ref}
       onClick={() => onSeek(word.startTime)}
       className={`cursor-pointer${concept ? " underline decoration-amber-500/30 underline-offset-2" : ""}`}
       style={style}
@@ -218,19 +216,21 @@ function WordSpanComponent({
       {word.text}{" "}
     </span>
   );
-}
+});
 
 export default function TranscriptView({ document }: TranscriptViewProps) {
-  const { currentTimeNs, seekTo } = useTimestamp();
+  const { currentTimeNs, paused, seekTo } = useTimestamp();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIndexRef = useRef<number>(-1);
+  const scrollScrubbing = useRef(false);
+  const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map());
 
   const { words, wordConcepts } = useMemo(
     () => extractData(document),
     [document]
   );
 
-  // Find the active word index for auto-scroll
+  // Find the active word index
   const activeIndex = useMemo(() => {
     for (let i = 0; i < words.length; i++) {
       if (
@@ -243,30 +243,83 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     return -1;
   }, [currentTimeNs, words]);
 
-  // Auto-scroll only when we move to a new word
+  // Auto-scroll when playing (not when user is scroll-scrubbing)
   useEffect(() => {
+    if (paused) return; // user controls scroll when paused
     if (activeIndex !== activeIndexRef.current && activeIndex >= 0) {
       activeIndexRef.current = activeIndex;
       const container = containerRef.current;
-      if (!container) return;
-      const activeEl = container.children[activeIndex] as HTMLElement;
-      if (activeEl) {
-        const rect = activeEl.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        const margin = containerRect.height * 0.3;
-        if (
-          rect.top < containerRect.top + margin ||
-          rect.bottom > containerRect.bottom - margin
-        ) {
-          activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+      const activeEl = wordRefsMap.current.get(activeIndex);
+      if (!container || !activeEl) return;
+
+      const rect = activeEl.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      // Keep playhead at ~1/3 from top
+      const targetY = containerRect.top + containerRect.height * 0.33;
+      const diff = rect.top - targetY;
+      if (Math.abs(diff) > 20) {
+        container.scrollBy({ top: diff, behavior: "smooth" });
       }
     }
-  }, [activeIndex]);
+  }, [activeIndex, paused]);
+
+  // Scroll-to-scrub: when paused, scrolling the transcript moves the playhead
+  useEffect(() => {
+    if (!paused) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    let rafId: number;
+    const onScroll = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const containerRect = container.getBoundingClientRect();
+        // The "playhead" position is 1/3 from the top
+        const targetY = containerRect.top + containerRect.height * 0.33;
+
+        // Find the word span closest to the target Y position
+        let closestIndex = -1;
+        let closestDist = Infinity;
+
+        for (const [idx, el] of wordRefsMap.current) {
+          const rect = el.getBoundingClientRect();
+          const mid = (rect.top + rect.bottom) / 2;
+          const dist = Math.abs(mid - targetY);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestIndex = idx;
+          }
+        }
+
+        if (closestIndex >= 0 && closestIndex < words.length) {
+          const word = words[closestIndex];
+          // Interpolate within the word based on exact Y position
+          seekTo(word.startTime);
+        }
+      });
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, [paused, words, seekTo]);
 
   const handleSeek = useCallback(
     (ns: number) => seekTo(ns),
     [seekTo]
+  );
+
+  const setWordRef = useCallback(
+    (index: number, el: HTMLSpanElement | null) => {
+      if (el) {
+        wordRefsMap.current.set(index, el);
+      } else {
+        wordRefsMap.current.delete(index);
+      }
+    },
+    []
   );
 
   const conceptCount = useMemo(
@@ -279,6 +332,11 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       ref={containerRef}
       className="h-full p-4 rounded-lg border border-neutral-800 overflow-y-auto leading-relaxed select-none"
     >
+      {/* Playhead indicator line at 1/3 from top */}
+      <div
+        className="pointer-events-none sticky z-10 -mx-4 border-t border-white/10"
+        style={{ top: "33%" }}
+      />
       {conceptCount > 0 && (
         <div className="text-xs text-amber-500/60 mb-3">
           {conceptCount} words linked to concepts
@@ -287,6 +345,7 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       {words.map((word, i) => (
         <WordSpanComponent
           key={i}
+          ref={(el) => setWordRef(i, el)}
           word={word}
           nextWord={i < words.length - 1 ? words[i + 1] : null}
           concept={wordConcepts[i]?.[0] || null}

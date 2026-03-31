@@ -5,6 +5,8 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 interface TimestampContextValue {
   currentTimeNs: number;
   setCurrentTimeNs: (ns: number) => void;
+  paused: boolean;
+  setPaused: (paused: boolean) => void;
   seekTo: (ns: number) => void;
   onSeek: (handler: (ns: number) => void) => () => void;
 }
@@ -19,6 +21,7 @@ export function useTimestamp() {
 
 export function TimestampProvider({ children }: { children: ReactNode }) {
   const [currentTimeNs, setCurrentTimeNs] = useState(0);
+  const [paused, setPaused] = useState(true);
   const [seekHandlers] = useState<Set<(ns: number) => void>>(new Set());
 
   const seekTo = useCallback((ns: number) => {
@@ -31,7 +34,7 @@ export function TimestampProvider({ children }: { children: ReactNode }) {
   }, [seekHandlers]);
 
   return (
-    <TimestampContext.Provider value={{ currentTimeNs, setCurrentTimeNs, seekTo, onSeek }}>
+    <TimestampContext.Provider value={{ currentTimeNs, setCurrentTimeNs, paused, setPaused, seekTo, onSeek }}>
       {children}
     </TimestampContext.Provider>
   );

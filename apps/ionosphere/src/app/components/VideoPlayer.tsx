@@ -12,7 +12,7 @@ const VOD_ENDPOINT = "https://vod-beta.stream.place/xrpc/place.stream.playback.g
 
 export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { setCurrentTimeNs, onSeek } = useTimestamp();
+  const { setCurrentTimeNs, setPaused, onSeek } = useTimestamp();
   const offsetS = offsetNs / 1e9;
   const playlistUrl = `${VOD_ENDPOINT}?uri=${encodeURIComponent(videoUri)}`;
 
@@ -49,20 +49,26 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
     return () => { if (hls) hls.destroy(); };
   }, [playlistUrl, offsetS]);
 
-  // Broadcast current time to timestamp context, adjusted for offset
+  // Broadcast current time and play/pause state
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handler = () => {
-      // The transcript timestamps are relative to the talk start,
-      // but the video time includes the offset. Subtract offset
-      // so transcript sync aligns correctly.
+    const onTime = () => {
       setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
     };
-    video.addEventListener("timeupdate", handler);
-    return () => video.removeEventListener("timeupdate", handler);
-  }, [setCurrentTimeNs, offsetS]);
+    const onPlay = () => setPaused(false);
+    const onPause = () => setPaused(true);
+
+    video.addEventListener("timeupdate", onTime);
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    return () => {
+      video.removeEventListener("timeupdate", onTime);
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+    };
+  }, [setCurrentTimeNs, setPaused, offsetS]);
 
   // Listen for seek requests from transcript clicks, adjusted for offset
   useEffect(() => {
@@ -75,6 +81,6 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
   }, [onSeek, offsetS]);
 
   return (
-    <video ref={videoRef} controls className="w-full rounded-lg bg-black aspect-video" />
+    <video ref={videoRef} controls className="max-w-full max-h-full rounded-lg bg-black" />
   );
 }
