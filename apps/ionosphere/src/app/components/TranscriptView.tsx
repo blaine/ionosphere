@@ -190,23 +190,16 @@ const WordSpanComponent = forwardRef<
   const startB = wordStartBrightness(currentTimeNs, word);
   const endB = wordEndBrightness(currentTimeNs, word, nextWord);
 
-  const needsGradient = Math.abs(startB - endB) > 0.02;
-
-  const wordStyle: React.CSSProperties = needsGradient
-    ? {
-        backgroundImage: `linear-gradient(to right, ${toColor(startB, concept)}, ${toColor(endB, concept)})`,
-        WebkitBackgroundClip: "text",
-        backgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-      }
-    : {
-        color: toColor((startB + endB) / 2, concept),
-      };
-
-  // The space between words gets the end brightness of this word,
-  // ensuring continuity with the next word's start brightness
-  const spaceStyle: React.CSSProperties = {
-    color: toColor(endB, concept),
+  // Always use gradient — never switch to flat `color`.
+  // The two CSS rendering paths (color vs background-clip:text) have
+  // different sub-pixel anti-aliasing, creating visible seams when
+  // adjacent words use different modes. Uniform gradient eliminates this.
+  // The trailing space is inside the gradient so it gets endB naturally.
+  const style: React.CSSProperties = {
+    backgroundImage: `linear-gradient(to right, ${toColor(startB, concept)}, ${toColor(endB, concept)})`,
+    WebkitBackgroundClip: "text",
+    backgroundClip: "text",
+    WebkitTextFillColor: "transparent",
   };
 
   return (
@@ -214,10 +207,10 @@ const WordSpanComponent = forwardRef<
       ref={ref}
       onClick={() => onSeek(word.startTime)}
       className={`cursor-pointer${concept ? " underline decoration-amber-500/30 underline-offset-2" : ""}`}
+      style={style}
       title={concept ? concept.conceptName : undefined}
     >
-      <span style={wordStyle}>{word.text}</span>
-      <span style={spaceStyle}>{" "}</span>
+      {word.text}{" "}
     </span>
   );
 });
