@@ -252,25 +252,72 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   // then hand back to auto-scroll after a timeout.
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
-  // Auto-scroll: keep the active word at the 1/3 mark.
+  // Auto-scroll: continuously position based on currentTimeNs.
+  // Computes the exact Y position for the current time by interpolating
+  // within text lines — the inverse of what the scrub handler does.
   // Suppressed while user is scroll-scrubbing.
   useEffect(() => {
     if (userScrolling.current) return;
-    if (activeIndex !== activeIndexRef.current && activeIndex >= 0) {
-      activeIndexRef.current = activeIndex;
-      const container = containerRef.current;
-      const activeEl = wordRefsMap.current.get(activeIndex);
-      if (!container || !activeEl) return;
+    const container = containerRef.current;
+    if (!container) return;
+    if (currentTimeNs <= 0) return;
 
-      const rect = activeEl.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const targetY = containerRect.top + containerRect.height * 0.33;
-      const diff = rect.top - targetY;
-      if (Math.abs(diff) > 5) {
-        container.scrollBy({ top: diff, behavior: "smooth" });
+    // Build line map (same logic as scrub handler)
+    const lineMap = new Map<number, { startTime: number; endTime: number; bottom: number }>();
+    for (const [idx, el] of wordRefsMap.current) {
+      if (idx >= words.length) continue;
+      const rect = el.getBoundingClientRect();
+      const top = Math.round(rect.top);
+      const existing = lineMap.get(top);
+      if (existing) {
+        existing.startTime = Math.min(existing.startTime, words[idx].startTime);
+        existing.endTime = Math.max(existing.endTime, words[idx].endTime);
+        existing.bottom = Math.max(existing.bottom, rect.bottom);
+      } else {
+        lineMap.set(top, {
+          startTime: words[idx].startTime,
+          endTime: words[idx].endTime,
+          bottom: rect.bottom,
+        });
       }
     }
-  }, [activeIndex]);
+    const lines = [...lineMap.entries()]
+      .map(([top, v]) => ({ top, bottom: v.bottom, startTime: v.startTime, endTime: v.endTime }))
+      .sort((a, b) => a.top - b.top);
+
+    if (lines.length === 0) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const playheadY = containerRect.top + containerRect.height * 0.33;
+
+    // Find where currentTimeNs falls in the lines and compute target Y
+    let targetY: number | null = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (currentTimeNs >= line.startTime && currentTimeNs <= line.endTime) {
+        // Time is within this line — interpolate Y position
+        const frac = (currentTimeNs - line.startTime) / (line.endTime - line.startTime);
+        targetY = line.top + frac * (line.bottom - line.top);
+        break;
+      }
+      if (currentTimeNs < line.startTime) {
+        // Time is before this line — use the start of the line
+        targetY = line.top;
+        break;
+      }
+    }
+
+    if (targetY === null) {
+      // Past the last line
+      targetY = lines[lines.length - 1].bottom;
+    }
+
+    const diff = targetY - playheadY;
+    if (Math.abs(diff) > 2) {
+      container.scrollBy({ top: diff, behavior: "instant" });
+    }
+  }, [currentTimeNs, words]);
 
   // Scroll-to-scrub: always active. User scrolling seeks the video.
   // During playback, auto-scroll resumes after 2s of no user scrolling.
