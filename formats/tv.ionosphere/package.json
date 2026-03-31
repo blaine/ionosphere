@@ -7,6 +7,7 @@
     ".": "./ts/index.ts",
     "./assemble": "./ts/assemble.ts",
     "./lenses": "./ts/lenses.ts",
+    "./panproto": "./ts/panproto.ts",
     "./transcript-encoding": "./ts/transcript-encoding.ts"
   },
   "dependencies": {
