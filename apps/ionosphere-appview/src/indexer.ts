@@ -25,6 +25,7 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.concept",
   "tv.ionosphere.transcript",
   "tv.ionosphere.annotation",
+  "org.relationaltext.lens",
 ];
 
 const COLLECTIONS_SET = new Set(IONOSPHERE_COLLECTIONS);
@@ -68,6 +69,9 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
         // Recompute talk_concepts for affected talk
         rebuildTalkConcepts(db, uri);
         break;
+      case "org.relationaltext.lens":
+        db.prepare("DELETE FROM lenses WHERE uri = ?").run(uri);
+        break;
     }
     return;
   }
@@ -94,6 +98,9 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "tv.ionosphere.annotation":
       indexAnnotation(db, event.did, rkey, uri, record);
+      break;
+    case "org.relationaltext.lens":
+      indexLens(db, event.did, rkey, uri, record);
       break;
   }
 }
@@ -279,6 +286,28 @@ function indexAnnotation(
       ) WHERE talk_uri = ? AND concept_uri = ?`
     ).run(talkUri, conceptUri, talkUri, conceptUri);
   }
+}
+
+function indexLens(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO lenses
+     (uri, did, rkey, source_nsid, target_nsid, version, chain_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri,
+    did,
+    rkey,
+    (record.source as string) || null,
+    (record.target as string) || null,
+    (record.version as number) || 1,
+    record.chainJson ? JSON.stringify(record.chainJson) : null
+  );
 }
 
 function rebuildTalkConcepts(db: Database.Database, _deletedUri: string): void {
