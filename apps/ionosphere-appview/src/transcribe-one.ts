@@ -1,29 +1,28 @@
 /**
- * Transcribe a single talk for testing.
- * Usage: tsx src/transcribe-one.ts <rkey>
+ * Transcribe a single talk and store as a compact transcript record.
+ * Usage: npx tsx src/transcribe-one.ts <rkey>
  */
 import "./env.js";
 import { openaiWhisperProvider } from "./providers/openai-whisper.js";
 import { transcribeTalk } from "./transcribe.js";
-import { openDb } from "./db.js";
-import { assembleDocument } from "@ionosphere/format/assemble";
+import { openDb, migrate } from "./db.js";
+import { encode } from "@ionosphere/format/transcript-encoding";
 
 const rkey = process.argv[2];
 if (!rkey) {
-  console.error("Usage: tsx src/transcribe-one.ts <rkey>");
+  console.error("Usage: npx tsx src/transcribe-one.ts <rkey>");
   process.exit(1);
 }
 
 const db = openDb();
-const talk = db
-  .prepare("SELECT * FROM talks WHERE rkey = ?")
-  .get(rkey) as any;
+migrate(db); // ensure transcripts table exists
+
+const talk = db.prepare("SELECT * FROM talks WHERE rkey = ?").get(rkey) as any;
 
 if (!talk) {
   console.error(`Talk not found: ${rkey}`);
   process.exit(1);
 }
-
 if (!talk.video_uri) {
   console.error(`Talk has no video: ${rkey}`);
   process.exit(1);
@@ -39,21 +38,32 @@ const transcript = await transcribeTalk(
 );
 
 console.log(`\nTranscript: ${transcript.text.length} chars, ${transcript.words.length} words`);
-console.log(`First 200 chars: ${transcript.text.slice(0, 200)}...`);
-console.log(`\nFirst 5 words with timestamps:`);
-for (const w of transcript.words.slice(0, 5)) {
-  console.log(`  "${w.word}" ${w.start.toFixed(2)}s - ${w.end.toFixed(2)}s`);
-}
 
-// Assemble into RelationalText document
-const doc = assembleDocument(transcript);
-console.log(`\nDocument: ${doc.facets.length} facets`);
+// Encode to compact format
+const compact = encode(transcript);
+const gaps = compact.timings.filter((v) => v < 0).length;
+console.log(`Compact: ${compact.timings.length} timings (${compact.timings.length - gaps} durations, ${gaps} gaps)`);
+console.log(`  Size: ${JSON.stringify(compact.timings).length} bytes`);
 
-// Store document on talk record
-db.prepare("UPDATE talks SET document = ? WHERE rkey = ?").run(
-  JSON.stringify(doc),
-  rkey
+// Store in transcripts table
+const transcriptRkey = `${rkey}-transcript`;
+const transcriptUri = `${talk.uri.replace("/tv.ionosphere.talk/", "/tv.ionosphere.transcript/")}`;
+
+db.prepare(
+  `INSERT OR REPLACE INTO transcripts (uri, did, rkey, talk_uri, text, start_ms, timings)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+).run(
+  transcriptUri,
+  talk.did,
+  transcriptRkey,
+  talk.uri,
+  compact.text,
+  compact.startMs,
+  JSON.stringify(compact.timings)
 );
+
+// Clear old document column (no longer used)
+db.prepare("UPDATE talks SET document = NULL WHERE rkey = ?").run(rkey);
 
 // Update pipeline status
 db.prepare(
@@ -61,5 +71,5 @@ db.prepare(
    WHERE talk_uri = ?`
 ).run(talk.uri);
 
-console.log(`\nStored document on talk record. Check http://localhost:9401/talks/${rkey}`);
+console.log(`\nStored compact transcript record: ${transcriptUri}`);
 db.close();

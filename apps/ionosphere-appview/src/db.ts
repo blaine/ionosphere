@@ -99,6 +99,18 @@ export function migrate(db: Database.Database): void {
       FOREIGN KEY (to_talk_uri) REFERENCES talks(uri) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS transcripts (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      talk_uri TEXT NOT NULL,
+      text TEXT NOT NULL,
+      start_ms INTEGER NOT NULL,
+      timings TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (talk_uri) REFERENCES talks(uri) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS pipeline_status (
       talk_uri TEXT PRIMARY KEY,
       ingested INTEGER DEFAULT 0,

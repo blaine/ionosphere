@@ -192,15 +192,16 @@ async function main() {
     process.exit(1);
   }
 
-  // Get transcript text
-  let transcript: string;
-  if (talk.document) {
-    const doc = JSON.parse(talk.document);
-    transcript = doc.text;
-  } else {
+  // Get transcript text from transcripts table
+  const transcriptRecord = db
+    .prepare("SELECT text FROM transcripts WHERE talk_uri = ?")
+    .get(talk.uri) as any;
+
+  if (!transcriptRecord) {
     console.error(`Talk has no transcript: ${rkey}`);
     process.exit(1);
   }
+  const transcript: string = transcriptRecord.text;
 
   const speakers = db
     .prepare(

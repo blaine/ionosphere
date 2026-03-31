@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type Database from "better-sqlite3";
+import { decodeToDocument } from "@ionosphere/format/transcript-encoding";
 
 export function createRoutes(db: Database.Database): Hono {
   const app = new Hono();
@@ -43,7 +44,22 @@ export function createRoutes(db: Database.Database): Hono {
       )
       .all((talk as any).uri);
 
-    return c.json({ talk, speakers, concepts });
+    // Decode compact transcript into full RelationalText document
+    const transcript = db
+      .prepare("SELECT * FROM transcripts WHERE talk_uri = ?")
+      .get((talk as any).uri) as any;
+
+    let document = null;
+    if (transcript) {
+      const compact = {
+        text: transcript.text,
+        startMs: transcript.start_ms,
+        timings: JSON.parse(transcript.timings),
+      };
+      document = decodeToDocument(compact);
+    }
+
+    return c.json({ talk: { ...(talk as any), document: document ? JSON.stringify(document) : null }, speakers, concepts });
   });
 
   app.get("/speakers", (c) => {

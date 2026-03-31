@@ -199,6 +199,36 @@ async function main() {
   }
   console.log(`  Done.`);
 
+  // 5. Publish transcript records
+  const transcripts = db.prepare("SELECT * FROM transcripts").all() as any[];
+  if (transcripts.length > 0) {
+    console.log(`\nPublishing ${transcripts.length} transcripts...`);
+    for (const transcript of transcripts) {
+      const rkey = transcript.rkey;
+
+      // Look up the real talk URI (already updated above)
+      const talkRkey = rkey.replace("-transcript", "");
+      const realTalkUri = `at://${did}/tv.ionosphere.talk/${talkRkey}`;
+
+      await pds.putRecord("tv.ionosphere.transcript", rkey, {
+        $type: "tv.ionosphere.transcript",
+        talkUri: realTalkUri,
+        text: transcript.text,
+        startMs: transcript.start_ms,
+        timings: JSON.parse(transcript.timings),
+      });
+
+      const realUri = `at://${did}/tv.ionosphere.transcript/${rkey}`;
+      db.prepare("UPDATE transcripts SET uri = ?, did = ?, talk_uri = ? WHERE rkey = ?").run(
+        realUri,
+        did,
+        realTalkUri,
+        rkey
+      );
+    }
+    console.log(`  Done.`);
+  }
+
   // Re-enable FK checks and verify integrity
   db.pragma("foreign_keys = ON");
   const fkErrors = db.pragma("foreign_key_check") as any[];
