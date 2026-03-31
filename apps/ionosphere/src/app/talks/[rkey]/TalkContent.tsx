@@ -108,6 +108,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
               )}
             </div>
           </div>
+        </div>
 
         {/* Right sidebar — concepts + cross-refs (hidden on mobile, scrollable on desktop) */}
         <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-y-auto p-4 gap-5">
