@@ -158,8 +158,9 @@ function wordEndBrightness(
   return raw;
 }
 
-// Concept color: a warm accent that tints the brightness
-// Returns an rgb string blending white (base) with accent color at the given brightness
+// Concept color: amber tint whose saturation scales with brightness.
+// When dim (far from playhead), concepts are barely distinguishable
+// from plain text. When lit, they glow gold.
 function toColor(
   brightness: number,
   concept: ConceptSpan | null
@@ -168,15 +169,12 @@ function toColor(
   if (!concept) {
     return `rgb(${v} ${v} ${v})`;
   }
-  // Concept words always have a visible amber tint, even when dim.
-  // Base: warm amber at minimum visible saturation
-  // Peak: bright gold
-  const minSat = 0.5; // minimum color saturation even at low brightness
-  const sat = minSat + (1 - minSat) * brightness;
-  const r = Math.round(sat * 255);
-  const g = Math.round(sat * 190);
-  const b = Math.round(Math.max(brightness * 60, 30));
-  return `rgb(${r} ${g} ${b})`;
+  // Saturation scales with brightness — dim concepts are nearly gray
+  const sat = brightness * brightness; // quadratic: very low at base, strong at peak
+  const r = Math.round(v + sat * (255 - v) * 0.2);
+  const g = Math.round(v - sat * v * 0.15);
+  const b = Math.round(v - sat * v * 0.55);
+  return `rgb(${Math.min(255, r)} ${Math.max(0, g)} ${Math.max(0, b)})`;
 }
 
 const WordSpanComponent = forwardRef<
@@ -353,11 +351,20 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       ref={containerRef}
       className="h-full p-4 rounded-lg border border-neutral-800 overflow-y-auto leading-relaxed select-none"
     >
-      {/* Playhead indicator line at 1/3 from top */}
+      {/* Playhead indicator at 1/3 from top */}
       <div
-        className="pointer-events-none sticky z-10 -mx-4 border-t border-white/10"
+        className="pointer-events-none sticky z-10 -mx-4"
         style={{ top: "33%" }}
-      />
+      >
+        {/* Glow zone: ~10px tall soft highlight */}
+        <div className="h-[10px] -mt-[5px]" style={{
+          background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.03) 30%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 70%, transparent)"
+        }} />
+        {/* Sharp line */}
+        <div className="h-px -mt-[5px]" style={{
+          background: "linear-gradient(to right, transparent 5%, rgba(255,255,255,0.25) 15%, rgba(255,255,255,0.25) 85%, transparent 95%)"
+        }} />
+      </div>
       {conceptCount > 0 && (
         <div className="text-xs text-amber-500/60 mb-3">
           {conceptCount} words linked to concepts
