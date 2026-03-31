@@ -190,13 +190,21 @@ const WordSpanComponent = forwardRef<
   const startB = wordStartBrightness(currentTimeNs, word);
   const endB = wordEndBrightness(currentTimeNs, word, nextWord);
 
-  // Always use gradient — never switch to flat `color`.
-  // The two CSS rendering paths (color vs background-clip:text) have
-  // different sub-pixel anti-aliasing, creating visible seams when
-  // adjacent words use different modes. Uniform gradient eliminates this.
-  // The trailing space is inside the gradient so it gets endB naturally.
+  // The gradient must reach endColor at the last VISIBLE character, not
+  // at the end of the span. With background-clip:text, the trailing space
+  // is invisible (no glyph shape), so if the gradient is still interpolating
+  // through the space, the last visible pixel undershoots endColor.
+  //
+  // Fix: multi-stop gradient that reaches endColor at calc(100% - 0.35em)
+  // (≈ where the space begins), then holds endColor through the space.
+  // The space is invisible anyway, so the held color doesn't matter — what
+  // matters is that the last visible character is at endColor, matching
+  // the next word's startColor exactly.
+  const startColor = toColor(startB, concept);
+  const endColor = toColor(endB, concept);
+
   const style: React.CSSProperties = {
-    backgroundImage: `linear-gradient(to right, ${toColor(startB, concept)}, ${toColor(endB, concept)})`,
+    backgroundImage: `linear-gradient(to right, ${startColor}, ${endColor} calc(100% - 0.35em), ${endColor})`,
     WebkitBackgroundClip: "text",
     backgroundClip: "text",
     WebkitTextFillColor: "transparent",
