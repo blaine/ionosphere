@@ -20,6 +20,10 @@ export async function openaiWhisperProvider(
     timestamp_granularities: ["word"],
   });
 
+  // Lens candidate: openai.whisper.verbose_json → tv.ionosphere.transcript
+  // Currently a simple field mapping. Graduate to panproto lens when the
+  // pipeline() combinator API is available (see panproto/panproto#15).
+
   // Lens: OpenAI's word format → ionosphere WordTimestamp
   // OpenAI returns { word, start, end } — we add confidence (not provided, default 1.0)
   const words: WordTimestamp[] = (response.words ?? []).map((w) => ({
