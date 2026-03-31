@@ -10,7 +10,7 @@ export default async function ConceptPage({ params }: { params: Promise<{ rkey: 
   const { concept, talks } = await getConcept(rkey);
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto p-6">
       <h1 className="text-3xl font-bold">{concept.name}</h1>
       {concept.description && <p className="text-neutral-300 mt-4">{concept.description}</p>}
       {concept.wikidata_id && (

@@ -277,7 +277,7 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   return (
     <div
       ref={containerRef}
-      className="mt-8 p-6 rounded-lg border border-neutral-800 max-h-96 overflow-y-auto leading-relaxed select-none"
+      className="h-full p-4 rounded-lg border border-neutral-800 overflow-y-auto leading-relaxed select-none"
     >
       {conceptCount > 0 && (
         <div className="text-xs text-amber-500/60 mb-3">

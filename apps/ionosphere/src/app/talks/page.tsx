@@ -11,7 +11,7 @@ export default async function TalksPage() {
   }
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto p-6">
       <h1 className="text-3xl font-bold mb-6">All Talks</h1>
       {[...byDay.entries()].map(([day, dayTalks]) => (
         <section key={day} className="mb-8">

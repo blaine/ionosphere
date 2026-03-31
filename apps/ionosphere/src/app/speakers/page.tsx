@@ -4,7 +4,7 @@ export default async function SpeakersPage() {
   const { speakers } = await getSpeakers();
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Speakers</h1>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {speakers.map((s: any) => (

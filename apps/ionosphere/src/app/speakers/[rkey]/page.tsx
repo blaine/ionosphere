@@ -10,7 +10,7 @@ export default async function SpeakerPage({ params }: { params: Promise<{ rkey: 
   const { speaker, talks } = await getSpeaker(rkey);
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto p-6">
       <h1 className="text-3xl font-bold">{speaker.name}</h1>
       {speaker.handle && <div className="text-neutral-400 mt-1">@{speaker.handle}</div>}
       {speaker.bio && <p className="text-neutral-300 mt-4">{speaker.bio}</p>}

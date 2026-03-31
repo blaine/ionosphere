@@ -4,7 +4,7 @@ export default async function Home() {
   const { talks } = await getTalks();
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto p-6">
       <h1 className="text-4xl font-bold mb-2">ATmosphereConf 2026</h1>
       <p className="text-neutral-400 mb-8">
         Semantically enriched conference archive. {talks.length} talks.
