@@ -126,20 +126,18 @@ export function createRoutes(db: Database.Database): Hono {
       )
       .all((talk as any).uri);
 
-    const concepts = db
-      .prepare(
-        `SELECT c.* FROM concepts c
-         JOIN talk_concepts tc ON c.uri = tc.concept_uri
-         WHERE tc.talk_uri = ?`
-      )
-      .all((talk as any).uri);
-
     // Decode compact transcript into full RelationalText document
     const transcript = db
       .prepare("SELECT * FROM transcripts WHERE talk_uri = ?")
       .get((talk as any).uri) as any;
 
+    // Get ALL concepts for text-matching overlay (not from join table)
+    const allConcepts = db
+      .prepare("SELECT * FROM concepts ORDER BY name ASC")
+      .all() as any[];
+
     let document = null;
+    let matchedConcepts: any[] = [];
     if (transcript) {
       const compact = {
         text: transcript.text,
@@ -148,15 +146,28 @@ export function createRoutes(db: Database.Database): Hono {
       };
       let doc = decodeToDocument(compact);
 
-      // Overlay concept-ref facets
-      if (concepts.length > 0) {
-        doc = overlayConceptFacets(doc, concepts as any[]);
+      // Overlay concept-ref facets via text matching
+      if (allConcepts.length > 0) {
+        doc = overlayConceptFacets(doc, allConcepts);
+
+        // Derive which concepts actually matched this talk's transcript
+        const matchedUris = new Set(
+          doc.facets
+            .flatMap((f) => f.features)
+            .filter((feat) => feat.$type === "tv.ionosphere.facet#concept-ref")
+            .map((feat) => feat.conceptUri)
+        );
+        matchedConcepts = allConcepts.filter((c) => matchedUris.has(c.uri));
       }
 
       document = doc;
     }
 
-    return c.json({ talk: { ...(talk as any), document: document ? JSON.stringify(document) : null }, speakers, concepts });
+    return c.json({
+      talk: { ...(talk as any), document: document ? JSON.stringify(document) : null },
+      speakers,
+      concepts: matchedConcepts,
+    });
   });
 
   app.get("/speakers", (c) => {

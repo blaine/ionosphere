@@ -9,7 +9,10 @@ const DB_PATH = path.resolve(
 export function openDb(): Database.Database {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  // FK checks disabled — records arrive via Jetstream in arbitrary order.
+  // An eventually-consistent indexer can't enforce referential integrity
+  // at write time. The data is correct once all records are indexed.
+  db.pragma("foreign_keys = OFF");
   return db;
 }
 
@@ -50,16 +53,17 @@ export function migrate(db: Database.Database): void {
       description TEXT,
       document TEXT,
       video_uri TEXT,
+      video_offset_ns INTEGER DEFAULT 0,
+      video_segments TEXT,
       schedule_uri TEXT,
-      event_uri TEXT NOT NULL,
+      event_uri TEXT,
       room TEXT,
       category TEXT,
       talk_type TEXT,
       starts_at TEXT,
       ends_at TEXT,
       duration INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (event_uri) REFERENCES events(uri) ON DELETE CASCADE
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS talk_speakers (
@@ -120,5 +124,21 @@ export function migrate(db: Database.Database): void {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (talk_uri) REFERENCES talks(uri) ON DELETE CASCADE
     );
+
+    -- Jetstream cursor for resumable indexing
+    CREATE TABLE IF NOT EXISTS _cursor (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      cursor_us INTEGER
+    );
+    INSERT OR IGNORE INTO _cursor (id, cursor_us) VALUES (1, NULL);
   `);
+}
+
+export function getCursor(db: Database.Database): number | null {
+  const row = db.prepare("SELECT cursor_us FROM _cursor WHERE id = 1").get() as any;
+  return row?.cursor_us ?? null;
+}
+
+export function setCursor(db: Database.Database, cursor: number): void {
+  db.prepare("UPDATE _cursor SET cursor_us = ? WHERE id = 1").run(cursor);
 }

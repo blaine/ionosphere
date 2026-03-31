@@ -1,13 +1,17 @@
 /**
- * Publish ionosphere records to the local PDS.
+ * Publish ionosphere records to the PDS.
  *
- * Reads from the SQLite database and writes AT Protocol records
- * for events, speakers, talks, and concepts.
+ * Reads from a staging source (SQLite from ingest, or cached transcripts)
+ * and writes AT Protocol records to the PDS. Does NOT touch the appview
+ * database — the appview indexes from Jetstream.
  *
  * Usage: npx tsx src/publish.ts
  */
 import { PdsClient, slugToRkey } from "./pds-client.js";
 import { openDb } from "./db.js";
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import { encode } from "@ionosphere/format/transcript-encoding";
 
 const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
 const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
@@ -19,19 +23,13 @@ async function main() {
   const did = pds.getDid();
   console.log(`Logged in as ${did}`);
 
+  // Read from the staging database (populated by ingest.ts)
   const db = openDb();
 
-  // Disable FK checks during URI migration (we're updating PKs that are referenced)
-  db.pragma("foreign_keys = OFF");
-
-  // 1. Publish event record
-  const event = db
-    .prepare("SELECT * FROM events LIMIT 1")
-    .get() as any;
-
+  // 1. Publish event
+  const event = db.prepare("SELECT * FROM events LIMIT 1").get() as any;
   if (event) {
-    const eventRkey = event.rkey;
-    const eventUri = await pds.putRecord("tv.ionosphere.event", eventRkey, {
+    await pds.putRecord("tv.ionosphere.event", event.rkey, {
       $type: "tv.ionosphere.event",
       name: event.name,
       description: event.description,
@@ -42,29 +40,14 @@ async function main() {
       scheduleRepo: event.schedule_repo,
       vodRepo: event.vod_repo,
     });
-    console.log(`Event: ${eventUri}`);
-
-    // Update the event URI in the database to use the real DID
-    // Must update talks' event_uri first (FK constraint)
-    const realEventUri = `at://${did}/tv.ionosphere.event/${eventRkey}`;
-    db.prepare("UPDATE talks SET event_uri = ? WHERE event_uri = ?").run(
-      realEventUri,
-      event.uri
-    );
-    db.prepare("UPDATE events SET uri = ?, did = ? WHERE rkey = ?").run(
-      realEventUri,
-      did,
-      eventRkey
-    );
+    console.log(`Event: ${event.name}`);
   }
 
-  // 2. Publish speaker records
+  // 2. Publish speakers
   const speakers = db.prepare("SELECT * FROM speakers").all() as any[];
   console.log(`\nPublishing ${speakers.length} speakers...`);
-
   for (const speaker of speakers) {
-    const rkey = speaker.rkey;
-    const uri = await pds.putRecord("tv.ionosphere.speaker", rkey, {
+    await pds.putRecord("tv.ionosphere.speaker", speaker.rkey, {
       $type: "tv.ionosphere.speaker",
       name: speaker.name,
       ...(speaker.handle && { handle: speaker.handle }),
@@ -74,86 +57,36 @@ async function main() {
         affiliations: JSON.parse(speaker.affiliations),
       }),
     });
-
-    // Update URI — must update join table references first (FK constraint)
-    const realUri = `at://${did}/tv.ionosphere.speaker/${rkey}`;
-    db.prepare("UPDATE talk_speakers SET speaker_uri = ? WHERE speaker_uri = ?").run(
-      realUri,
-      speaker.uri
-    );
-    db.prepare("UPDATE speakers SET uri = ?, did = ? WHERE rkey = ?").run(
-      realUri,
-      did,
-      rkey
-    );
   }
   console.log(`  Done.`);
 
-  // 3. Publish concept records
-  const concepts = db.prepare("SELECT * FROM concepts").all() as any[];
-  if (concepts.length > 0) {
-    console.log(`\nPublishing ${concepts.length} concepts...`);
-    for (const concept of concepts) {
-      const rkey = concept.rkey;
-      const uri = await pds.putRecord("tv.ionosphere.concept", rkey, {
-        $type: "tv.ionosphere.concept",
-        name: concept.name,
-        ...(concept.aliases && { aliases: JSON.parse(concept.aliases) }),
-        ...(concept.description && { description: concept.description }),
-        ...(concept.wikidata_id && { wikidataId: concept.wikidata_id }),
-        ...(concept.url && { url: concept.url }),
-      });
-
-      const realUri = `at://${did}/tv.ionosphere.concept/${rkey}`;
-      db.prepare("UPDATE talk_concepts SET concept_uri = ? WHERE concept_uri = ?").run(
-        realUri,
-        concept.uri
-      );
-      db.prepare("UPDATE concepts SET uri = ?, did = ? WHERE rkey = ?").run(
-        realUri,
-        did,
-        rkey
-      );
-    }
-    console.log(`  Done.`);
-  }
-
-  // 4. Publish talk records
+  // 3. Publish talks
   const talks = db.prepare("SELECT * FROM talks").all() as any[];
   console.log(`\nPublishing ${talks.length} talks...`);
 
-  const realEventUri = `at://${did}/tv.ionosphere.event/${event?.rkey}`;
+  const eventUri = event
+    ? `at://${did}/tv.ionosphere.event/${event.rkey}`
+    : undefined;
 
   for (const talk of talks) {
-    const rkey = talk.rkey;
-
-    // Get speaker URIs for this talk (now using real DIDs)
-    const talkSpeakers = db
-      .prepare(
-        `SELECT s.uri FROM speakers s
-         JOIN talk_speakers ts ON s.uri = ts.speaker_uri
-         WHERE ts.talk_uri = ?`
-      )
-      .all(talk.uri) as any[];
-
-    // But talk_speakers still references old URIs — look up by rkey instead
-    const talkSpeakersByRkey = db
+    const speakerRkeys = db
       .prepare(
         `SELECT s.rkey FROM speakers s
          JOIN talk_speakers ts ON s.uri = ts.speaker_uri
          WHERE ts.talk_uri = ?`
       )
       .all(talk.uri) as any[];
-    const speakerUris = talkSpeakersByRkey.map(
+    const speakerUris = speakerRkeys.map(
       (s: any) => `at://${did}/tv.ionosphere.speaker/${s.rkey}`
     );
 
-    const record: Record<string, unknown> = {
+    await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
       $type: "tv.ionosphere.talk",
       title: talk.title,
-      eventUri: realEventUri,
+      ...(eventUri && { eventUri }),
       ...(speakerUris.length > 0 && { speakerUris }),
       ...(talk.video_uri && { videoUri: talk.video_uri }),
+      ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
       ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
       ...(talk.room && { room: talk.room }),
       ...(talk.category && { category: talk.category }),
@@ -162,86 +95,44 @@ async function main() {
       ...(talk.ends_at && { endsAt: talk.ends_at }),
       ...(talk.duration && { duration: talk.duration }),
       ...(talk.description && { description: talk.description }),
-      // Document stored separately — too large for a single PDS record
-      // when it contains per-word timestamp facets. Will be stored as
-      // a separate record or blob in a future iteration.
-    };
-
-    await pds.putRecord("tv.ionosphere.talk", rkey, record);
-
-    // Update URI — must update join table references first (FK constraint)
-    const realUri = `at://${did}/tv.ionosphere.talk/${rkey}`;
-    db.prepare("UPDATE talk_speakers SET talk_uri = ? WHERE talk_uri = ?").run(
-      realUri,
-      talk.uri
-    );
-    db.prepare("UPDATE talk_concepts SET talk_uri = ? WHERE talk_uri = ?").run(
-      realUri,
-      talk.uri
-    );
-    db.prepare("UPDATE talk_crossrefs SET from_talk_uri = ? WHERE from_talk_uri = ?").run(
-      realUri,
-      talk.uri
-    );
-    db.prepare("UPDATE talk_crossrefs SET to_talk_uri = ? WHERE to_talk_uri = ?").run(
-      realUri,
-      talk.uri
-    );
-    db.prepare("UPDATE pipeline_status SET talk_uri = ? WHERE talk_uri = ?").run(
-      realUri,
-      talk.uri
-    );
-    db.prepare("UPDATE talks SET uri = ?, did = ? WHERE rkey = ?").run(
-      realUri,
-      did,
-      rkey
-    );
+    });
   }
   console.log(`  Done.`);
 
-  // 5. Publish transcript records
-  const transcripts = db.prepare("SELECT * FROM transcripts").all() as any[];
-  if (transcripts.length > 0) {
-    console.log(`\nPublishing ${transcripts.length} transcripts...`);
-    for (const transcript of transcripts) {
-      const rkey = transcript.rkey;
+  // 4. Publish transcripts from cached files
+  const transcriptsDir = path.resolve(import.meta.dirname, "../../data/transcripts");
+  let transcriptCount = 0;
 
-      // Look up the real talk URI (already updated above)
-      const talkRkey = rkey.replace("-transcript", "");
-      const realTalkUri = `at://${did}/tv.ionosphere.talk/${talkRkey}`;
+  for (const talk of talks) {
+    const cachedPath = path.join(transcriptsDir, `${talk.rkey}.json`);
+    if (!existsSync(cachedPath)) continue;
 
-      await pds.putRecord("tv.ionosphere.transcript", rkey, {
-        $type: "tv.ionosphere.transcript",
-        talkUri: realTalkUri,
-        text: transcript.text,
-        startMs: transcript.start_ms,
-        timings: JSON.parse(transcript.timings),
-      });
+    const transcript = JSON.parse(readFileSync(cachedPath, "utf-8"));
+    const compact = encode(transcript);
+    const talkUri = `at://${did}/tv.ionosphere.talk/${talk.rkey}`;
 
-      const realUri = `at://${did}/tv.ionosphere.transcript/${rkey}`;
-      db.prepare("UPDATE transcripts SET uri = ?, did = ?, talk_uri = ? WHERE rkey = ?").run(
-        realUri,
-        did,
-        realTalkUri,
-        rkey
-      );
-    }
-    console.log(`  Done.`);
+    await pds.putRecord("tv.ionosphere.transcript", `${talk.rkey}-transcript`, {
+      $type: "tv.ionosphere.transcript",
+      talkUri,
+      text: compact.text,
+      startMs: compact.startMs,
+      timings: compact.timings,
+    });
+    transcriptCount++;
   }
+  console.log(`\nPublished ${transcriptCount} transcripts.`);
 
-  // Re-enable FK checks and verify integrity
-  db.pragma("foreign_keys = ON");
-  const fkErrors = db.pragma("foreign_key_check") as any[];
-  if (fkErrors.length > 0) {
-    console.error(`\nWARNING: ${fkErrors.length} foreign key violations found`);
-    for (const e of fkErrors.slice(0, 5)) {
-      console.error(`  ${e.table}: rowid=${e.rowid} → ${e.parent}`);
-    }
-  }
+  // 5. Publish concepts (from PDS — they were written by enrich.ts)
+  // Concepts are already on the PDS from the enrichment pipeline.
+  // Just verify they're there.
+  const conceptsRes = await fetch(
+    `${PDS_URL}/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=tv.ionosphere.concept&limit=100`
+  );
+  const conceptsData = await conceptsRes.json();
+  console.log(`\nConcepts already on PDS: ${conceptsData.records?.length ?? 0}`);
 
   console.log(`\nAll records published to ${PDS_URL}`);
   console.log(`DID: ${did}`);
-  console.log(`Verify: curl http://localhost:2690/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=tv.ionosphere.talk&limit=5`);
 
   db.close();
 }

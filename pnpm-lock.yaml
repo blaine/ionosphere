@@ -73,17 +73,23 @@ importers:
         version: 4.12.9
       openai:
         specifier: ^6.33.0
-        version: 6.33.0(zod@3.25.76)
+        version: 6.33.0(ws@8.20.0)(zod@3.25.76)
       relational-text:
         specifier: ^0.1.1
         version: 0.1.1
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+      ws:
+        specifier: ^8.20.0
+        version: 8.20.0
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.0
         version: 7.6.13
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -676,6 +682,9 @@ packages:
 
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
@@ -1460,6 +1469,18 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  ws@8.20.0:
+    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
@@ -1879,6 +1900,10 @@ snapshots:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
 
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.19.15
+
   '@vitest/expect@3.2.4':
     dependencies:
       '@types/chai': 5.2.3
@@ -2247,8 +2272,9 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@6.33.0(zod@3.25.76):
+  openai@6.33.0(ws@8.20.0)(zod@3.25.76):
     optionalDependencies:
+      ws: 8.20.0
       zod: 3.25.76
 
   path-parse@1.0.7: {}
@@ -2689,5 +2715,7 @@ snapshots:
       stackback: 0.0.2
 
   wrappy@1.0.2: {}
+
+  ws@8.20.0: {}
 
   zod@3.25.76: {}

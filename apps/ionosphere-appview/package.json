@@ -10,10 +10,12 @@
     "hono": "^4.7.0",
     "openai": "^6.33.0",
     "relational-text": "^0.1.1",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
