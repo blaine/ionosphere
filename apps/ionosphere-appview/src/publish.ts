@@ -23,6 +23,24 @@ async function main() {
   const did = pds.getDid();
   console.log(`Logged in as ${did}`);
 
+  // 0. Publish lens records
+  console.log("Publishing lens records...");
+  const lensDir = path.resolve(import.meta.dirname, "../../../formats/tv.ionosphere/lenses");
+  for (const file of ["schedule-to-talk.lens.json", "vod-to-talk.lens.json", "openai-whisper-to-transcript.lens.json", "transcript-to-document.lens.json"]) {
+    const lensPath = path.join(lensDir, file);
+    if (!existsSync(lensPath)) continue;
+    const spec = JSON.parse(readFileSync(lensPath, "utf-8"));
+    const rkey = file.replace(".lens.json", "");
+    await pds.putRecord("org.relationaltext.lens", rkey, {
+      $type: "org.relationaltext.lens",
+      source: spec.source,
+      target: spec.target,
+      version: 1,
+      specJson: JSON.stringify(spec),
+    });
+    console.log("  Lens: " + spec.source + " -> " + spec.target);
+  }
+
   // Read from the staging database (populated by ingest.ts)
   const db = openDb();
 
