@@ -46,7 +46,7 @@ describe("assembleDocument", () => {
     const ts = first.features.find(
       (f: any) => f.$type === "tv.ionosphere.facet#timestamp"
     );
-    expect(ts.startTime).toBe(0);
-    expect(ts.endTime).toBe(500_000_000);
+    expect(ts!.startTime).toBe(0);
+    expect(ts!.endTime).toBe(500_000_000);
   });
 });

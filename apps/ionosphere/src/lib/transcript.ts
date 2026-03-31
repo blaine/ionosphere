@@ -55,6 +55,8 @@ export function extractData(doc: TranscriptDocument) {
           endTime: feat.endTime!,
           byteStart: f.index.byteStart,
           byteEnd: f.index.byteEnd,
+          boundaryStartTime: 0,
+          boundaryEndTime: 0,
         });
       } else if (feat.$type === "tv.ionosphere.facet#concept-ref") {
         concepts.push({
