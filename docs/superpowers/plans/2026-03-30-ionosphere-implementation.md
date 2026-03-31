@@ -483,9 +483,261 @@ git commit -m "feat: create format-lexicon with facet type definitions"
 
 ---
 
+### Task 4: Define lens specifications
+
+Lenses are the insulation layer between upstream source lexicons and the internal ionosphere data model. When Streamplace's lexicons change (they've indicated they will), only the lens rules need updating — the rest of the pipeline stays stable.
+
+**Files:**
+- Create: `formats/tv.ionosphere/lenses/schedule-to-talk.lens.json`
+- Create: `formats/tv.ionosphere/lenses/vod-to-talk.lens.json`
+- Create: `formats/tv.ionosphere/lenses/transcript-to-document.lens.json`
+
+- [ ] **Step 1: Create schedule-to-talk lens**
+
+Maps `community.lexicon.calendar.event` fields to `tv.ionosphere.talk` fields. This is where the upstream schedule format is absorbed.
+
+```json
+{
+  "$type": "org.relationaltext.lens",
+  "id": "community.lexicon.calendar.event.to.tv.ionosphere.talk.v1",
+  "description": "Transform ATmosphereConf schedule events into ionosphere talk records",
+  "source": "community.lexicon.calendar.event",
+  "target": "tv.ionosphere.talk",
+  "invertible": false,
+  "rules": [
+    {
+      "match": { "name": "name" },
+      "replace": { "name": "title" }
+    },
+    {
+      "match": { "name": "description" },
+      "replace": { "name": "description" }
+    },
+    {
+      "match": { "name": "startsAt" },
+      "replace": { "name": "startsAt" }
+    },
+    {
+      "match": { "name": "endsAt" },
+      "replace": { "name": "endsAt" }
+    },
+    {
+      "match": { "name": "additionalData.room" },
+      "replace": { "name": "room" }
+    },
+    {
+      "match": { "name": "additionalData.category" },
+      "replace": { "name": "category" }
+    },
+    {
+      "match": { "name": "additionalData.type" },
+      "replace": { "name": "talkType" }
+    },
+    {
+      "match": { "name": "additionalData.speakers" },
+      "replace": { "name": "speakers" }
+    }
+  ]
+}
+```
+
+- [ ] **Step 2: Create vod-to-talk lens**
+
+Maps `place.stream.video` fields to the video-related fields on `tv.ionosphere.talk`.
+
+```json
+{
+  "$type": "org.relationaltext.lens",
+  "id": "place.stream.video.to.tv.ionosphere.talk.v1",
+  "description": "Map Streamplace VOD record fields to ionosphere talk video metadata",
+  "source": "place.stream.video",
+  "target": "tv.ionosphere.talk",
+  "invertible": false,
+  "rules": [
+    {
+      "match": { "name": "title" },
+      "replace": { "name": "title" }
+    },
+    {
+      "match": { "name": "duration" },
+      "replace": { "name": "duration" }
+    },
+    {
+      "match": { "name": "creator" },
+      "replace": { "name": "streamCreator" }
+    }
+  ]
+}
+```
+
+- [ ] **Step 3: Create transcript-to-document lens**
+
+Maps raw transcript facets to ionosphere document facets. Initially a passthrough — the transcript word timestamps map directly to `tv.ionosphere.facet#timestamp`.
+
+```json
+{
+  "$type": "org.relationaltext.lens",
+  "id": "transcript.to.tv.ionosphere.document.v1",
+  "description": "Map raw transcript timing data to ionosphere document timestamp facets",
+  "source": "transcript.raw",
+  "target": "tv.ionosphere.facet",
+  "passthrough": "keep",
+  "rules": [
+    {
+      "match": { "name": "word-timing" },
+      "replace": { "name": "timestamp" }
+    }
+  ]
+}
+```
+
+- [ ] **Step 4: Create lens loader utility**
+
+Create `formats/tv.ionosphere/ts/lenses.ts`:
+
+```typescript
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+export interface LensSpec {
+  $type: string;
+  id: string;
+  description: string;
+  source: string;
+  target: string;
+  invertible?: boolean;
+  passthrough?: "keep" | "drop";
+  rules: LensRule[];
+}
+
+export interface LensRule {
+  match: { name: string };
+  replace: { name: string };
+}
+
+const LENS_DIR = path.resolve(import.meta.dirname, "../lenses");
+
+export function loadLens(filename: string): LensSpec {
+  const raw = readFileSync(path.join(LENS_DIR, filename), "utf-8");
+  return JSON.parse(raw);
+}
+
+/**
+ * Apply a lens to transform a source record's fields to target field names.
+ * Returns a new object with renamed keys per the lens rules.
+ * Fields not matched by any rule are kept or dropped per `passthrough`.
+ */
+export function applyLens(
+  lens: LensSpec,
+  source: Record<string, any>
+): Record<string, any> {
+  const result: Record<string, any> = {};
+  const matched = new Set<string>();
+
+  for (const rule of lens.rules) {
+    const sourceName = rule.match.name;
+    // Support dotted paths (e.g., "additionalData.room")
+    const value = getNestedValue(source, sourceName);
+    if (value !== undefined) {
+      result[rule.replace.name] = value;
+      matched.add(sourceName.split(".")[0]);
+    }
+  }
+
+  // Handle passthrough
+  if (lens.passthrough === "keep") {
+    for (const [key, value] of Object.entries(source)) {
+      if (!matched.has(key) && !(key in result)) {
+        result[key] = value;
+      }
+    }
+  }
+
+  return result;
+}
+
+function getNestedValue(obj: any, path: string): any {
+  const parts = path.split(".");
+  let current = obj;
+  for (const part of parts) {
+    if (current == null) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+```
+
+- [ ] **Step 5: Add lens loader test**
+
+Create `formats/tv.ionosphere/ts/lenses.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { applyLens, type LensSpec } from "./lenses.js";
+
+describe("applyLens", () => {
+  const lens: LensSpec = {
+    $type: "org.relationaltext.lens",
+    id: "test",
+    description: "test lens",
+    source: "source",
+    target: "target",
+    rules: [
+      { match: { name: "name" }, replace: { name: "title" } },
+      { match: { name: "additionalData.room" }, replace: { name: "room" } },
+    ],
+  };
+
+  it("renames fields per rules", () => {
+    const result = applyLens(lens, { name: "Hello" });
+    expect(result.title).toBe("Hello");
+    expect(result.name).toBeUndefined();
+  });
+
+  it("handles dotted paths", () => {
+    const result = applyLens(lens, {
+      name: "Test",
+      additionalData: { room: "Room 1", type: "presentation" },
+    });
+    expect(result.title).toBe("Test");
+    expect(result.room).toBe("Room 1");
+  });
+
+  it("drops unmatched fields by default", () => {
+    const result = applyLens(lens, { name: "Test", extra: "value" });
+    expect(result.extra).toBeUndefined();
+  });
+
+  it("keeps unmatched fields with passthrough=keep", () => {
+    const keepLens = { ...lens, passthrough: "keep" as const };
+    const result = applyLens(keepLens, { name: "Test", extra: "value" });
+    expect(result.extra).toBe("value");
+  });
+});
+```
+
+- [ ] **Step 6: Run tests**
+
+```bash
+cd formats/tv.ionosphere && pnpm test
+```
+
+- [ ] **Step 7: Update format package exports**
+
+Add to `formats/tv.ionosphere/package.json` exports:
+```json
+"./lenses": "./ts/lenses.ts"
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add formats/tv.ionosphere/lenses/ formats/tv.ionosphere/ts/lenses.ts formats/tv.ionosphere/ts/lenses.test.ts formats/tv.ionosphere/package.json
+git commit -m "feat: lens specifications and loader for source lexicon transformation"
+```
+
 ### Deferred from Chunk 1
 
-- **Lens files** (`schedule-to-talk.lens.json`, `transcript-to-document.lens.json`): The lens transformation logic is currently implemented procedurally in `ingest.ts` and `assemble.ts`. Declarative lens JSON specs will be formalized once the transformation rules are stable. This matches pannacotta's development pattern where lenses were extracted from working code.
 - **panproto**: Schema versioning will be integrated once lexicons stabilize past their initial revision.
 - **Pretext**: Transcript layout integration depends on evaluating Pretext's available API surface area, which is currently undocumented. The plan uses a custom `TranscriptView` component that can be swapped for Pretext later.
 
@@ -493,9 +745,9 @@ git commit -m "feat: create format-lexicon with facet type definitions"
 
 ## Chunk 2: Appview Scaffold & Data Ingest
 
-Creates the appview app, sets up SQLite schema, and implements ingestion of source data from Streamplace VODs and ATmosphereConf schedule records.
+Creates the appview app, sets up SQLite schema, and implements ingestion of source data from Streamplace VODs and ATmosphereConf schedule records. The ingest pipeline uses the lens loader from Chunk 1 to transform source records.
 
-### Task 4: Scaffold the appview app
+### Task 5: Scaffold the appview app
 
 **Files:**
 - Create: `apps/ionosphere-appview/package.json`
@@ -797,7 +1049,7 @@ git add apps/ionosphere-appview/
 git commit -m "feat: scaffold appview with SQLite schema and REST API"
 ```
 
-### Task 5: Implement data ingest from AT Protocol
+### Task 6: Implement data ingest from AT Protocol
 
 **Files:**
 - Create: `apps/ionosphere-appview/src/ingest.ts`
@@ -995,6 +1247,10 @@ This fetches source records from AT Protocol and writes correlated talks + speak
 ```typescript
 import { openDb, migrate } from "./db.js";
 import { correlate, type ScheduleEvent, type VodRecord } from "./correlate.js";
+import { loadLens, applyLens } from "@ionosphere/format/lenses";
+
+const scheduleLens = loadLens("schedule-to-talk.lens.json");
+const vodLens = loadLens("vod-to-talk.lens.json");
 
 const SCHEDULE_DID = "did:plc:3xewinw4wtimo2lqfy5fm5sw";
 const SCHEDULE_COLLECTION = "community.lexicon.calendar.event";
@@ -1046,16 +1302,19 @@ function parseScheduleEvent(record: any): ScheduleEvent | null {
   const type = ad?.type || "";
   if (["info", "food"].includes(type)) return null;
 
+  // Apply lens to transform source fields to internal names
+  const mapped = applyLens(scheduleLens, v);
+
   return {
     uri: record.uri,
-    name: v.name,
-    startsAt: v.startsAt,
-    endsAt: v.endsAt,
-    type,
-    room: ad?.room || "",
-    category: ad?.category || "",
-    speakers: ad?.speakers || [],
-    description: v.description || "",
+    name: mapped.title,
+    startsAt: mapped.startsAt,
+    endsAt: mapped.endsAt,
+    type: mapped.talkType || "",
+    room: mapped.room || "",
+    category: mapped.category || "",
+    speakers: mapped.speakers || [],
+    description: mapped.description || "",
   };
 }
 
@@ -1233,7 +1492,7 @@ git commit -m "feat: ingest VOD and schedule data, correlate talks to videos"
 
 Sets up the Next.js SSG frontend with basic page routes and a working video player. After this chunk, you can browse talks and watch videos.
 
-### Task 6: Scaffold Next.js app
+### Task 7: Scaffold Next.js app
 
 **Files:**
 - Create: `apps/ionosphere/package.json`
@@ -1491,7 +1750,7 @@ git add apps/ionosphere/
 git commit -m "feat: scaffold Next.js frontend with talk listing"
 ```
 
-### Task 7: Talk page with video player
+### Task 8: Talk page with video player
 
 **Files:**
 - Create: `apps/ionosphere/src/app/talks/page.tsx`
@@ -1722,7 +1981,7 @@ git add apps/ionosphere/src/app/talks/ apps/ionosphere/src/app/components/VideoP
 git commit -m "feat: talk pages with HLS video player"
 ```
 
-### Task 8: Speaker and concept pages
+### Task 9: Speaker and concept pages
 
 **Files:**
 - Create: `apps/ionosphere/src/app/speakers/page.tsx`
@@ -1920,7 +2179,7 @@ git commit -m "feat: speaker and concept pages"
 
 Implements audio extraction from HLS streams and transcription with word-level timestamps. After this chunk, talks have transcripts stored in the database.
 
-### Task 9: Audio extraction from HLS
+### Task 10: Audio extraction from HLS
 
 **Files:**
 - Create: `apps/ionosphere-appview/src/extract-audio.ts`
@@ -2001,7 +2260,7 @@ git add apps/ionosphere-appview/src/extract-audio.ts apps/ionosphere-appview/src
 git commit -m "feat: audio extraction from HLS streams via ffmpeg"
 ```
 
-### Task 10: Transcription integration
+### Task 11: Transcription integration
 
 **Files:**
 - Create: `apps/ionosphere-appview/src/transcribe.ts`
@@ -2130,7 +2389,7 @@ git commit -m "feat: transcription pipeline skeleton with provider interface and
 
 Converts raw transcripts into RelationalText documents with timestamp facets, and implements the frontend timestamp sync.
 
-### Task 11: Document assembly — transcript to RelationalText
+### Task 12: Document assembly — transcript to RelationalText
 
 **Files:**
 - Create: `formats/tv.ionosphere/ts/assemble.ts`
@@ -2270,7 +2529,7 @@ git add formats/tv.ionosphere/ts/assemble.ts formats/tv.ionosphere/ts/assemble.t
 git commit -m "feat: assemble RelationalText documents from transcripts with timestamp facets"
 ```
 
-### Task 12: Timestamp provider and transcript sync in frontend
+### Task 13: Timestamp provider and transcript sync in frontend
 
 **Files:**
 - Create: `apps/ionosphere/src/app/components/TimestampProvider.tsx`
@@ -2489,9 +2748,9 @@ This is documented but not planned in detail yet — the exact approach depends 
 
 | Chunk | Tasks | What it delivers |
 |-------|-------|------------------|
-| 1: Scaffold & Lexicons | 1-3 | Workspace, lexicons, format-lexicon |
-| 2: Appview & Ingest | 4-5 | SQLite schema, REST API, data ingest pipeline |
-| 3: Frontend | 6-8 | Next.js SSG, talk/speaker/concept pages, video player |
-| 4: Transcription | 9-10 | Audio extraction, transcription pipeline skeleton |
-| 5: Document Assembly | 11-12 | RelationalText documents, timestamp sync, transcript view |
+| 1: Scaffold & Lexicons | 1-4 | Workspace, lexicons, format-lexicon, lens specs + loader |
+| 2: Appview & Ingest | 5-6 | SQLite schema, REST API, lens-driven data ingest pipeline |
+| 3: Frontend | 7-9 | Next.js SSG, talk/speaker/concept pages, video player |
+| 4: Transcription | 10-11 | Audio extraction, transcription pipeline skeleton |
+| 5: Document Assembly | 12-13 | RelationalText documents, timestamp sync, transcript view |
 | 6: Enrichment | (future) | LLM annotation, concept extraction, knowledge graph |
