@@ -252,9 +252,6 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
   // then hand back to auto-scroll after a timeout.
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
-  const programmaticScroll = useRef(false);
-  const programmaticScrollTimer = useRef<ReturnType<typeof setTimeout>>();
-
   // Auto-scroll: keep the active word at the 1/3 mark.
   // Suppressed while user is scroll-scrubbing.
   useEffect(() => {
@@ -270,13 +267,7 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       const targetY = containerRect.top + containerRect.height * 0.33;
       const diff = rect.top - targetY;
       if (Math.abs(diff) > 5) {
-        programmaticScroll.current = true;
         container.scrollBy({ top: diff, behavior: "smooth" });
-        // Hold the programmatic flag for the duration of the smooth scroll
-        clearTimeout(programmaticScrollTimer.current);
-        programmaticScrollTimer.current = setTimeout(() => {
-          programmaticScroll.current = false;
-        }, 500);
       }
     }
   }, [activeIndex]);
@@ -361,9 +352,15 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       seekTo(lines[lines.length - 1].endTime);
     };
 
+    // Detect real user scrolls via wheel/touch, not scroll events
+    // (scroll events fire for both user and programmatic scrolls)
+    let userInitiated = false;
+
+    const onWheel = () => { userInitiated = true; };
+    const onTouchStart = () => { userInitiated = true; };
+
     const onScroll = () => {
-      // Ignore scrolls we triggered programmatically
-      if (programmaticScroll.current) return;
+      if (!userInitiated) return; // ignore programmatic scrolls entirely
 
       userScrolling.current = true;
 
@@ -371,15 +368,23 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
         userScrolling.current = false;
-      }, paused ? 999999 : 2000); // stay in user mode indefinitely when paused
+      }, paused ? 999999 : 2000);
 
       cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(findWordAtPlayhead);
+      rafId = requestAnimationFrame(() => {
+        findWordAtPlayhead();
+        userInitiated = false; // consumed
+      });
     };
+
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
 
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       container.removeEventListener("scroll", onScroll);
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
       cancelAnimationFrame(rafId);
       clearTimeout(userScrollTimer.current);
     };
