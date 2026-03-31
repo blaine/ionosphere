@@ -67,3 +67,8 @@ function getNestedValue(obj: any, path: string): any {
   }
   return current;
 }
+
+// Panproto wrapper re-exports for new code
+export { init, loadSchema, createLens, buildMigration, migrateRecord, serializeChain } from "./panproto.js";
+
+export type { BuiltSchema, Panproto } from "./panproto.js";
