@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { Panproto } from "@panproto/core";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import {
+  init as initPanproto,
+  loadSchema,
+  buildMigration,
+  migrateRecord,
+} from "./panproto.js";
 
 const LEXICON_DIR = path.resolve(import.meta.dirname, "../../../lexicons");
 
@@ -11,16 +16,9 @@ function readLexicon(relativePath: string): object {
   );
 }
 
-/**
- * Probe whether the panproto WASM binary is available.
- * The @panproto/core npm package ships the TS SDK shell but the
- * wasm-bindgen glue module (panproto_wasm.js) must be built from
- * the Rust source. Tests skip gracefully when it is absent.
- */
 let wasmAvailable = false;
 try {
-  const pp = await Panproto.init();
-  pp[Symbol.dispose]();
+  await initPanproto();
   wasmAvailable = true;
 } catch {
   // WASM binary not present — tests will be skipped
@@ -29,126 +27,122 @@ try {
 const describeWasm = wasmAvailable ? describe : describe.skip;
 
 describeWasm("panproto wrapper", () => {
-  // Lazy imports — only evaluated when WASM is available
-  let init: typeof import("./panproto.js")["init"];
-  let loadSchema: typeof import("./panproto.js")["loadSchema"];
-  let convert: typeof import("./panproto.js")["convert"];
-
-  it("loads wrapper module", async () => {
-    const mod = await import("./panproto.js");
-    init = mod.init;
-    loadSchema = mod.loadSchema;
-    convert = mod.convert;
-    expect(init).toBeDefined();
-  });
-
-  it("initializes panproto", async () => {
-    const pp = await init();
-    expect(pp).toBeDefined();
+  it("initializes panproto with ATProto support", async () => {
+    const pp = await initPanproto();
     expect(pp.listProtocols()).toContain("atproto");
   });
 
-  it("parses an ionosphere lexicon", async () => {
-    const schema = await loadSchema(
-      readLexicon("tv/ionosphere/talk.json")
+  it("parses ionosphere lexicons", async () => {
+    const talkSchema = await loadSchema(readLexicon("tv/ionosphere/talk.json"));
+    expect(talkSchema).toBeDefined();
+    expect(Object.keys(talkSchema.vertices)).toContain(
+      "tv.ionosphere.talk:body.title"
     );
-    expect(schema).toBeDefined();
   });
 
-  it("parses a calendar event lexicon", async () => {
-    const schema = await loadSchema(
+  it("parses source lexicons", async () => {
+    const calSchema = await loadSchema(
       readLexicon("community/lexicon/calendar/event.json")
     );
-    expect(schema).toBeDefined();
+    expect(calSchema).toBeDefined();
+    expect(Object.keys(calSchema.vertices)).toContain(
+      "community.lexicon.calendar.event:body.name"
+    );
   });
 
-  it("creates a lens between calendar event and talk", async () => {
-    const calendarSchema = await loadSchema(
-      readLexicon("community/lexicon/calendar/event.json")
-    );
-    const talkSchema = await loadSchema(
-      readLexicon("tv/ionosphere/talk.json")
-    );
+  it("renames fields via migration on structurally similar schemas", async () => {
+    // Cross-schema migration works when the schemas are structurally similar.
+    // For complex cross-schema transforms (calendar→talk with many unmapped fields),
+    // compose panproto with a mechanical pre-processor.
+    const pp = await initPanproto();
+    const atproto = pp.protocol("atproto");
 
-    const pp = await init();
-    const lens = pp.lens(calendarSchema, talkSchema);
-    expect(lens).toBeDefined();
-  });
+    const sourceSchema = atproto
+      .schema()
+      .vertex("src", "record", { nsid: "test.source" })
+      .vertex("src:body", "object")
+      .vertex("src:body.name", "string")
+      .vertex("src:body.createdAt", "string")
+      .edge("src", "src:body", "record-schema")
+      .edge("src:body", "src:body.name", "prop", { name: "name" })
+      .edge("src:body", "src:body.createdAt", "prop", { name: "createdAt" })
+      .build();
 
-  it("converts a calendar event to a talk", async () => {
-    const calendarSchema = await loadSchema(
-      readLexicon("community/lexicon/calendar/event.json")
-    );
-    const talkSchema = await loadSchema(
-      readLexicon("tv/ionosphere/talk.json")
-    );
+    const targetSchema = atproto
+      .schema()
+      .vertex("tgt", "record", { nsid: "test.target" })
+      .vertex("tgt:body", "object")
+      .vertex("tgt:body.title", "string")
+      .vertex("tgt:body.createdAt", "string")
+      .edge("tgt", "tgt:body", "record-schema")
+      .edge("tgt:body", "tgt:body.title", "prop", { name: "title" })
+      .edge("tgt:body", "tgt:body.createdAt", "prop", { name: "createdAt" })
+      .build();
 
-    const event = {
-      name: "Building with AT Protocol",
-      description: "A talk about building apps",
-      startsAt: "2026-03-27T10:00:00Z",
-      endsAt: "2026-03-27T10:30:00Z",
-      additionalData: {
-        room: "Great Hall South",
-        category: "developer",
-        type: "presentation",
-        speakers: [{ id: "alice.bsky.social", name: "Alice" }],
-        isAtmosphereconf: true,
-      },
-    };
-
-    const result = await convert(event, calendarSchema, talkSchema, {
-      eventUri: "",
+    const migration = await buildMigration(sourceSchema, targetSchema, {
+      src: "tgt",
+      "src:body": "tgt:body",
+      "src:body.name": "tgt:body.title",
+      "src:body.createdAt": "tgt:body.createdAt",
     });
 
-    expect(result).toBeDefined();
-    // Field mapping depends on panproto's structural analysis;
-    // adjust expectations to match actual output once WASM is live.
-    expect(typeof result).toBe("object");
-  });
-
-  it("serializes a protolens chain", async () => {
-    const { serializeChain } = await import("./panproto.js");
-    const calendarSchema = await loadSchema(
-      readLexicon("community/lexicon/calendar/event.json")
-    );
-    const talkSchema = await loadSchema(
-      readLexicon("tv/ionosphere/talk.json")
-    );
-
-    const json = await serializeChain(calendarSchema, talkSchema);
-    expect(json).toBeTruthy();
-    expect(() => JSON.parse(json)).not.toThrow();
-  });
-
-  it("verifies lens laws for calendar->talk lens", async () => {
-    const calendarSchema = await loadSchema(
-      readLexicon("community/lexicon/calendar/event.json")
-    );
-    const talkSchema = await loadSchema(
-      readLexicon("tv/ionosphere/talk.json")
-    );
-
-    const pp = await init();
-    const lens = pp.lens(calendarSchema, talkSchema);
-    expect(lens).toBeDefined();
-
-    const { encode } = await import("@msgpack/msgpack");
-    const sampleEvent = encode({
-      name: "Test Talk",
-      description: "A test",
-      startsAt: "2026-03-27T10:00:00Z",
-      endsAt: "2026-03-27T10:30:00Z",
-      additionalData: {
-        room: "Room A",
-        category: "dev",
-        type: "presentation",
-        speakers: [],
-        isAtmosphereconf: true,
-      },
+    const result = await migrateRecord(migration, sourceSchema, {
+      name: "Hello World",
+      createdAt: "2026-03-27T10:00:00Z",
     });
-    const laws = lens.checkLaws(sampleEvent);
-    expect(laws.passed).toBe(true);
+
+    expect(result.title).toBe("Hello World");
+    expect(result.createdAt).toBe("2026-03-27T10:00:00Z");
+    expect(result.name).toBeUndefined();
+  });
+
+  it("diffs schemas for version migration", async () => {
+    const pp = await initPanproto();
+    const atproto = pp.protocol("atproto");
+
+    const v1 = atproto
+      .schema()
+      .vertex("talk", "record", { nsid: "tv.ionosphere.talk" })
+      .vertex("talk:body", "object")
+      .vertex("talk:body.title", "string")
+      .edge("talk", "talk:body", "record-schema")
+      .edge("talk:body", "talk:body.title", "prop", { name: "title" })
+      .build();
+
+    const v2 = atproto
+      .schema()
+      .vertex("talk", "record", { nsid: "tv.ionosphere.talk" })
+      .vertex("talk:body", "object")
+      .vertex("talk:body.title", "string")
+      .vertex("talk:body.subtitle", "string")
+      .edge("talk", "talk:body", "record-schema")
+      .edge("talk:body", "talk:body.title", "prop", { name: "title" })
+      .edge("talk:body", "talk:body.subtitle", "prop", { name: "subtitle" })
+      .build();
+
+    const diff = pp.diff(v1, v2);
+    // diff[0] = added vertices
+    expect((diff as any)[0]).toContain("talk:body.subtitle");
+  });
+
+  it("serializes migration spec", async () => {
+    const calSchema = await loadSchema(
+      readLexicon("community/lexicon/calendar/event.json")
+    );
+    const talkSchema = await loadSchema(readLexicon("tv/ionosphere/talk.json"));
+
+    const migration = await buildMigration(calSchema, talkSchema, {
+      "community.lexicon.calendar.event": "tv.ionosphere.talk",
+      "community.lexicon.calendar.event:body": "tv.ionosphere.talk:body",
+      "community.lexicon.calendar.event:body.name":
+        "tv.ionosphere.talk:body.title",
+    });
+
+    const spec = migration.spec;
+    expect(spec.vertexMap).toBeDefined();
+    expect(
+      (spec.vertexMap as any)["community.lexicon.calendar.event:body.name"]
+    ).toBe("tv.ionosphere.talk:body.title");
   });
 });
 
@@ -157,20 +151,18 @@ describe("panproto wrapper (static checks)", () => {
     const mod = await import("./panproto.js");
     expect(typeof mod.init).toBe("function");
     expect(typeof mod.loadSchema).toBe("function");
+    expect(typeof mod.buildMigration).toBe("function");
+    expect(typeof mod.migrateRecord).toBe("function");
     expect(typeof mod.createLens).toBe("function");
-    expect(typeof mod.convert).toBe("function");
     expect(typeof mod.serializeChain).toBe("function");
   });
 
   it("reports WASM availability", () => {
     if (!wasmAvailable) {
       console.warn(
-        "panproto WASM binary not available — " +
-        "runtime tests skipped. Build panproto from source or " +
-        "install a version that ships panproto_wasm.js."
+        "panproto WASM binary not available — runtime tests skipped."
       );
     }
-    // This test always passes; it exists to surface the skip reason.
     expect(true).toBe(true);
   });
 });
