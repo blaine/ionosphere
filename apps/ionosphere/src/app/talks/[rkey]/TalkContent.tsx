@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { TimestampProvider } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -18,6 +18,24 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
     const doc = JSON.parse(talk.document);
     return doc?.facets?.length > 0 ? doc : null;
   }, [talk.document]);
+
+  const videoContainerRef = useRef<HTMLDivElement>(null);
+  const [videoWidth, setVideoWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = videoContainerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => {
+      // Find the actual video element and measure its rendered width
+      const video = el.querySelector("video");
+      if (video && video.offsetWidth > 0) {
+        setVideoWidth(video.offsetWidth);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <TimestampProvider>
@@ -71,24 +89,25 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
             </div>
           </div>
 
-          {/* Video — fixed height, never scrolls */}
+          {/* Video — top half */}
           {talk.video_uri && (
-            <div className="shrink-0 px-4 pt-2 lg:pt-4">
+            <div ref={videoContainerRef} className="h-1/2 px-4 pt-2 lg:pt-4 pb-1 overflow-hidden flex items-center justify-center">
               <VideoPlayer videoUri={talk.video_uri} offsetNs={talk.video_offset_ns || 0} />
             </div>
           )}
 
-          {/* Transcript — fills remaining space, scrolls internally */}
-          <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
-            {document ? (
-              <TranscriptView document={document} />
-            ) : (
-              <div className="h-full flex items-center justify-center text-neutral-500 text-sm border border-neutral-800 rounded-lg">
-                {talk.video_uri ? "Transcript not yet available." : "No recording available for this talk."}
-              </div>
-            )}
+          {/* Transcript — bottom half, width pinned to video */}
+          <div className="h-1/2 px-4 pb-4 pt-1 flex justify-center">
+            <div style={videoWidth ? { width: videoWidth } : undefined} className={`h-full ${videoWidth ? "" : "w-full"}`}>
+              {document ? (
+                <TranscriptView document={document} />
+              ) : (
+                <div className="h-full flex items-center justify-center text-neutral-500 text-sm border border-neutral-800 rounded-lg">
+                  {talk.video_uri ? "Transcript not yet available." : "No recording available for this talk."}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
         {/* Right sidebar — concepts + cross-refs (hidden on mobile, scrollable on desktop) */}
         <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-y-auto p-4 gap-5">
