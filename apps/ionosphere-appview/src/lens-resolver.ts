@@ -65,7 +65,7 @@ export async function resolveLensRecord(
         const v = record.value;
         if (v.source === source && v.target === target) {
           return {
-            chainJson: v.chainJson,
+            chainJson: v.specJson ?? v.chainJson,
             source: v.source,
             target: v.target,
           };

@@ -306,7 +306,7 @@ function indexLens(
     (record.source as string) || null,
     (record.target as string) || null,
     (record.version as number) || 1,
-    record.chainJson ? JSON.stringify(record.chainJson) : null
+    (record.specJson as string) ?? (record.chainJson ? JSON.stringify(record.chainJson) : null)
   );
 }
 
