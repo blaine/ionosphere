@@ -1,0 +1,44 @@
+{
+  "$type": "org.relationaltext.format-lexicon",
+  "id": "tv.ionosphere.facet",
+  "name": "Ionosphere Talk Annotations",
+  "description": "Semantic annotations for conference talk transcripts: timestamps, speakers, concepts, cross-references",
+  "features": [
+    {
+      "typeId": "tv.ionosphere.facet#speaker-segment",
+      "featureClass": "block",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#concept-ref",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#speaker-ref",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#talk-xref",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#link",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#timestamp",
+      "featureClass": "meta",
+      "expandStart": false,
+      "expandEnd": false
+    }
+  ]
+}

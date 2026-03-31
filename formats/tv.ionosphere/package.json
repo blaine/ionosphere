@@ -1,0 +1,21 @@
+{
+  "name": "@ionosphere/format",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "ts/index.ts",
+  "exports": {
+    ".": "./ts/index.ts",
+    "./assemble": "./ts/assemble.ts"
+  },
+  "dependencies": {
+    "relational-text": "^0.1.1"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^3.0.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}
