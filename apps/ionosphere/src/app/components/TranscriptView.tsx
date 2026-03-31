@@ -31,7 +31,10 @@ interface WordSpan {
   endTime: number;
   byteStart: number;
   byteEnd: number;
-  gapBefore: number; // ns of silence before this word (0 = contiguous)
+  // Shared boundary times with adjacent words. These ensure that
+  // the brightness at word N's right edge == word N+1's left edge.
+  boundaryStartTime: number; // midpoint between prev word's end and this word's start
+  boundaryEndTime: number;   // midpoint between this word's end and next word's start
 }
 
 interface ConceptSpan {
@@ -76,13 +79,16 @@ function extractData(doc: TranscriptDocument) {
 
   words.sort((a, b) => a.startTime - b.startTime);
 
-  // Compute gap before each word
+  // Compute shared boundary times between adjacent words.
+  // The midpoint between word N's endTime and word N+1's startTime
+  // is used by both words, guaranteeing brightness continuity.
   for (let i = 0; i < words.length; i++) {
-    if (i === 0) {
-      words[i].gapBefore = words[i].startTime; // gap from 0 to first word
-    } else {
-      words[i].gapBefore = Math.max(0, words[i].startTime - words[i - 1].endTime);
-    }
+    words[i].boundaryStartTime = i === 0
+      ? words[i].startTime
+      : (words[i - 1].endTime + words[i].startTime) / 2;
+    words[i].boundaryEndTime = i === words.length - 1
+      ? words[i].endTime
+      : (words[i].endTime + words[i + 1].startTime) / 2;
   }
 
   // Build a lookup: for each word, which concepts overlap it?
@@ -108,55 +114,11 @@ function brightnessAtTime(currentTimeNs: number, timeNs: number): number {
   return BASE_BRIGHTNESS + (PEAK_BRIGHTNESS - BASE_BRIGHTNESS) * t * t;
 }
 
-/**
- * Brightness for a word, respecting gap boundaries.
- * If there's a gap before this word, the forward-looking brightness
- * (from earlier in time) is clamped so it can't bleed through the gap.
- */
-function wordStartBrightness(
-  currentTimeNs: number,
-  word: WordSpan
-): number {
-  const raw = brightnessAtTime(currentTimeNs, word.startTime);
-
-  // If current time is before this word's start and there's a gap,
-  // only allow brightness if we're past the gap (close to the word)
-  if (word.gapBefore > 0 && currentTimeNs < word.startTime) {
-    const gapStart = word.startTime - word.gapBefore;
-    if (currentTimeNs < gapStart) {
-      // We're before the gap even started — no forward bleed
-      return BASE_BRIGHTNESS;
-    }
-    // We're inside the gap — fade from base at gap start to raw at word start
-    const gapProgress =
-      (currentTimeNs - gapStart) / word.gapBefore;
-    return BASE_BRIGHTNESS + (raw - BASE_BRIGHTNESS) * gapProgress * gapProgress;
-  }
-
-  return raw;
-}
-
-function wordEndBrightness(
-  currentTimeNs: number,
-  word: WordSpan,
-  nextWord: WordSpan | null
-): number {
-  const raw = brightnessAtTime(currentTimeNs, word.endTime);
-
-  // If there's a gap after this word and current time is past the word,
-  // clamp the trailing brightness so it fades within the gap
-  if (nextWord && nextWord.gapBefore > 0 && currentTimeNs > word.endTime) {
-    const gapEnd = word.endTime + nextWord.gapBefore;
-    if (currentTimeNs > gapEnd) {
-      return BASE_BRIGHTNESS;
-    }
-    const gapProgress =
-      1 - (currentTimeNs - word.endTime) / nextWord.gapBefore;
-    return BASE_BRIGHTNESS + (raw - BASE_BRIGHTNESS) * gapProgress * gapProgress;
-  }
-
-  return raw;
-}
+// No gap-aware functions needed. Brightness continuity is guaranteed
+// by using shared boundary times between adjacent words. The brightness
+// at word N's right edge is brightnessAtTime(t, boundaryEndTime), and
+// word N+1's left edge is brightnessAtTime(t, boundaryStartTime) — and
+// these are the same value because boundaryEndTime[N] == boundaryStartTime[N+1].
 
 // Concept color: amber tint whose saturation scales with brightness.
 // When dim (far from playhead), concepts are barely distinguishable
@@ -181,14 +143,14 @@ const WordSpanComponent = forwardRef<
   HTMLSpanElement,
   {
     word: WordSpan;
-    nextWord: WordSpan | null;
     concept: ConceptSpan | null;
     currentTimeNs: number;
     onSeek: (ns: number) => void;
   }
->(function WordSpanComponent({ word, nextWord, concept, currentTimeNs, onSeek }, ref) {
-  const startB = wordStartBrightness(currentTimeNs, word);
-  const endB = wordEndBrightness(currentTimeNs, word, nextWord);
+>(function WordSpanComponent({ word, concept, currentTimeNs, onSeek }, ref) {
+  // Brightness at shared boundary times — guaranteed continuous with neighbors
+  const startB = brightnessAtTime(currentTimeNs, word.boundaryStartTime);
+  const endB = brightnessAtTime(currentTimeNs, word.boundaryEndTime);
 
   // The gradient must reach endColor at the last VISIBLE character, not
   // at the end of the span. With background-clip:text, the trailing space
@@ -523,7 +485,6 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
           key={i}
           ref={(el) => setWordRef(i, el)}
           word={word}
-          nextWord={i < words.length - 1 ? words[i + 1] : null}
           concept={wordConcepts[i]?.[0] || null}
           currentTimeNs={currentTimeNs}
           onSeek={handleSeek}
