@@ -19,7 +19,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
     <TimestampProvider>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
-          {talk.video_uri && <VideoPlayer videoUri={talk.video_uri} />}
+          {talk.video_uri && <VideoPlayer videoUri={talk.video_uri} offsetNs={talk.video_offset_ns || 0} />}
           <h1 className="text-2xl font-bold mt-4">{talk.title}</h1>
           <div className="text-neutral-400 mt-1">
             {speakers.map((s: any) => s.name).join(", ")}

@@ -116,8 +116,7 @@ async function enrichTranscript(
   speakerIndex: string
 ): Promise<EnrichmentResult> {
   const response = await llm.chat.completions.create({
-    model: "gpt-4o",
-    temperature: 0.1,
+    model: "gpt-5-mini",
     response_format: { type: "json_object" },
     messages: [
       {
