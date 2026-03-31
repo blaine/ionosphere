@@ -11,19 +11,23 @@ const VOD_COLLECTION = "place.stream.video";
 const VOD_PDS = "https://iameli.com";
 const BSKY_API = "https://bsky.social";
 
-// ionosphere.tv's own DID — placeholder until the real DID is created.
 const IONOSPHERE_DID = "did:plc:ionosphere-placeholder";
-
 const EVENT_URI = `at://${IONOSPHERE_DID}/tv.ionosphere.event/atmosphereconf-2026`;
 
-async function fetchAllRecords(baseUrl: string, repo: string, collection: string): Promise<any[]> {
+async function fetchAllRecords(
+  baseUrl: string,
+  repo: string,
+  collection: string
+): Promise<any[]> {
   const records: any[] = [];
   let cursor: string | undefined;
 
   do {
     const params = new URLSearchParams({ repo, collection, limit: "100" });
     if (cursor) params.set("cursor", cursor);
-    const res = await fetch(`${baseUrl}/xrpc/com.atproto.repo.listRecords?${params}`);
+    const res = await fetch(
+      `${baseUrl}/xrpc/com.atproto.repo.listRecords?${params}`
+    );
     if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
     const data = await res.json();
     records.push(...data.records);
@@ -57,52 +61,94 @@ function parseScheduleEvent(record: any): ScheduleEvent | null {
 }
 
 function parseVodRecord(record: any): VodRecord {
+  const v = record.value;
+  const endTime = new Date(v.createdAt);
+  const startTime = new Date(endTime.getTime() - v.duration / 1e6);
   return {
     uri: record.uri,
-    title: record.value.title,
-    creator: record.value.creator,
-    duration: record.value.duration,
-    createdAt: record.value.createdAt,
+    title: v.title,
+    creator: v.creator,
+    duration: v.duration,
+    createdAt: v.createdAt,
+    startTime,
+    endTime,
+    room: "",
   };
 }
 
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 async function main() {
   console.log("Fetching schedule events...");
-  const scheduleRaw = await fetchAllRecords(BSKY_API, SCHEDULE_DID, SCHEDULE_COLLECTION);
-  const schedule = scheduleRaw.map(parseScheduleEvent).filter((e): e is ScheduleEvent => e !== null);
-  console.log(`  ${schedule.length} schedule events (filtered from ${scheduleRaw.length})`);
+  const scheduleRaw = await fetchAllRecords(
+    BSKY_API,
+    SCHEDULE_DID,
+    SCHEDULE_COLLECTION
+  );
+  const schedule = scheduleRaw
+    .map(parseScheduleEvent)
+    .filter((e): e is ScheduleEvent => e !== null);
+  console.log(
+    `  ${schedule.length} schedule events (filtered from ${scheduleRaw.length})`
+  );
 
   console.log("Fetching VOD records...");
   const vodRaw = await fetchAllRecords(VOD_PDS, VOD_DID, VOD_COLLECTION);
   const vods = vodRaw.map(parseVodRecord);
   console.log(`  ${vods.length} VOD records`);
 
-  console.log("Correlating...");
+  console.log("Correlating (title + time-window matching)...");
   const matches = correlate(schedule, vods);
-  console.log(`  ${matches.length} matches`);
+
+  const withVideo = matches.filter((m) => m.primaryVideo);
+  const noVideo = matches.filter((m) => !m.primaryVideo);
+  const titleMatches = matches.filter((m) => m.method === "title");
+  const timeMatches = matches.filter((m) => m.method === "time-window");
+  console.log(
+    `  ${matches.length} talks: ${titleMatches.length} title-matched, ${timeMatches.length} time-window, ${noVideo.length} no recording`
+  );
 
   const db = openDb();
   migrate(db);
+
+  // Ensure video_offset_ns and video_segments columns exist
+  try {
+    db.exec(
+      "ALTER TABLE talks ADD COLUMN video_offset_ns INTEGER DEFAULT 0"
+    );
+  } catch {}
+  try {
+    db.exec("ALTER TABLE talks ADD COLUMN video_segments TEXT"); // JSON
+  } catch {}
 
   // Insert event
   db.prepare(
     `INSERT OR REPLACE INTO events (uri, did, rkey, name, description, location, starts_at, ends_at, tracks, schedule_repo, vod_repo)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    EVENT_URI, IONOSPHERE_DID, "atmosphereconf-2026",
+    EVENT_URI,
+    IONOSPHERE_DID,
+    "atmosphereconf-2026",
     "ATmosphereConf 2026",
     "The global gathering for the AT Protocol community.",
     "AMS Student Nest, UBC, Vancouver, BC, Canada",
-    "2026-03-26T00:00:00Z", "2026-03-29T23:59:59Z",
-    JSON.stringify(["Great Hall South", "Performance Theatre", "Room 2301"]),
-    SCHEDULE_DID, VOD_DID
+    "2026-03-26T00:00:00Z",
+    "2026-03-29T23:59:59Z",
+    JSON.stringify([
+      "Great Hall South",
+      "Performance Theatre",
+      "Room 2301",
+    ]),
+    SCHEDULE_DID,
+    VOD_DID
   );
 
-  // Collect unique speakers
+  // Collect unique speakers from ALL talks (not just matched)
   const speakerMap = new Map<string, { name: string; handle: string }>();
   for (const m of matches) {
     for (const s of m.schedule.speakers) {
@@ -118,13 +164,21 @@ async function main() {
   for (const [handle, speaker] of speakerMap) {
     const rkey = slugify(handle);
     const uri = `at://${IONOSPHERE_DID}/tv.ionosphere.speaker/${rkey}`;
-    insertSpeaker.run(uri, IONOSPHERE_DID, rkey, speaker.name, speaker.handle);
+    insertSpeaker.run(
+      uri,
+      IONOSPHERE_DID,
+      rkey,
+      speaker.name,
+      speaker.handle
+    );
   }
   console.log(`  ${speakerMap.size} speakers`);
 
+  // Insert talks
   const insertTalk = db.prepare(
-    `INSERT OR REPLACE INTO talks (uri, did, rkey, title, description, video_uri, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO talks
+     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const insertTalkSpeaker = db.prepare(
     `INSERT OR REPLACE INTO talk_speakers (talk_uri, speaker_uri) VALUES (?, ?)`
@@ -137,11 +191,29 @@ async function main() {
     const rkey = m.schedule.uri.split("/").pop()!;
     const talkUri = `at://${IONOSPHERE_DID}/tv.ionosphere.talk/${rkey}`;
 
+    const primary = m.primaryVideo;
+
     insertTalk.run(
-      talkUri, IONOSPHERE_DID, rkey, m.schedule.name, m.schedule.description,
-      m.vod.uri, m.schedule.uri, EVENT_URI, m.schedule.room,
-      m.schedule.category, m.schedule.type, m.schedule.startsAt,
-      m.schedule.endsAt, m.vod.duration
+      talkUri,
+      IONOSPHERE_DID,
+      rkey,
+      m.schedule.name,
+      m.schedule.description,
+      primary?.vodUri || null,
+      primary?.offsetNs || 0,
+      m.allSegments.length > 0
+        ? JSON.stringify(m.allSegments)
+        : null,
+      m.schedule.uri,
+      EVENT_URI,
+      m.schedule.room,
+      m.schedule.category,
+      m.schedule.type,
+      m.schedule.startsAt,
+      m.schedule.endsAt,
+      primary
+        ? Math.round(primary.coverageMs * 1e6)
+        : 0
     );
 
     for (const s of m.schedule.speakers) {
@@ -154,14 +226,26 @@ async function main() {
   }
 
   console.log(`\nIngested ${matches.length} talks into database.`);
-
-  const unmatchedSchedule = schedule.filter(
-    (s) => !matches.some((m) => m.schedule.uri === s.uri)
+  console.log(
+    `  ${withVideo.length} with video, ${noVideo.length} without`
   );
-  if (unmatchedSchedule.length > 0) {
-    console.log(`\nUnmatched schedule events (${unmatchedSchedule.length}):`);
-    for (const s of unmatchedSchedule) {
-      console.log(`  - ${s.name} (${s.type})`);
+
+  if (noVideo.length > 0) {
+    console.log(`\nTalks with no recording:`);
+    for (const m of noVideo) {
+      console.log(`  - ${m.schedule.name} (${m.schedule.room})`);
+    }
+  }
+
+  // Show time-window matches for review
+  if (timeMatches.length > 0) {
+    console.log(`\nTime-window matched talks (verify these):`);
+    for (const m of timeMatches) {
+      if (m.primaryVideo) {
+        console.log(
+          `  ${m.schedule.name} → "${m.primaryVideo.vodTitle}" at ${(m.primaryVideo.offsetNs / 1e9 / 60).toFixed(1)} min`
+        );
+      }
     }
   }
 
