@@ -27,14 +27,31 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
     if (!el) return;
 
     const observer = new ResizeObserver(() => {
-      // Find the actual video element and measure its rendered width
       const video = el.querySelector("video");
       if (video && video.offsetWidth > 0) {
         setVideoWidth(video.offsetWidth);
       }
     });
+
+    // Observe both the container and the video element (once it exists)
     observer.observe(el);
-    return () => observer.disconnect();
+
+    // The video element may not exist yet (HLS loading), so poll briefly
+    const checkVideo = setInterval(() => {
+      const video = el.querySelector("video");
+      if (video) {
+        observer.observe(video);
+        if (video.offsetWidth > 0) {
+          setVideoWidth(video.offsetWidth);
+        }
+        clearInterval(checkVideo);
+      }
+    }, 200);
+
+    return () => {
+      observer.disconnect();
+      clearInterval(checkVideo);
+    };
   }, []);
 
   return (
