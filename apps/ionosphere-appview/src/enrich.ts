@@ -1,22 +1,28 @@
 /**
  * LLM-assisted semantic enrichment of talk transcripts.
  *
- * Extracts: concepts, speaker mentions, talk cross-references, external links.
- * Outputs annotation data that gets stored as concept records and facets on the document.
+ * Reads talk and transcript records from the PDS, extracts concepts
+ * and cross-references via LLM, and writes concept records back to the PDS.
  *
- * Usage: OPENAI_API_KEY=... npx tsx src/enrich.ts <rkey>
+ * Usage: npx tsx src/enrich.ts <rkey>
  */
 import "./env.js";
 import OpenAI from "openai";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { openDb } from "./db.js";
+import { PdsClient, slugToRkey } from "./pds-client.js";
 
-// Load .env manually for the API key (env.ts may run too late for module-level imports)
+const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
+const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
+const BOT_PASSWORD = process.env.BOT_PASSWORD ?? "ionosphere-dev-password";
+
 function loadApiKey(): string {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
   try {
-    const envContent = readFileSync(path.resolve(import.meta.dirname, "../.env"), "utf-8");
+    const envContent = readFileSync(
+      path.resolve(import.meta.dirname, "../.env"),
+      "utf-8"
+    );
     for (const line of envContent.split("\n")) {
       const match = line.match(/^OPENAI_API_KEY=(.+)$/);
       if (match) return match[1].trim();
@@ -25,61 +31,82 @@ function loadApiKey(): string {
   throw new Error("OPENAI_API_KEY not found in environment or .env file");
 }
 
-const client = new OpenAI({ apiKey: loadApiKey() });
+const llm = new OpenAI({ apiKey: loadApiKey() });
 
-interface ConceptMention {
-  name: string;
-  aliases?: string[];
-  description?: string;
-  wikidataId?: string;
-  url?: string;
-  mentions: Array<{ text: string; context: string }>;
+// --- XRPC helpers ---
+
+async function listRecords(
+  collection: string,
+  repo: string
+): Promise<any[]> {
+  const records: any[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      repo,
+      collection,
+      limit: "100",
+    });
+    if (cursor) params.set("cursor", cursor);
+
+    const res = await fetch(
+      `${PDS_URL}/xrpc/com.atproto.repo.listRecords?${params}`
+    );
+    if (!res.ok) throw new Error(`listRecords failed: ${res.status}`);
+    const data = await res.json();
+    records.push(...data.records);
+    cursor = data.cursor;
+  } while (cursor);
+
+  return records;
 }
 
-interface SpeakerMention {
-  name: string;
-  handle?: string;
-  mentions: Array<{ text: string; context: string }>;
+async function getRecord(
+  collection: string,
+  repo: string,
+  rkey: string
+): Promise<any> {
+  const params = new URLSearchParams({ repo, collection, rkey });
+  const res = await fetch(
+    `${PDS_URL}/xrpc/com.atproto.repo.getRecord?${params}`
+  );
+  if (!res.ok) {
+    if (res.status === 404) return null;
+    throw new Error(`getRecord failed: ${res.status}`);
+  }
+  return res.json();
 }
 
-interface TalkCrossRef {
-  targetRkey: string;
-  targetTitle: string;
-  context: string;
-}
-
-interface LinkMention {
-  url: string;
-  title?: string;
-  context: string;
-}
+// --- Types ---
 
 interface EnrichmentResult {
-  concepts: ConceptMention[];
-  speakerMentions: SpeakerMention[];
-  crossRefs: TalkCrossRef[];
-  links: LinkMention[];
+  concepts: Array<{
+    name: string;
+    aliases?: string[];
+    description?: string;
+    wikidataId?: string;
+    url?: string;
+    mentions: Array<{ text: string; context: string }>;
+  }>;
+  speakerMentions: Array<{
+    name: string;
+    handle?: string;
+    mentions: Array<{ text: string; context: string }>;
+  }>;
+  crossRefs: Array<{
+    targetRkey: string;
+    targetTitle: string;
+    context: string;
+  }>;
+  links: Array<{
+    url: string;
+    title?: string;
+    context: string;
+  }>;
 }
 
-function buildTalkIndex(): string {
-  const db = openDb();
-  const talks = db
-    .prepare("SELECT rkey, title FROM talks ORDER BY starts_at ASC")
-    .all() as Array<{ rkey: string; title: string }>;
-  db.close();
-  return talks.map((t) => `${t.rkey}: ${t.title}`).join("\n");
-}
-
-function buildSpeakerIndex(): string {
-  const db = openDb();
-  const speakers = db
-    .prepare("SELECT rkey, name, handle FROM speakers ORDER BY name ASC")
-    .all() as Array<{ rkey: string; name: string; handle: string | null }>;
-  db.close();
-  return speakers
-    .map((s) => `${s.name}${s.handle ? ` (@${s.handle})` : ""}`)
-    .join("\n");
-}
+// --- LLM ---
 
 async function enrichTranscript(
   title: string,
@@ -88,7 +115,7 @@ async function enrichTranscript(
   talkIndex: string,
   speakerIndex: string
 ): Promise<EnrichmentResult> {
-  const response = await client.chat.completions.create({
+  const response = await llm.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.1,
     response_format: { type: "json_object" },
@@ -171,53 +198,76 @@ ${speakerIndex}`,
   return JSON.parse(content);
 }
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+// --- Main ---
 
 async function main() {
   const rkey = process.argv[2];
   if (!rkey) {
-    console.error("Usage: OPENAI_API_KEY=... npx tsx src/enrich.ts <rkey>");
+    console.error("Usage: npx tsx src/enrich.ts <rkey>");
     process.exit(1);
   }
 
-  const db = openDb();
-  const talk = db.prepare("SELECT * FROM talks WHERE rkey = ?").get(rkey) as any;
-  if (!talk) {
-    console.error(`Talk not found: ${rkey}`);
+  // Connect to PDS
+  const pds = new PdsClient(PDS_URL);
+  await pds.login(BOT_HANDLE, BOT_PASSWORD);
+  const did = pds.getDid();
+  console.log(`Connected to PDS as ${did}`);
+
+  // 1. Read talk record from PDS
+  const talkRecord = await getRecord("tv.ionosphere.talk", did, rkey);
+  if (!talkRecord) {
+    console.error(`Talk not found on PDS: ${rkey}`);
     process.exit(1);
   }
+  const talk = talkRecord.value;
 
-  // Get transcript text from transcripts table
-  const transcriptRecord = db
-    .prepare("SELECT text FROM transcripts WHERE talk_uri = ?")
-    .get(talk.uri) as any;
-
+  // 2. Read transcript record from PDS
+  const transcriptRkey = `${rkey}-transcript`;
+  const transcriptRecord = await getRecord(
+    "tv.ionosphere.transcript",
+    did,
+    transcriptRkey
+  );
   if (!transcriptRecord) {
-    console.error(`Talk has no transcript: ${rkey}`);
+    console.error(`Transcript not found on PDS: ${transcriptRkey}`);
     process.exit(1);
   }
-  const transcript: string = transcriptRecord.text;
+  const transcript = transcriptRecord.value.text;
 
-  const speakers = db
-    .prepare(
-      `SELECT s.name FROM speakers s
-       JOIN talk_speakers ts ON s.uri = ts.speaker_uri
-       WHERE ts.talk_uri = ?`
-    )
-    .all(talk.uri) as Array<{ name: string }>;
-  const speakerNames = speakers.map((s) => s.name).join(", ");
+  // 3. Build context indexes from PDS records
+  console.log("Building talk and speaker indexes from PDS...");
+  const allTalks = await listRecords("tv.ionosphere.talk", did);
+  const talkIndex = allTalks
+    .map((r: any) => {
+      const tRkey = r.uri.split("/").pop();
+      return `${tRkey}: ${r.value.title}`;
+    })
+    .join("\n");
+
+  const allSpeakers = await listRecords("tv.ionosphere.speaker", did);
+  const speakerIndex = allSpeakers
+    .map((r: any) => {
+      const s = r.value;
+      return `${s.name}${s.handle ? ` (@${s.handle})` : ""}`;
+    })
+    .join("\n");
+
+  // Get speaker names for this talk
+  const speakerNames = (talk.speakerUris || [])
+    .map((uri: string) => {
+      const sRkey = uri.split("/").pop();
+      const speaker = allSpeakers.find(
+        (r: any) => r.uri.split("/").pop() === sRkey
+      );
+      return speaker?.value.name || sRkey;
+    })
+    .join(", ");
 
   console.log(`Enriching: ${talk.title} (${speakerNames})`);
   console.log(`  Transcript: ${transcript.length} chars`);
+  console.log(`  Context: ${allTalks.length} talks, ${allSpeakers.length} speakers`);
 
-  const talkIndex = buildTalkIndex();
-  const speakerIndex = buildSpeakerIndex();
-
+  // 4. Call LLM
   console.log("  Calling LLM...");
   const result = await enrichTranscript(
     talk.title,
@@ -233,63 +283,23 @@ async function main() {
   console.log(`  Cross-refs: ${result.crossRefs.length}`);
   console.log(`  Links: ${result.links.length}`);
 
-  // Store concepts
-  const IONOSPHERE_DID = "did:plc:ionosphere-placeholder";
-  const insertConcept = db.prepare(
-    `INSERT OR IGNORE INTO concepts (uri, did, rkey, name, aliases, description, wikidata_id, url)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  const insertTalkConcept = db.prepare(
-    `INSERT OR REPLACE INTO talk_concepts (talk_uri, concept_uri, mention_count)
-     VALUES (?, ?, ?)`
-  );
-
+  // 5. Write concept records to PDS
   for (const concept of result.concepts) {
-    const conceptRkey = slugify(concept.name);
-    const conceptUri = `at://${IONOSPHERE_DID}/tv.ionosphere.concept/${conceptRkey}`;
-
-    insertConcept.run(
-      conceptUri,
-      IONOSPHERE_DID,
-      conceptRkey,
-      concept.name,
-      JSON.stringify(concept.aliases || []),
-      concept.description || null,
-      concept.wikidataId || null,
-      concept.url || null
-    );
-
-    insertTalkConcept.run(talk.uri, conceptUri, concept.mentions.length);
-
-    console.log(`  + concept: ${concept.name} (${concept.mentions.length} mentions)`);
+    const conceptRkey = slugToRkey(concept.name);
+    await pds.putRecord("tv.ionosphere.concept", conceptRkey, {
+      $type: "tv.ionosphere.concept",
+      name: concept.name,
+      ...(concept.aliases?.length && { aliases: concept.aliases }),
+      ...(concept.description && { description: concept.description }),
+      ...(concept.wikidataId && { wikidataId: concept.wikidataId }),
+      ...(concept.url && { url: concept.url }),
+    });
+    console.log(`  + concept: ${concept.name} → at://${did}/tv.ionosphere.concept/${conceptRkey}`);
   }
-
-  // Store cross-references
-  const insertCrossRef = db.prepare(
-    `INSERT OR IGNORE INTO talk_crossrefs (from_talk_uri, to_talk_uri)
-     VALUES (?, ?)`
-  );
-  for (const xref of result.crossRefs) {
-    const targetTalk = db
-      .prepare("SELECT uri FROM talks WHERE rkey = ?")
-      .get(xref.targetRkey) as any;
-    if (targetTalk) {
-      insertCrossRef.run(talk.uri, targetTalk.uri);
-      console.log(`  + cross-ref: → ${xref.targetTitle}`);
-    }
-  }
-
-  // Update pipeline status
-  db.prepare(
-    `UPDATE pipeline_status SET enriched = 1, updated_at = CURRENT_TIMESTAMP
-     WHERE talk_uri = ?`
-  ).run(talk.uri);
 
   // Print full results for review
   console.log("\n--- Full enrichment output ---");
   console.log(JSON.stringify(result, null, 2));
-
-  db.close();
 }
 
 main().catch(console.error);
