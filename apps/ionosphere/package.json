@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@ionosphere/format": "workspace:*",
+    "hls.js": "^1.6.15",
     "next": "^15",
     "react": "^18",
     "react-dom": "^18",
