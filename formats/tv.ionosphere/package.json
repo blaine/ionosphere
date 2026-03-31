@@ -5,7 +5,8 @@
   "main": "ts/index.ts",
   "exports": {
     ".": "./ts/index.ts",
-    "./assemble": "./ts/assemble.ts"
+    "./assemble": "./ts/assemble.ts",
+    "./lenses": "./ts/lenses.ts"
   },
   "dependencies": {
     "relational-text": "^0.1.1"

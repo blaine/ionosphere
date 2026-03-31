@@ -1,0 +1,18 @@
+{
+  "$type": "org.relationaltext.lens",
+  "id": "community.lexicon.calendar.event.to.tv.ionosphere.talk.v1",
+  "description": "Transform ATmosphereConf schedule events into ionosphere talk records",
+  "source": "community.lexicon.calendar.event",
+  "target": "tv.ionosphere.talk",
+  "invertible": false,
+  "rules": [
+    { "match": { "name": "name" }, "replace": { "name": "title" } },
+    { "match": { "name": "description" }, "replace": { "name": "description" } },
+    { "match": { "name": "startsAt" }, "replace": { "name": "startsAt" } },
+    { "match": { "name": "endsAt" }, "replace": { "name": "endsAt" } },
+    { "match": { "name": "additionalData.room" }, "replace": { "name": "room" } },
+    { "match": { "name": "additionalData.category" }, "replace": { "name": "category" } },
+    { "match": { "name": "additionalData.type" }, "replace": { "name": "talkType" } },
+    { "match": { "name": "additionalData.speakers" }, "replace": { "name": "speakers" } }
+  ]
+}

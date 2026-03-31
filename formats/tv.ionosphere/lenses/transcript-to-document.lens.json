@@ -1,0 +1,11 @@
+{
+  "$type": "org.relationaltext.lens",
+  "id": "transcript.to.tv.ionosphere.document.v1",
+  "description": "Map raw transcript timing data to ionosphere document timestamp facets",
+  "source": "transcript.raw",
+  "target": "tv.ionosphere.facet",
+  "passthrough": "keep",
+  "rules": [
+    { "match": { "name": "word-timing" }, "replace": { "name": "timestamp" } }
+  ]
+}

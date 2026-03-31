@@ -1,0 +1,13 @@
+{
+  "$type": "org.relationaltext.lens",
+  "id": "place.stream.video.to.tv.ionosphere.talk.v1",
+  "description": "Map Streamplace VOD record fields to ionosphere talk video metadata",
+  "source": "place.stream.video",
+  "target": "tv.ionosphere.talk",
+  "invertible": false,
+  "rules": [
+    { "match": { "name": "title" }, "replace": { "name": "title" } },
+    { "match": { "name": "duration" }, "replace": { "name": "duration" } },
+    { "match": { "name": "creator" }, "replace": { "name": "streamCreator" } }
+  ]
+}
