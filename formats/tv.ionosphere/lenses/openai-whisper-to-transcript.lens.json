@@ -1,0 +1,13 @@
+{
+  "$type": "org.relationaltext.lens",
+  "id": "openai.whisper.to.transcript.v1",
+  "description": "Transform OpenAI Whisper API verbose_json response to ionosphere transcript format",
+  "source": "openai.whisper.verbose_json",
+  "target": "tv.ionosphere.transcript",
+  "invertible": false,
+  "rules": [
+    { "match": { "name": "text" }, "replace": { "name": "text" } },
+    { "match": { "name": "words" }, "replace": { "name": "words" } }
+  ],
+  "notes": "Word-level mapping: { word, start, end } → { word, start, end, confidence }. Confidence not provided by OpenAI; defaults to 1.0."
+}

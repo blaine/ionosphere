@@ -21,15 +21,16 @@ export default function VideoPlayer({ videoUri }: VideoPlayerProps) {
     let hls: any;
 
     async function setupHls() {
-      if (video!.canPlayType("application/vnd.apple.mpegurl")) {
+      const { default: Hls } = await import("hls.js");
+      if (Hls.isSupported()) {
+        // Prefer hls.js — Streamplace uses Opus audio which Safari's
+        // native HLS player doesn't support
+        hls = new Hls();
+        hls.loadSource(playlistUrl);
+        hls.attachMedia(video!);
+      } else if (video!.canPlayType("application/vnd.apple.mpegurl")) {
+        // iOS Safari fallback (no MSE, but native HLS)
         video!.src = playlistUrl;
-      } else {
-        const { default: Hls } = await import("hls.js");
-        if (Hls.isSupported()) {
-          hls = new Hls();
-          hls.loadSource(playlistUrl);
-          hls.attachMedia(video!);
-        }
       }
     }
 
