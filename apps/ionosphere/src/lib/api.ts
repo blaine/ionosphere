@@ -33,3 +33,7 @@ export async function getConcept(rkey: string) {
 export async function getIndex() {
   return fetchApi<{ entries: any[] }>("/index");
 }
+
+export async function getConceptClusters() {
+  return fetchApi<{ clusters: any[] }>("/concepts/clusters");
+}

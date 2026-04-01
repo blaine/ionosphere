@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { buildConcordance } from "./concordance.js";
 import type Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   decodeToDocument,
   type Document,
@@ -180,6 +182,39 @@ export function createRoutes(db: Database.Database): Hono {
       .prepare("SELECT * FROM concepts ORDER BY name ASC")
       .all();
     return c.json({ concepts });
+  });
+
+  app.get("/concepts/clusters", (c) => {
+    try {
+      const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
+      const data = JSON.parse(readFileSync(clustersPath, "utf-8"));
+
+      const enriched = data.clusters.map((cluster: any) => {
+        const concepts = cluster.conceptRkeys.map((rkey: string) => {
+          const concept = db
+            .prepare("SELECT * FROM concepts WHERE rkey = ?")
+            .get(rkey) as any;
+          if (!concept) return null;
+
+          const talkCount = db
+            .prepare("SELECT COUNT(*) as count FROM talk_concepts WHERE concept_uri = ?")
+            .get(concept.uri) as any;
+
+          return {
+            rkey: concept.rkey,
+            name: concept.name,
+            description: concept.description,
+            talkCount: talkCount?.count || 0,
+          };
+        }).filter(Boolean);
+
+        return { id: cluster.id, label: cluster.label, description: cluster.description, concepts };
+      });
+
+      return c.json({ clusters: enriched });
+    } catch {
+      return c.json({ clusters: [] });
+    }
   });
 
   app.get("/concepts/:rkey", (c) => {

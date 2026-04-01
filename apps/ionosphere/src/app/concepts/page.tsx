@@ -1,8 +1,8 @@
-import { getConcepts } from "@/lib/api";
+import { getConceptClusters } from "@/lib/api";
 import ConceptsListContent from "./ConceptsListContent";
 
 export default async function ConceptsPage() {
-  const { concepts } = await getConcepts();
+  const { clusters } = await getConceptClusters();
 
-  return <ConceptsListContent concepts={concepts} />;
+  return <ConceptsListContent clusters={clusters} />;
 }
