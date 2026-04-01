@@ -242,7 +242,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
 
       {/* Right: player panel */}
       <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all
-        ${showMobilePlayer ? "!w-full" : "hidden md:flex"}
+        ${showMobilePlayer ? "max-md:!w-full max-md:!border-0" : "hidden md:flex"}
         ${!selectedTalk && !showMobilePlayer ? "hidden md:flex" : ""}`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
