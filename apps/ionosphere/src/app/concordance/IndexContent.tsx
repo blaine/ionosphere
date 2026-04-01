@@ -203,15 +203,14 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [entries]);
 
-  // Track whether we're client-side (Pretext needs canvas)
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  // Measure with Pretext (client-side) and balance across columns
+  // Balance columns using line-count estimation (fast).
+  // Pretext measurement is too slow for 10k+ entries called individually.
+  // TODO: Use Pretext's walkLineRanges on a single prepared text for
+  // precise measurement + viewport virtualization.
   const columns = useMemo(() => {
-    const measured = measureGroups(groups, columnWidth, mounted);
+    const measured = measureGroups(groups, columnWidth, false);
     return balanceColumns(measured, numColumns);
-  }, [groups, columnWidth, numColumns, mounted]);
+  }, [groups, columnWidth, numColumns]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
