@@ -257,7 +257,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
             <div className="p-3 border-b border-neutral-800 text-sm font-medium truncate">
               {selectedTalk.title}
             </div>
-            <div className="shrink-0">
+            <div className="shrink-0 aspect-video bg-black">
               <VideoPlayer
                 videoUri={selectedTalk.videoUri}
                 offsetNs={selectedTalk.offsetNs}
