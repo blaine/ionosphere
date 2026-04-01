@@ -85,6 +85,8 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [isRegex, setIsRegex] = useState(false);
   const [widePlayer, setWidePlayer] = useState(false);
   const [showMobilePlayer, setShowMobilePlayer] = useState(false);
+  const [expandedLetters, setExpandedLetters] = useState<Set<string>>(new Set());
+  const ENTRIES_PER_GROUP = 20;
 
   // Filter entries by search term (plain text or regex)
   const filteredEntries = useMemo(() => {
@@ -207,12 +209,20 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
           </span>
         </div>
         <div style={{ columnWidth: "280px", columnGap: "1.5rem" }}>
-          {groups.map((group) => (
+          {groups.map((group) => {
+            const isExpanded = expandedLetters.has(group.letter) || !!filter;
+            const visibleEntries = isExpanded ? group.entries : group.entries.slice(0, ENTRIES_PER_GROUP);
+            const hasMore = !isExpanded && group.entries.length > ENTRIES_PER_GROUP;
+
+            return (
             <div key={group.letter} className="break-inside-avoid mb-4">
               <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
                 {group.letter}
+                {group.entries.length > ENTRIES_PER_GROUP && (
+                  <span className="text-neutral-700 text-xs font-normal ml-1">({group.entries.length})</span>
+                )}
               </h2>
-                  {group.entries.map((entry) => {
+                  {visibleEntries.map((entry) => {
                     // "see"-only entry: compact redirect
                     const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
                     if (isSeeOnly) {
@@ -317,8 +327,17 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                       </div>
                     );
                   })}
+                  {hasMore && (
+                    <button
+                      onClick={() => setExpandedLetters((prev) => new Set(prev).add(group.letter))}
+                      className="text-[12px] text-neutral-600 hover:text-neutral-400 mt-1"
+                    >
+                      +{group.entries.length - ENTRIES_PER_GROUP} more...
+                    </button>
+                  )}
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
 
