@@ -201,7 +201,18 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ concept, talks });
   });
 
+  // Cache the concordance — NLP pipeline takes ~2.5 min, data is static
+  let indexCache: { entries: any[]; builtAt: number } | null = null;
+
   app.get("/index", (c) => {
+    // Serve from cache if available
+    if (indexCache) {
+      return c.json({ entries: indexCache.entries });
+    }
+
+    console.log("[index] Building concordance (this takes a couple minutes the first time)...");
+    const start = Date.now();
+
     const rows = db
       .prepare(
         `SELECT tr.text, tr.start_ms, tr.timings, t.rkey as talk_rkey, t.title as talk_title
@@ -219,7 +230,6 @@ export function createRoutes(db: Database.Database): Hono {
       timings: JSON.parse(r.timings),
     }));
 
-    // Get concept data for enrichment
     const conceptRows = db
       .prepare(
         `SELECT c.name, c.rkey, c.aliases,
@@ -240,7 +250,16 @@ export function createRoutes(db: Database.Database): Hono {
     }));
 
     const entries = buildConcordance(transcripts, concepts);
+    indexCache = { entries, builtAt: Date.now() };
+    console.log(`[index] Concordance built: ${entries.length} entries in ${((Date.now() - start) / 1000).toFixed(1)}s`);
+
     return c.json({ entries });
+  });
+
+  // Invalidate cache (call after data changes)
+  app.post("/index/invalidate", (c) => {
+    indexCache = null;
+    return c.json({ ok: true });
   });
 
   return app;
