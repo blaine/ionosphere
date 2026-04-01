@@ -33,8 +33,12 @@ export function buildConcordance(transcripts: TranscriptInput[]): ConcordanceEnt
     const words = t.text.split(/\s+/).filter((w) => w.length > 0);
 
     for (let i = 0; i < words.length; i++) {
-      const raw = words[i].toLowerCase().replace(/[^a-z0-9'-]/g, "");
-      if (!raw || isStopword(raw)) continue;
+      let raw = words[i].toLowerCase().replace(/[^a-z0-9'-]/g, "");
+      // Strip possessives: "protocol's" → "protocol"
+      raw = raw.replace(/'s$/, "").replace(/'s$/, "");
+      // Strip leading/trailing punctuation remnants
+      raw = raw.replace(/^['-]+/, "").replace(/['-]+$/, "");
+      if (!raw || isStopword(raw) || !/^[a-z]/.test(raw)) continue;
 
       const timestampNs = i < decoded.words.length ? Math.round(decoded.words[i].start * 1e9) : 0;
 
