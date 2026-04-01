@@ -252,7 +252,7 @@ export default function SpeakersListContent({
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
             <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
               <button
-                onClick={() => setShowMobilePlayer(false)}
+                onClick={() => { setShowMobilePlayer(false); setSelectedTalk(null); }}
                 className="md:hidden text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 text-sm"
               >
                 &larr; Back to list
