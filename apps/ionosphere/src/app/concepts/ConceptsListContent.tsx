@@ -186,7 +186,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
               </button>
               <span className="truncate">{selectedTalk.title}</span>
             </div>
-            <div className="shrink-0 aspect-video bg-black">
+            <div className="shrink-0 bg-black overflow-hidden">
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
             </div>
             {selectedTalk.document && (

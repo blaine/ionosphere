@@ -137,6 +137,6 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
   }, [onSeek, offsetS]);
 
   return (
-    <video ref={videoRef} controls className="w-full h-full rounded-lg bg-black object-contain" />
+    <video ref={videoRef} controls className="w-full rounded-lg bg-black" />
   );
 }
