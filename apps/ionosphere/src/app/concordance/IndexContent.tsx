@@ -285,10 +285,16 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
+  const scrollToTerm = useCallback((term: string) => {
+    const id = `term-${term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   return (
     <div className="h-full flex">
       {/* Letter nav — vertical strip on the left edge */}
-      <nav className="shrink-0 w-6 flex flex-col items-center justify-center gap-0.5 border-r border-neutral-800 py-2">
+      <nav className="shrink-0 w-6 flex flex-col items-center justify-center gap-1.5 border-r border-neutral-800 py-2">
         {allLetters.map((letter) => (
           <button
             key={letter}
@@ -302,8 +308,8 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
 
       {/* Main: search + multi-column word index */}
       <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
-        {/* Search bar */}
-        <div className="flex items-center gap-3 mb-4">
+        {/* Search bar — sticky */}
+        <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <h1 className="text-xl font-bold tracking-tight shrink-0">Word Index</h1>
           <div className="flex-1 max-w-sm relative">
             <input
@@ -340,15 +346,22 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                     const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
                     if (isSeeOnly) {
                       return (
-                        <div key={entry.term} className="text-[13px] leading-[1.6] mb-1">
+                        <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-1">
                           <span className="text-neutral-400">{entry.term}</span>
-                          <span className="text-neutral-600 italic"> — see {entry.see.join(", ")}</span>
+                          <span className="text-neutral-600 italic"> — see{" "}
+                            {entry.see.map((ref, i) => (
+                              <span key={ref}>
+                                {i > 0 && ", "}
+                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                              </span>
+                            ))}
+                          </span>
                         </div>
                       );
                     }
 
                     return (
-                      <div key={entry.term} className="text-[13px] leading-[1.6] mb-2">
+                      <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-2">
                         <div className="font-medium text-neutral-200">
                           {entry.term}
                         </div>
@@ -409,13 +422,25 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                         {/* See references */}
                         {entry.see?.length > 0 && (
                           <div className="text-neutral-600 italic pl-3">
-                            see {entry.see.join(", ")}
+                            see{" "}
+                            {entry.see.map((ref, i) => (
+                              <span key={ref}>
+                                {i > 0 && ", "}
+                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                              </span>
+                            ))}
                           </div>
                         )}
                         {/* See also */}
                         {entry.seeAlso?.length > 0 && (
                           <div className="text-neutral-600 text-xs pl-3">
-                            see also: {entry.seeAlso.join(", ")}
+                            see also:{" "}
+                            {entry.seeAlso.map((ref, i) => (
+                              <span key={ref}>
+                                {i > 0 && ", "}
+                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                              </span>
+                            ))}
                           </div>
                         )}
                       </div>
