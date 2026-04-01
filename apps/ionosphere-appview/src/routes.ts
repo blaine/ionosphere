@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { buildConcordance } from "./concordance.js";
 import type Database from "better-sqlite3";
 import {
   decodeToDocument,
@@ -189,6 +190,28 @@ export function createRoutes(db: Database.Database): Hono {
       .all((concept as any).uri);
 
     return c.json({ concept, talks });
+  });
+
+  app.get("/index", (c) => {
+    const rows = db
+      .prepare(
+        `SELECT tr.text, tr.start_ms, tr.timings, t.rkey as talk_rkey, t.title as talk_title
+         FROM transcripts tr
+         JOIN talks t ON tr.talk_uri = t.uri
+         ORDER BY t.starts_at ASC`
+      )
+      .all() as any[];
+
+    const transcripts = rows.map((r: any) => ({
+      talkRkey: r.talk_rkey,
+      talkTitle: r.talk_title,
+      text: r.text,
+      startMs: r.start_ms,
+      timings: JSON.parse(r.timings),
+    }));
+
+    const entries = buildConcordance(transcripts);
+    return c.json({ entries });
   });
 
   return app;
