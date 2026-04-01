@@ -155,8 +155,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [isRegex, setIsRegex] = useState(false);
   const [widePlayer, setWidePlayer] = useState(false);
   const [showMobilePlayer, setShowMobilePlayer] = useState(false);
-  const [expandedLetters, setExpandedLetters] = useState<Set<string>>(new Set());
-  const ENTRIES_PER_GROUP = 20;
+  const [expandedLetters] = useState<Set<string>>(new Set()); // kept for API compat
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnWidth, setColumnWidth] = useState(280);
@@ -220,8 +219,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const columns = useMemo(() => {
     const numCols = Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
     const heights = groups.map((g) => {
-      const visibleCount = expandedLetters.has(g.letter) || filter ? g.entries.length : ENTRIES_PER_GROUP;
-      return measureGroupHeight(g, visibleCount, columnWidth, mounted);
+      return measureGroupHeight(g, g.entries.length, columnWidth, mounted);
     });
     return distributeColumns(groups, heights, numCols);
   }, [groups, columnWidth, mounted, expandedLetters, filter]);
@@ -300,20 +298,12 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
         <div className="flex gap-6 items-start">
           {columns.map((column, colIdx) => (
             <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
-              {column.map((group) => {
-                const isExpanded = expandedLetters.has(group.letter) || !!filter;
-                const visibleEntries = isExpanded ? group.entries : group.entries.slice(0, ENTRIES_PER_GROUP);
-                const hasMore = !isExpanded && group.entries.length > ENTRIES_PER_GROUP;
-
-                return (
+              {column.map((group) => (
                   <div key={group.letter} className="mb-4">
                     <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
                       {group.letter}
-                      {group.entries.length > ENTRIES_PER_GROUP && (
-                        <span className="text-neutral-700 text-xs font-normal ml-1">({group.entries.length})</span>
-                      )}
                     </h2>
-                    {visibleEntries.map((entry) => {
+                    {group.entries.map((entry) => {
                       const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
                       if (isSeeOnly) {
                         return (
@@ -379,15 +369,8 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                         </div>
                       );
                     })}
-                    {hasMore && (
-                      <button
-                        onClick={() => setExpandedLetters((prev) => new Set(prev).add(group.letter))}
-                        className="text-[12px] text-neutral-600 hover:text-neutral-400 mt-1"
-                      >+{group.entries.length - ENTRIES_PER_GROUP} more...</button>
-                    )}
                   </div>
-                );
-              })}
+              ))}
             </div>
           ))}
         </div>
