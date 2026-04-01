@@ -10,6 +10,9 @@ importers:
 
   apps/ionosphere:
     dependencies:
+      '@chenglou/pretext':
+        specifier: ^0.0.3
+        version: 0.0.3
       '@ionosphere/format':
         specifier: workspace:*
         version: link:../../formats/tv.ionosphere
@@ -154,6 +157,9 @@ packages:
 
   '@atproto/xrpc@0.7.7':
     resolution: {integrity: sha512-K1ZyO/BU8JNtXX5dmPp7b5UrkLMMqpsIa/Lrj5D3Su+j1Xwq1m6QJ2XJ1AgjEjkI1v4Muzm7klianLE6XGxtmA==}
+
+  '@chenglou/pretext@0.0.3':
+    resolution: {integrity: sha512-RQmqMqUAPRCyv4R3LlRi/ao6KbNWYclqLA+V1HS7sWgyUUbjn3JmmlfXZSY/BjM4rbmIaMSyIVisYocYGYftiQ==}
 
   '@emnapi/runtime@1.9.1':
     resolution: {integrity: sha512-VYi5+ZVLhpgK4hQ0TAjiQiZ6ol0oe4mBx7mVv7IflsiEp0OWoVsp/+f9Vc1hOhE0TtkORVrI1GvzyreqpgWtkA==}
@@ -1566,6 +1572,8 @@ snapshots:
     dependencies:
       '@atproto/lexicon': 0.6.2
       zod: 3.25.76
+
+  '@chenglou/pretext@0.0.3': {}
 
   '@emnapi/runtime@1.9.1':
     dependencies:

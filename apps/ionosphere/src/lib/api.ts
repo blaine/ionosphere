@@ -29,3 +29,7 @@ export async function getConcepts() {
 export async function getConcept(rkey: string) {
   return fetchApi<{ concept: any; talks: any[] }>(`/concepts/${rkey}`);
 }
+
+export async function getIndex() {
+  return fetchApi<{ entries: any[] }>("/index");
+}

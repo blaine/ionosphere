@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
+    "@chenglou/pretext": "^0.0.3",
     "@ionosphere/format": "workspace:*",
     "hls.js": "^1.6.15",
     "next": "^15",
