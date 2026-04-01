@@ -161,9 +161,12 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
         </div>
       </div>
 
-      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all
-        ${showMobilePlayer ? "max-md:!w-full max-md:!border-0" : "hidden md:flex"}
-        ${!selectedTalk && !showMobilePlayer ? "hidden md:flex" : ""}`}>
+      <div className={[
+        widePlayer ? "w-2/3" : "w-[400px]",
+        "shrink-0 border-l border-neutral-800 flex flex-col transition-all",
+        selectedTalk ? "hidden md:flex" : "hidden",
+        showMobilePlayer && selectedTalk ? "!flex max-md:!w-full max-md:!border-0" : "",
+      ].join(" ")}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
