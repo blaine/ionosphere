@@ -48,6 +48,11 @@ interface Concept {
   talk_count?: number;
 }
 
+interface ConceptTalk {
+  rkey: string;
+  title: string;
+}
+
 interface LetterGroup {
   letter: string;
   concepts: Concept[];
@@ -73,10 +78,19 @@ function groupByLetter(concepts: Concept[]): LetterGroup[] {
     .map(([letter, items]) => ({ letter, concepts: items }));
 }
 
-function measureGroups(groups: LetterGroup[]): MeasuredGroup[] {
+function measureGroups(groups: LetterGroup[], expandedTalks: Map<string, ConceptTalk[]>): MeasuredGroup[] {
   return groups.map((g) => {
-    // Each concept takes ~2 lines (name + description), plus heading + margin
-    const height = HEADING_HEIGHT + g.concepts.length * (LINE_HEIGHT * 2) + GROUP_MARGIN;
+    let height = HEADING_HEIGHT;
+    for (const c of g.concepts) {
+      // concept name + description = ~2 lines
+      height += LINE_HEIGHT * 2;
+      // expanded talks
+      const talks = expandedTalks.get(c.rkey);
+      if (talks) {
+        height += talks.length * LINE_HEIGHT;
+      }
+    }
+    height += GROUP_MARGIN;
     return { ...g, height };
   });
 }
@@ -119,6 +133,10 @@ export default function ConceptsListContent({ concepts }: { concepts: Concept[] 
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnWidth, setColumnWidth] = useState(280);
 
+  // Track which concepts have been expanded to show their talks
+  const [expandedTalks, setExpandedTalks] = useState<Map<string, ConceptTalk[]>>(new Map());
+  const [loadingConcept, setLoadingConcept] = useState<string | null>(null);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -159,20 +177,42 @@ export default function ConceptsListContent({ concepts }: { concepts: Concept[] 
   const groups = useMemo(() => groupByLetter(filteredConcepts), [filteredConcepts]);
 
   const columns = useMemo(() => {
-    const measured = measureGroups(groups);
+    const measured = measureGroups(groups, expandedTalks);
     return balanceColumns(measured, numColumns);
-  }, [groups, numColumns]);
+  }, [groups, numColumns, expandedTalks]);
 
-  const handleSelect = useCallback(async (conceptRkey: string) => {
+  /** Fetch concept talks and expand, also load first talk in player */
+  const handleConceptClick = useCallback(async (conceptRkey: string) => {
+    // If already expanded, collapse
+    if (expandedTalks.has(conceptRkey)) {
+      setExpandedTalks((prev) => {
+        const next = new Map(prev);
+        next.delete(conceptRkey);
+        return next;
+      });
+      return;
+    }
+
     try {
+      setLoadingConcept(conceptRkey);
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-      // Fetch the concept's talks
       const conceptRes = await fetch(`${API_BASE}/concepts/${conceptRkey}`);
       if (!conceptRes.ok) return;
       const { talks } = await conceptRes.json();
-      if (!talks || talks.length === 0) return;
+      if (!talks || talks.length === 0) {
+        setExpandedTalks((prev) => new Map(prev).set(conceptRkey, []));
+        return;
+      }
 
-      // Load the first talk with full document
+      // Store talk list for display
+      setExpandedTalks((prev) =>
+        new Map(prev).set(
+          conceptRkey,
+          talks.map((t: any) => ({ rkey: t.rkey, title: t.title }))
+        )
+      );
+
+      // Load first talk in player
       const firstTalk = talks[0];
       const talkRes = await fetch(`${API_BASE}/talks/${firstTalk.rkey}`);
       if (!talkRes.ok) return;
@@ -188,7 +228,31 @@ export default function ConceptsListContent({ concepts }: { concepts: Concept[] 
         seekToNs: 0,
       });
     } catch (err) {
-      console.error("[Concepts] handleSelect error:", err);
+      console.error("[Concepts] handleConceptClick error:", err);
+    } finally {
+      setLoadingConcept(null);
+    }
+  }, [expandedTalks]);
+
+  /** Load a specific talk in the player */
+  const handleSelectTalk = useCallback(async (rkey: string) => {
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
+      const talkRes = await fetch(`${API_BASE}/talks/${rkey}`);
+      if (!talkRes.ok) return;
+      const { talk } = await talkRes.json();
+      const doc = talk.document ? JSON.parse(talk.document) : null;
+
+      setSelectedTalk({
+        rkey: talk.rkey,
+        title: talk.title,
+        videoUri: talk.video_uri,
+        offsetNs: talk.video_offset_ns || 0,
+        document: doc?.facets?.length > 0 ? doc : null,
+        seekToNs: 0,
+      });
+    } catch (err) {
+      console.error("[Concepts] handleSelectTalk error:", err);
     }
   }, []);
 
@@ -251,27 +315,57 @@ export default function ConceptsListContent({ concepts }: { concepts: Concept[] 
                   >
                     {group.letter}
                   </h2>
-                  {group.concepts.map((concept) => (
-                    <button
-                      key={concept.rkey}
-                      onClick={() => handleSelect(concept.rkey)}
-                      className="block w-full text-left text-[13px] leading-[1.6] mb-1.5 hover:text-neutral-100 transition-colors"
-                    >
-                      <div className="font-medium text-neutral-200">
-                        {concept.name}
-                        {concept.talk_count != null && concept.talk_count > 0 && (
-                          <span className="text-neutral-600 font-normal ml-1.5">
-                            ({concept.talk_count})
-                          </span>
+                  {group.concepts.map((concept) => {
+                    const conceptTalks = expandedTalks.get(concept.rkey);
+                    const isExpanded = conceptTalks !== undefined;
+                    const isLoading = loadingConcept === concept.rkey;
+
+                    return (
+                      <div key={concept.rkey} className="text-[13px] leading-[1.6] mb-2">
+                        <button
+                          onClick={() => handleConceptClick(concept.rkey)}
+                          className="block w-full text-left hover:text-neutral-100 transition-colors"
+                        >
+                          <div className="font-medium text-neutral-200">
+                            {concept.name}
+                            {concept.talk_count != null && concept.talk_count > 0 && (
+                              <span className="text-neutral-600 font-normal ml-1.5">
+                                ({concept.talk_count} {concept.talk_count === 1 ? "talk" : "talks"})
+                              </span>
+                            )}
+                            {isLoading && (
+                              <span className="text-neutral-600 font-normal ml-1.5">...</span>
+                            )}
+                          </div>
+                          {concept.description && (
+                            <div className="text-neutral-600 text-xs truncate">
+                              {concept.description}
+                            </div>
+                          )}
+                        </button>
+                        {/* Expanded talk list */}
+                        {isExpanded && conceptTalks.length > 0 && (
+                          <div className="mt-0.5">
+                            {conceptTalks.map((talk) => (
+                              <div key={talk.rkey} className="pl-3 truncate text-neutral-500">
+                                <button
+                                  onClick={() => handleSelectTalk(talk.rkey)}
+                                  className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                                >
+                                  {talk.title}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {isExpanded && conceptTalks.length === 0 && (
+                          <div className="pl-3 text-neutral-600 text-xs italic">
+                            No talks linked
+                          </div>
                         )}
                       </div>
-                      {concept.description && (
-                        <div className="text-neutral-600 truncate text-xs">
-                          {concept.description}
-                        </div>
-                      )}
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -301,7 +395,7 @@ export default function ConceptsListContent({ concepts }: { concepts: Concept[] 
           </TimestampProvider>
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm p-6 text-center">
-            Click a concept to play a related talk
+            Click a concept to see related talks
           </div>
         )}
       </div>
