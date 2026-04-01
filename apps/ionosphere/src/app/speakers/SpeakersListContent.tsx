@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -66,14 +66,6 @@ interface LetterGroup {
   speakers: SpeakerWithTalks[];
 }
 
-interface MeasuredGroup extends LetterGroup {
-  height: number;
-}
-
-const LINE_HEIGHT = 22;
-const HEADING_HEIGHT = 36;
-const GROUP_MARGIN = 16;
-
 function groupByLetter(speakers: SpeakerWithTalks[]): LetterGroup[] {
   const map = new Map<string, SpeakerWithTalks[]>();
   for (const s of speakers) {
@@ -84,41 +76,6 @@ function groupByLetter(speakers: SpeakerWithTalks[]): LetterGroup[] {
   return [...map.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([letter, items]) => ({ letter, speakers: items }));
-}
-
-function measureGroups(groups: LetterGroup[]): MeasuredGroup[] {
-  return groups.map((g) => {
-    let height = HEADING_HEIGHT;
-    for (const s of g.speakers) {
-      // speaker name line + one line per talk
-      height += LINE_HEIGHT + s.talks.length * LINE_HEIGHT;
-    }
-    height += GROUP_MARGIN;
-    return { ...g, height };
-  });
-}
-
-function balanceColumns(groups: MeasuredGroup[], numColumns: number): MeasuredGroup[][] {
-  const totalHeight = groups.reduce((sum, g) => sum + g.height, 0);
-  const targetHeight = totalHeight / numColumns;
-
-  const columns: MeasuredGroup[][] = [];
-  let currentColumn: MeasuredGroup[] = [];
-  let currentHeight = 0;
-
-  for (const group of groups) {
-    currentColumn.push(group);
-    currentHeight += group.height;
-
-    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
-      columns.push(currentColumn);
-      currentColumn = [];
-      currentHeight = 0;
-    }
-  }
-  columns.push(currentColumn);
-
-  return columns;
 }
 
 /** Match talks to speakers by checking if speaker name appears in talk's speaker_names field */
@@ -152,22 +109,7 @@ export default function SpeakersListContent({
 
   const [filter, setFilter] = useState("");
   const [widePlayer, setWidePlayer] = useState(false);
-  const numColumns = 4;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [columnWidth, setColumnWidth] = useState(280);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      const padding = 32;
-      const gaps = (numColumns - 1) * 24;
-      const available = el.clientWidth - padding - gaps;
-      setColumnWidth(Math.max(200, Math.floor(available / numColumns)));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [numColumns]);
+  const [showMobilePlayer, setShowMobilePlayer] = useState(false);
 
   const speakersWithTalks = useMemo(
     () => buildSpeakersWithTalks(speakers, talks),
@@ -201,11 +143,6 @@ export default function SpeakersListContent({
 
   const groups = useMemo(() => groupByLetter(filteredSpeakers), [filteredSpeakers]);
 
-  const columns = useMemo(() => {
-    const measured = measureGroups(groups);
-    return balanceColumns(measured, numColumns);
-  }, [groups, numColumns]);
-
   const handleSelectTalk = useCallback(async (rkey: string) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
@@ -222,6 +159,7 @@ export default function SpeakersListContent({
         document: doc?.facets?.length > 0 ? doc : null,
         seekToNs: 0,
       });
+      setShowMobilePlayer(true);
     } catch (err) {
       console.error("[Speakers] handleSelectTalk error:", err);
     }
@@ -248,7 +186,7 @@ export default function SpeakersListContent({
       </nav>
 
       {/* Main: search + multi-column speaker list */}
-      <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
         {/* Sticky search bar */}
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <h1 className="text-xl font-bold tracking-tight shrink-0">Speakers</h1>
@@ -266,40 +204,36 @@ export default function SpeakersListContent({
           </span>
         </div>
 
-        <div className="flex gap-6 items-start">
-          {columns.map((column, colIdx) => (
-            <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
-              {column.map((group) => (
-                <div key={group.letter} className="mb-4">
-                  <h2
-                    id={`speaker-letter-${group.letter}`}
-                    className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1"
-                  >
-                    {group.letter}
-                  </h2>
-                  {group.speakers.map((speaker) => (
-                    <div
-                      key={speaker.rkey}
-                      className="text-[13px] leading-[1.6] mb-2"
-                    >
-                      <div className="font-medium text-neutral-200">
-                        {speaker.name}
-                        {speaker.handle && (
-                          <span className="text-neutral-600 font-normal ml-1.5">
-                            @{speaker.handle}
-                          </span>
-                        )}
-                      </div>
-                      {speaker.talks.map((talk) => (
-                        <div key={talk.rkey} className="pl-3 truncate text-neutral-500">
-                          <button
-                            onClick={() => handleSelectTalk(talk.rkey)}
-                            className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
-                          >
-                            {talk.title}
-                          </button>
-                        </div>
-                      ))}
+        <div style={{ columnWidth: "280px", columnGap: "1.5rem" }}>
+          {groups.map((group) => (
+            <div key={group.letter} className="break-inside-avoid mb-4">
+              <h2
+                id={`speaker-letter-${group.letter}`}
+                className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1"
+              >
+                {group.letter}
+              </h2>
+              {group.speakers.map((speaker) => (
+                <div
+                  key={speaker.rkey}
+                  className="text-[13px] leading-[1.6] mb-2"
+                >
+                  <div className="font-medium text-neutral-200">
+                    {speaker.name}
+                    {speaker.handle && (
+                      <span className="text-neutral-600 font-normal ml-1.5">
+                        @{speaker.handle}
+                      </span>
+                    )}
+                  </div>
+                  {speaker.talks.map((talk) => (
+                    <div key={talk.rkey} className="pl-3 truncate text-neutral-500">
+                      <button
+                        onClick={() => handleSelectTalk(talk.rkey)}
+                        className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                      >
+                        {talk.title}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -310,17 +244,25 @@ export default function SpeakersListContent({
       </div>
 
       {/* Right: player panel */}
-      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all`}>
+      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all
+        ${showMobilePlayer ? "!w-full" : "hidden md:flex"}
+        ${!selectedTalk && !showMobilePlayer ? "hidden md:flex" : ""}`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
             <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
               <button
+                onClick={() => setShowMobilePlayer(false)}
+                className="md:hidden text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 text-sm"
+              >
+                &larr; Back to list
+              </button>
+              <button
                 onClick={() => setWidePlayer(!widePlayer)}
-                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0"
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 hidden md:block"
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >
-                {widePlayer ? "→" : "←"}
+                {widePlayer ? "\u2192" : "\u2190"}
               </button>
               <span className="truncate">{selectedTalk.title}</span>
             </div>

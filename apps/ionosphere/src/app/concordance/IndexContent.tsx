@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { prepare, layout } from "@chenglou/pretext";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -70,106 +69,6 @@ interface LetterGroup {
   entries: IndexEntry[];
 }
 
-interface MeasuredGroup {
-  letter: string;
-  entries: IndexEntry[];
-  height: number; // measured by Pretext in px
-}
-
-// --- Pretext measurement ---
-
-const FONT = "14px/1.6 ui-sans-serif, system-ui, sans-serif";
-const LINE_HEIGHT = 22; // 14px * 1.6
-const HEADING_HEIGHT = 36; // letter heading + margin
-const GROUP_MARGIN = 16;
-
-/**
- * Format an entry as plain text for Pretext measurement.
- * Mirrors the rendered layout: "word — Talk Title (3), Other Talk (1)"
- */
-function entryToText(entry: IndexEntry): string {
-  if (entry.see?.length > 0 && entry.talks.length === 0) {
-    return `${entry.term} — see ${entry.see.join(", ")}`;
-  }
-  const talks = entry.talks
-    .slice(0, 5)
-    .map((t) => t.title + (t.count > 1 ? ` (${t.count})` : ""))
-    .join(", ");
-  const overflow = entry.talks.length > 5 ? ` +${entry.talks.length - 5} more` : "";
-  const subLines = entry.subentries?.length ?? 0;
-  const seeAlsoLine = entry.seeAlso?.length > 0 ? 1 : 0;
-  return `${entry.term} — ${talks}${overflow}${"\\n".repeat(subLines + seeAlsoLine)}`;
-}
-
-/**
- * Measure each letter group's height using Pretext (client-side only).
- * Falls back to line-count estimation when Pretext isn't available (SSR).
- */
-function measureGroups(
-  groups: LetterGroup[],
-  columnWidth: number,
-  usePretext: boolean
-): MeasuredGroup[] {
-  return groups.map((g) => {
-    let height = HEADING_HEIGHT;
-    for (const entry of g.entries) {
-      if (usePretext) {
-        const termPrepared = prepare(entry.term, FONT);
-        const termMeasured = layout(termPrepared, columnWidth, LINE_HEIGHT);
-        height += termMeasured.height;
-      } else {
-        height += LINE_HEIGHT;
-      }
-      // "see"-only entries are compact
-      if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
-        height += 4;
-        continue;
-      }
-      const talkLines = Math.min(entry.talks.length, 5);
-      height += talkLines * LINE_HEIGHT;
-      if (entry.talks.length > 5) height += LINE_HEIGHT;
-      // Subentries: label line + talk lines each
-      for (const sub of entry.subentries ?? []) {
-        height += LINE_HEIGHT; // label
-        height += sub.talks.length * LINE_HEIGHT;
-      }
-      // See also line
-      if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
-      height += 4;
-    }
-    height += GROUP_MARGIN;
-    return { ...g, height };
-  });
-}
-
-/**
- * Distribute groups into N columns, newspaper-style: fill column 1 first,
- * then column 2, etc. Balanced by total height so columns end at roughly
- * the same point. Read down-then-right, alphabetical order preserved.
- */
-function balanceColumns(groups: MeasuredGroup[], numColumns: number): MeasuredGroup[][] {
-  const totalHeight = groups.reduce((sum, g) => sum + g.height, 0);
-  const targetHeight = totalHeight / numColumns;
-
-  const columns: MeasuredGroup[][] = [];
-  let currentColumn: MeasuredGroup[] = [];
-  let currentHeight = 0;
-
-  for (const group of groups) {
-    currentColumn.push(group);
-    currentHeight += group.height;
-
-    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
-      columns.push(currentColumn);
-      currentColumn = [];
-      currentHeight = 0;
-    }
-  }
-  columns.push(currentColumn); // last column gets remainder
-
-  return columns;
-}
-
 // --- Component ---
 
 export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
@@ -185,6 +84,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [filter, setFilter] = useState("");
   const [isRegex, setIsRegex] = useState(false);
   const [widePlayer, setWidePlayer] = useState(false);
+  const [showMobilePlayer, setShowMobilePlayer] = useState(false);
 
   // Filter entries by search term (plain text or regex)
   const filteredEntries = useMemo(() => {
@@ -212,24 +112,6 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     return [...set].sort();
   }, [entries]);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [columnWidth, setColumnWidth] = useState(280);
-  const numColumns = 4;
-
-  // Measure available width for columns (account for letter nav)
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      const padding = 32; // p-4 = 16px each side
-      const gaps = (numColumns - 1) * 24; // gap-6 = 24px
-      const available = el.clientWidth - padding - gaps;
-      setColumnWidth(Math.max(200, Math.floor(available / numColumns)));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [numColumns]);
-
   // Group filtered entries by first letter
   const groups = useMemo(() => {
     const map = new Map<string, IndexEntry[]>();
@@ -242,16 +124,6 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [filteredEntries]);
-
-  // Track whether we're client-side (Pretext needs canvas)
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-
-  // Measure with Pretext (client-side) and balance across columns
-  const columns = useMemo(() => {
-    const measured = measureGroups(groups, columnWidth, mounted);
-    return balanceColumns(measured, numColumns);
-  }, [groups, columnWidth, numColumns, mounted]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -274,6 +146,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
           document: doc?.facets?.length > 0 ? doc : null,
           seekToNs: timestampNs,
         });
+        setShowMobilePlayer(true);
       } catch (err) {
         console.error("[Index] handleSelect error:", err);
       }
@@ -308,7 +181,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       </nav>
 
       {/* Main: search + multi-column word index */}
-      <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
         {/* Search bar — sticky */}
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <h1 className="text-xl font-bold tracking-tight shrink-0">Word Index</h1>
@@ -334,14 +207,12 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
             {filteredEntries.length.toLocaleString()} terms
           </span>
         </div>
-        <div className="flex gap-6 items-start">
-          {columns.map((column, colIdx) => (
-            <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
-              {column.map((group) => (
-                <div key={group.letter} className="mb-4">
-                  <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
-                    {group.letter}
-                  </h2>
+        <div style={{ columnWidth: "280px", columnGap: "1.5rem" }}>
+          {groups.map((group) => (
+            <div key={group.letter} className="break-inside-avoid mb-4">
+              <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
+                {group.letter}
+              </h2>
                   {group.entries.map((entry) => {
                     // "see"-only entry: compact redirect
                     const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
@@ -447,25 +318,31 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                       </div>
                     );
                   })}
-                </div>
-              ))}
             </div>
           ))}
         </div>
       </div>
 
       {/* Right: player panel */}
-      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all`}>
+      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all
+        ${showMobilePlayer ? "!w-full" : "hidden md:flex"}
+        ${!selectedTalk && !showMobilePlayer ? "hidden md:flex" : ""}`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
             <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
               <button
+                onClick={() => setShowMobilePlayer(false)}
+                className="md:hidden text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 text-sm"
+              >
+                &larr; Back to list
+              </button>
+              <button
                 onClick={() => setWidePlayer(!widePlayer)}
-                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0"
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 hidden md:block"
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >
-                {widePlayer ? "→" : "←"}
+                {widePlayer ? "\u2192" : "\u2190"}
               </button>
               <span className="truncate">{selectedTalk.title}</span>
             </div>

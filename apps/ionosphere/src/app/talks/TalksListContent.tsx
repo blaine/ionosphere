@@ -121,6 +121,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
 
   const [filter, setFilter] = useState("");
   const [widePlayer, setWidePlayer] = useState(false);
+  const [showMobilePlayer, setShowMobilePlayer] = useState(false);
 
   const filteredTalks = useMemo(() => {
     if (!filter) return talks;
@@ -158,6 +159,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
         document: doc?.facets?.length > 0 ? doc : null,
         seekToNs: 0,
       });
+      setShowMobilePlayer(true);
     } catch (err) {
       console.error("[Talks] handleSelect error:", err);
     }
@@ -184,7 +186,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
       </nav>
 
       {/* Main: search + multi-column talk list */}
-      <div className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
         {/* Sticky search bar */}
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <h1 className="text-xl font-bold tracking-tight shrink-0">Talks</h1>
@@ -203,9 +205,9 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
         </div>
 
         {/* Multi-column layout */}
-        <div className="flex gap-6 items-start">
+        <div className="flex gap-6 items-start flex-wrap">
           {dayGroups.map((group) => (
-            <div key={group.day} className="flex-1 min-w-0">
+            <div key={group.day} className="min-w-[280px] flex-1">
                 <div className="mb-4">
                   <h2
                     id={`day-${group.day}`}
@@ -240,17 +242,25 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
       </div>
 
       {/* Right: player panel */}
-      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all`}>
+      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all
+        ${showMobilePlayer ? "!w-full" : "hidden md:flex"}
+        ${!selectedTalk && !showMobilePlayer ? "hidden md:flex" : ""}`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
             <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
               <button
+                onClick={() => setShowMobilePlayer(false)}
+                className="md:hidden text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 text-sm"
+              >
+                &larr; Back to list
+              </button>
+              <button
                 onClick={() => setWidePlayer(!widePlayer)}
-                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0"
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 hidden md:block"
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >
-                {widePlayer ? "→" : "←"}
+                {widePlayer ? "\u2192" : "\u2190"}
               </button>
               <span className="truncate">{selectedTalk.title}</span>
             </div>
