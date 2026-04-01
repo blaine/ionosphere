@@ -1,5 +1,8 @@
 import { decode } from "@ionosphere/format/transcript-encoding";
 import { isStopword } from "./stopwords.js";
+import englishWords from "an-array-of-english-words";
+
+const DICTIONARY = new Set(englishWords.map((w: string) => w.toLowerCase()));
 
 export interface ConcordanceTalkRef {
   rkey: string;
@@ -60,6 +63,11 @@ export function buildConcordance(transcripts: TranscriptInput[]): ConcordanceEnt
     entries.push({ word, talks, totalCount });
   }
 
-  entries.sort((a, b) => a.word.localeCompare(b.word));
-  return entries;
+  // Filter: keep dictionary words, keep non-dictionary words only if 2+ talks reference them
+  const filtered = entries.filter(
+    (e) => DICTIONARY.has(e.word) || e.talks.length >= 2
+  );
+
+  filtered.sort((a, b) => a.word.localeCompare(b.word));
+  return filtered;
 }
