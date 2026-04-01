@@ -110,7 +110,6 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
     <div className="h-full flex">
       <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
-          <h1 className="text-xl font-bold tracking-tight shrink-0">Concepts</h1>
           <div className="flex-1 max-w-sm">
             <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter concepts or topics..."
