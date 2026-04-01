@@ -36,9 +36,14 @@ function americanize(word: string): string {
  * - British/American: normalise → normalize, colour → color
  * Returns the lemma in lowercase.
  */
+const lemmaCache = new Map<string, string>();
+
 export function lemmatize(word: string): string {
   const lower = word.toLowerCase().trim();
   if (!lower) return lower;
+
+  const cached = lemmaCache.get(lower);
+  if (cached !== undefined) return cached;
 
   // Try British → American first so compromise works on American forms
   const americanized = americanize(lower);
@@ -48,25 +53,34 @@ export function lemmatize(word: string): string {
   // Try verb → infinitive
   const verbResult = doc.verbs().toInfinitive().out("text");
   if (verbResult && verbResult.trim()) {
-    return verbResult.trim().toLowerCase();
+    const result = verbResult.trim().toLowerCase();
+    lemmaCache.set(lower, result);
+    return result;
   }
 
   // Try noun → singular
   const nounResult = doc.nouns().toSingular().out("text");
   if (nounResult && nounResult.trim()) {
-    return nounResult.trim().toLowerCase();
+    const result = nounResult.trim().toLowerCase();
+    lemmaCache.set(lower, result);
+    return result;
   }
 
   // Fallback: strip common verb suffixes that compromise misses
   // (e.g., "decentralized" tagged as adjective, not verb)
   if (americanized.endsWith("ized")) {
-    return americanized.slice(0, -1); // decentralized → decentralize
+    const result = americanized.slice(0, -1); // decentralized → decentralize
+    lemmaCache.set(lower, result);
+    return result;
   }
   if (americanized.endsWith("ised")) {
-    return americanized.slice(0, -4) + "ize"; // organised → organize
+    const result = americanized.slice(0, -4) + "ize"; // organised → organize
+    lemmaCache.set(lower, result);
+    return result;
   }
 
   // Fall back to americanized lowercase
+  lemmaCache.set(lower, americanized);
   return americanized;
 }
 

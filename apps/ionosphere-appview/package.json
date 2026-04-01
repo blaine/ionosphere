@@ -9,6 +9,7 @@
     "@panproto/core": "^0.22.0",
     "an-array-of-english-words": "^2.0.0",
     "better-sqlite3": "^12.8.0",
+    "compromise": "^14.15.0",
     "hono": "^4.7.0",
     "openai": "^6.33.0",
     "relational-text": "^0.1.1",

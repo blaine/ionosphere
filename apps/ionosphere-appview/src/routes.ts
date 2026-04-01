@@ -219,7 +219,27 @@ export function createRoutes(db: Database.Database): Hono {
       timings: JSON.parse(r.timings),
     }));
 
-    const entries = buildConcordance(transcripts);
+    // Get concept data for enrichment
+    const conceptRows = db
+      .prepare(
+        `SELECT c.name, c.rkey, c.aliases,
+                GROUP_CONCAT(DISTINCT tc.talk_uri) as talk_uris
+         FROM concepts c
+         LEFT JOIN talk_concepts tc ON c.uri = tc.concept_uri
+         GROUP BY c.uri`
+      )
+      .all() as any[];
+
+    const concepts = conceptRows.map((r: any) => ({
+      name: r.name,
+      rkey: r.rkey,
+      aliases: r.aliases ? JSON.parse(r.aliases) : [],
+      talkRkeys: r.talk_uris
+        ? r.talk_uris.split(",").map((uri: string) => uri.split("/").pop())
+        : [],
+    }));
+
+    const entries = buildConcordance(transcripts, concepts);
     return c.json({ entries });
   });
 

@@ -19,39 +19,46 @@ describe("buildConcordance", () => {
     },
   ];
 
-  it("builds entries sorted alphabetically", () => {
+  it("builds entries sorted alphabetically (case-insensitive)", () => {
     const entries = buildConcordance(transcripts);
-    const words = entries.map((e) => e.word);
-    expect(words).toEqual([...words].sort());
+    const terms = entries.map((e) => e.term);
+    const sorted = [...terms].sort((a, b) => a.localeCompare(b));
+    expect(terms).toEqual(sorted);
   });
 
   it("excludes stopwords", () => {
     const entries = buildConcordance(transcripts);
-    const words = entries.map((e) => e.word);
-    expect(words).not.toContain("is");
-    expect(words).not.toContain("a");
-    expect(words).not.toContain("for");
+    const terms = entries.map((e) => e.term.toLowerCase());
+    expect(terms).not.toContain("is");
+    expect(terms).not.toContain("a");
+    expect(terms).not.toContain("for");
   });
 
   it("aggregates across talks with counts", () => {
     const entries = buildConcordance(transcripts);
-    const protocol = entries.find((e) => e.word === "protocol");
+    // "protocol" may appear as "Protocol" (proper noun) or "protocol" depending on casing
+    const protocol = entries.find((e) => e.term.toLowerCase() === "protocol");
     expect(protocol).toBeDefined();
-    expect(protocol!.talks).toHaveLength(2);
+    const totalTalks = protocol!.talks.length + protocol!.subentries.reduce((s, sub) => s + sub.talks.length, 0);
+    expect(totalTalks).toBeGreaterThanOrEqual(2);
   });
 
   it("includes first timestamp", () => {
     const entries = buildConcordance(transcripts);
-    const protocol = entries.find((e) => e.word === "protocol");
-    for (const talk of protocol!.talks) {
+    const protocol = entries.find((e) => e.term.toLowerCase() === "protocol");
+    expect(protocol).toBeDefined();
+    const allTalks = [...protocol!.talks, ...protocol!.subentries.flatMap((s) => s.talks)];
+    for (const talk of allTalks) {
       expect(talk.firstTimestampNs).toBeGreaterThanOrEqual(0);
     }
   });
 
-  it("lowercases all words", () => {
+  it("non-proper terms are lowercase", () => {
     const entries = buildConcordance(transcripts);
     for (const entry of entries) {
-      expect(entry.word).toBe(entry.word.toLowerCase());
+      if (!entry.proper) {
+        expect(entry.term).toBe(entry.term.toLowerCase());
+      }
     }
   });
 

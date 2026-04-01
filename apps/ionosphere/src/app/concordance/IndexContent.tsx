@@ -48,14 +48,20 @@ function InitialSeek({ timestampNs }: { timestampNs: number }) {
 
 // --- Types ---
 
+interface TalkRef {
+  rkey: string;
+  title: string;
+  count: number;
+  firstTimestampNs: number;
+}
+
 interface IndexEntry {
-  word: string;
-  talks: {
-    rkey: string;
-    title: string;
-    count: number;
-    firstTimestampNs: number;
-  }[];
+  term: string;
+  proper: boolean;
+  talks: TalkRef[];
+  subentries: { label: string; talks: TalkRef[] }[];
+  see: string[];
+  seeAlso: string[];
   totalCount: number;
 }
 
@@ -82,12 +88,17 @@ const GROUP_MARGIN = 16;
  * Mirrors the rendered layout: "word — Talk Title (3), Other Talk (1)"
  */
 function entryToText(entry: IndexEntry): string {
+  if (entry.see?.length > 0 && entry.talks.length === 0) {
+    return `${entry.term} — see ${entry.see.join(", ")}`;
+  }
   const talks = entry.talks
     .slice(0, 5)
     .map((t) => t.title + (t.count > 1 ? ` (${t.count})` : ""))
     .join(", ");
   const overflow = entry.talks.length > 5 ? ` +${entry.talks.length - 5} more` : "";
-  return `${entry.word} — ${talks}${overflow}`;
+  const subLines = entry.subentries?.length ?? 0;
+  const seeAlsoLine = entry.seeAlso?.length > 0 ? 1 : 0;
+  return `${entry.term} — ${talks}${overflow}${"\\n".repeat(subLines + seeAlsoLine)}`;
 }
 
 /**
@@ -103,15 +114,27 @@ function measureGroups(
     let height = HEADING_HEIGHT;
     for (const entry of g.entries) {
       if (usePretext) {
-        const wordPrepared = prepare(entry.word, FONT);
-        const wordMeasured = layout(wordPrepared, columnWidth, LINE_HEIGHT);
-        height += wordMeasured.height;
+        const termPrepared = prepare(entry.term, FONT);
+        const termMeasured = layout(termPrepared, columnWidth, LINE_HEIGHT);
+        height += termMeasured.height;
       } else {
         height += LINE_HEIGHT;
+      }
+      // "see"-only entries are compact
+      if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
+        height += 4;
+        continue;
       }
       const talkLines = Math.min(entry.talks.length, 5);
       height += talkLines * LINE_HEIGHT;
       if (entry.talks.length > 5) height += LINE_HEIGHT;
+      // Subentries: label line + talk lines each
+      for (const sub of entry.subentries ?? []) {
+        height += LINE_HEIGHT; // label
+        height += sub.talks.length * LINE_HEIGHT;
+      }
+      // See also line
+      if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
       height += 4;
     }
     height += GROUP_MARGIN;
@@ -171,7 +194,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const groups = useMemo(() => {
     const map = new Map<string, IndexEntry[]>();
     for (const entry of entries) {
-      const letter = entry.word[0]?.toUpperCase() || "#";
+      const letter = entry.term[0]?.toUpperCase() || "#";
       if (!map.has(letter)) map.set(letter, []);
       map.get(letter)!.push(entry);
     }
@@ -224,7 +247,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
         <h1 className="text-xl font-bold mb-4 tracking-tight">Word Index</h1>
         <p className="text-sm text-neutral-500 mb-6">
-          {entries.length.toLocaleString()} words across{" "}
+          {entries.length.toLocaleString()} terms across{" "}
           {new Set(entries.flatMap((e) => e.talks.map((t) => t.rkey))).size} talks
         </p>
         <div className="flex gap-6 items-start">
@@ -235,39 +258,92 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                   <h2 className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
                     {group.letter}
                   </h2>
-                  {group.entries.map((entry) => (
-                    <div key={entry.word} className="text-[13px] leading-[1.6] mb-1">
-                      <div className="font-medium text-neutral-200">
-                        {entry.word}
-                      </div>
-                      {entry.talks.slice(0, 5).map((talk) => (
-                        <div
-                          key={talk.rkey}
-                          className="truncate text-neutral-500 pl-3"
-                          style={{ maxWidth: "100%" }}
-                        >
-                          <button
-                            onClick={() =>
-                              handleSelect(talk.rkey, entry.word, talk.firstTimestampNs)
-                            }
-                            className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-right"
+                  {group.entries.map((entry) => {
+                    // "see"-only entry: compact redirect
+                    const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
+                    if (isSeeOnly) {
+                      return (
+                        <div key={entry.term} className="text-[13px] leading-[1.6] mb-1">
+                          <span className="text-neutral-400">{entry.term}</span>
+                          <span className="text-neutral-600 italic"> — see {entry.see.join(", ")}</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={entry.term} className="text-[13px] leading-[1.6] mb-2">
+                        <div className="font-medium text-neutral-200">
+                          {entry.term}
+                        </div>
+                        {/* Direct talk refs */}
+                        {entry.talks.slice(0, 5).map((talk) => (
+                          <div
+                            key={talk.rkey}
+                            className="truncate text-neutral-500 pl-3"
+                            style={{ maxWidth: "100%" }}
                           >
-                            {talk.title}
-                          </button>
-                          {talk.count > 1 && (
-                            <span className="text-neutral-600">
-                              {" "}({talk.count})
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                      {entry.talks.length > 5 && (
-                        <div className="text-neutral-600 pl-3">
-                          +{entry.talks.length - 5} more
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                            <button
+                              onClick={() =>
+                                handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)
+                              }
+                              className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                            >
+                              {talk.title}
+                            </button>
+                            {talk.count > 1 && (
+                              <span className="text-neutral-600">
+                                {" "}({talk.count})
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                        {entry.talks.length > 5 && (
+                          <div className="text-neutral-600 pl-3">
+                            +{entry.talks.length - 5} more
+                          </div>
+                        )}
+                        {/* Subentries */}
+                        {entry.subentries?.map((sub) => (
+                          <div key={sub.label} className="pl-3">
+                            <span className="text-neutral-400 italic text-xs">{sub.label}</span>
+                            {sub.talks.map((talk) => (
+                              <div
+                                key={talk.rkey}
+                                className="truncate text-neutral-500 pl-3"
+                                style={{ maxWidth: "100%" }}
+                              >
+                                <button
+                                  onClick={() =>
+                                    handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)
+                                  }
+                                  className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                                >
+                                  {talk.title}
+                                </button>
+                                {talk.count > 1 && (
+                                  <span className="text-neutral-600">
+                                    {" "}({talk.count})
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                        {/* See references */}
+                        {entry.see?.length > 0 && (
+                          <div className="text-neutral-600 italic pl-3">
+                            see {entry.see.join(", ")}
+                          </div>
+                        )}
+                        {/* See also */}
+                        {entry.seeAlso?.length > 0 && (
+                          <div className="text-neutral-600 text-xs pl-3">
+                            see also: {entry.seeAlso.join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
