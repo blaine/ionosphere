@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -68,10 +68,23 @@ const HEADING_HEIGHT = 36;
 const GROUP_MARGIN = 16;
 const TALK_ENTRY_HEIGHT = LINE_HEIGHT * 2; // title + metadata
 
+// Conference days — March 30 talks fold into March 29 (timezone edge case)
+const DAY_LABELS: Record<string, string> = {
+  "2026-03-26": "Wednesday, March 26",
+  "2026-03-27": "Thursday, March 27",
+  "2026-03-28": "Friday, March 28",
+  "2026-03-29": "Saturday, March 29",
+};
+
 function groupByDay(talks: Talk[]): DayGroup[] {
   const byDay = new Map<string, Talk[]>();
   for (const talk of talks) {
-    const day = talk.starts_at?.slice(0, 10) || "unknown";
+    let day = talk.starts_at?.slice(0, 10) || "";
+    if (!day || !DAY_LABELS[day]) {
+      // Fold March 30 into March 29, skip truly unknown
+      if (day === "2026-03-30") day = "2026-03-29";
+      else continue;
+    }
     if (!byDay.has(day)) byDay.set(day, []);
     byDay.get(day)!.push(talk);
   }
@@ -79,45 +92,9 @@ function groupByDay(talks: Talk[]): DayGroup[] {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([day, dayTalks]) => ({
       day,
-      label: day === "unknown"
-        ? "Unknown Date"
-        : new Date(day + "T00:00:00Z").toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          }),
+      label: DAY_LABELS[day] || day,
       talks: dayTalks.sort((a, b) => (a.starts_at || "").localeCompare(b.starts_at || "")),
     }));
-}
-
-function measureDayGroups(groups: DayGroup[]): MeasuredDayGroup[] {
-  return groups.map((g) => {
-    const height = HEADING_HEIGHT + g.talks.length * TALK_ENTRY_HEIGHT + GROUP_MARGIN;
-    return { ...g, height };
-  });
-}
-
-function balanceColumns(groups: MeasuredDayGroup[], numColumns: number): MeasuredDayGroup[][] {
-  const totalHeight = groups.reduce((sum, g) => sum + g.height, 0);
-  const targetHeight = totalHeight / numColumns;
-
-  const columns: MeasuredDayGroup[][] = [];
-  let currentColumn: MeasuredDayGroup[] = [];
-  let currentHeight = 0;
-
-  for (const group of groups) {
-    currentColumn.push(group);
-    currentHeight += group.height;
-
-    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
-      columns.push(currentColumn);
-      currentColumn = [];
-      currentHeight = 0;
-    }
-  }
-  columns.push(currentColumn);
-
-  return columns;
 }
 
 function formatTime(startsAt: string): string {
@@ -143,22 +120,6 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
   } | null>(null);
 
   const [filter, setFilter] = useState("");
-  const numColumns = 3;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [columnWidth, setColumnWidth] = useState(280);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      const padding = 32;
-      const gaps = (numColumns - 1) * 24;
-      const available = el.clientWidth - padding - gaps;
-      setColumnWidth(Math.max(200, Math.floor(available / numColumns)));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [numColumns]);
 
   const filteredTalks = useMemo(() => {
     if (!filter) return talks;
@@ -170,22 +131,16 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
     );
   }, [talks, filter]);
 
+  // One column per day — each day IS a column
   const dayGroups = useMemo(() => groupByDay(filteredTalks), [filteredTalks]);
 
   // Day labels for nav sidebar
   const dayNav = useMemo(() => {
     return dayGroups.map((g) => ({
       day: g.day,
-      shortLabel: g.day === "unknown"
-        ? "?"
-        : new Date(g.day + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short" }),
+      shortLabel: new Date(g.day + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short" }),
     }));
   }, [dayGroups]);
-
-  const columns = useMemo(() => {
-    const measured = measureDayGroups(dayGroups);
-    return balanceColumns(measured, numColumns);
-  }, [dayGroups, numColumns]);
 
   const handleSelect = useCallback(async (rkey: string) => {
     try {
@@ -228,7 +183,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
       </nav>
 
       {/* Main: search + multi-column talk list */}
-      <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
+      <div className="flex-1 min-w-0 overflow-y-auto p-4">
         {/* Sticky search bar */}
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <h1 className="text-xl font-bold tracking-tight shrink-0">Talks</h1>
@@ -248,10 +203,9 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
 
         {/* Multi-column layout */}
         <div className="flex gap-6 items-start">
-          {columns.map((column, colIdx) => (
-            <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
-              {column.map((group) => (
-                <div key={group.day} className="mb-4">
+          {dayGroups.map((group) => (
+            <div key={group.day} className="flex-1 min-w-0">
+                <div className="mb-4">
                   <h2
                     id={`day-${group.day}`}
                     className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1"
@@ -279,7 +233,6 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
                     </button>
                   ))}
                 </div>
-              ))}
             </div>
           ))}
         </div>
