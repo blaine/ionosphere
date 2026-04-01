@@ -323,12 +323,13 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       </div>
 
       {/* Right: player panel */}
-      <div className={[
-        widePlayer ? "w-2/3" : "w-[400px]",
-        "shrink-0 border-l border-neutral-800 flex flex-col transition-all",
-        selectedTalk ? "hidden md:flex" : "hidden",
-        showMobilePlayer && selectedTalk ? "!flex max-md:!w-full max-md:!border-0" : "",
-      ].join(" ")}>
+      <div className={
+        !selectedTalk
+          ? "hidden"
+          : showMobilePlayer
+            ? `flex w-full ${widePlayer ? "md:w-2/3" : "md:w-[400px]"} shrink-0 md:border-l border-neutral-800 flex-col transition-all`
+            : `hidden md:flex ${widePlayer ? "md:w-2/3" : "md:w-[400px]"} shrink-0 border-l border-neutral-800 flex-col transition-all`
+      }>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />

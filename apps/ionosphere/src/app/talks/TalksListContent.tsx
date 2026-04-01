@@ -241,14 +241,13 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
       </div>
 
       {/* Right: player panel */}
-      <div className={[
-        widePlayer ? "w-2/3" : "w-[400px]",
-        "shrink-0 border-l border-neutral-800 flex flex-col transition-all",
-        // Desktop: always show when talk selected, hide when not
-        selectedTalk ? "hidden md:flex" : "hidden",
-        // Mobile: full width overlay when showMobilePlayer
-        showMobilePlayer && selectedTalk ? "!flex max-md:!w-full max-md:!border-0" : "",
-      ].join(" ")}>
+      <div className={
+        !selectedTalk
+          ? "hidden"
+          : showMobilePlayer
+            ? `flex w-full ${widePlayer ? "md:w-2/3" : "md:w-[400px]"} shrink-0 md:border-l border-neutral-800 flex-col transition-all`
+            : `hidden md:flex ${widePlayer ? "md:w-2/3" : "md:w-[400px]"} shrink-0 border-l border-neutral-800 flex-col transition-all`
+      }>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
