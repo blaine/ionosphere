@@ -189,12 +189,23 @@ export function createRoutes(db: Database.Database): Hono {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
       const data = JSON.parse(readFileSync(clustersPath, "utf-8"));
 
+      const canonicalNames = data.canonicalNames || {};
+
       const enriched = data.clusters.map((cluster: any) => {
+        const seen = new Set<string>();
         const concepts = cluster.conceptRkeys.map((rkey: string) => {
           const concept = db
             .prepare("SELECT * FROM concepts WHERE rkey = ?")
             .get(rkey) as any;
           if (!concept) return null;
+
+          // Use canonical name if available (from deduplication)
+          const displayName = canonicalNames[rkey] || concept.name;
+
+          // Deduplicate by display name within a cluster
+          const nameKey = displayName.toLowerCase();
+          if (seen.has(nameKey)) return null;
+          seen.add(nameKey);
 
           const talkCount = db
             .prepare("SELECT COUNT(*) as count FROM talk_concepts WHERE concept_uri = ?")
@@ -202,7 +213,7 @@ export function createRoutes(db: Database.Database): Hono {
 
           return {
             rkey: concept.rkey,
-            name: concept.name,
+            name: displayName,
             description: concept.description,
             talkCount: talkCount?.count || 0,
           };
