@@ -189,40 +189,69 @@ export function createRoutes(db: Database.Database): Hono {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
       const data = JSON.parse(readFileSync(clustersPath, "utf-8"));
 
-      const canonicalNames = data.canonicalNames || {};
+      // Load merge data for accurate cross-talk counts
+      let mergeData: any = {};
+      try {
+        mergeData = JSON.parse(
+          readFileSync(path.resolve(import.meta.dirname, "../data/concept-merges.json"), "utf-8")
+        );
+      } catch {}
+
+      const rkeyToCanonical = mergeData.rkeyToCanonical || {};
+      const mergedNames = mergeData.canonicalNames || {};
+      const mergedTalkCounts = mergeData.mergedTalkCounts || {};
+      const clusterCanonicalNames = data.canonicalNames || {};
 
       const enriched = data.clusters.map((cluster: any) => {
         const seen = new Set<string>();
         const concepts = cluster.conceptRkeys.map((rkey: string) => {
+          // Resolve to canonical rkey if this was merged
+          const canonicalRkey = rkeyToCanonical[rkey] || rkey;
+
           const concept = db
             .prepare("SELECT * FROM concepts WHERE rkey = ?")
-            .get(rkey) as any;
+            .get(canonicalRkey) as any;
           if (!concept) return null;
 
-          // Use canonical name if available (from deduplication)
-          const displayName = canonicalNames[rkey] || concept.name;
+          // Use merged canonical name > cluster canonical name > raw name
+          const displayName =
+            mergedNames[canonicalRkey] ||
+            clusterCanonicalNames[canonicalRkey] ||
+            concept.name;
 
-          // Deduplicate by display name within a cluster
-          const nameKey = displayName.toLowerCase();
-          if (seen.has(nameKey)) return null;
-          seen.add(nameKey);
+          // Deduplicate by canonical rkey within a cluster
+          if (seen.has(canonicalRkey)) return null;
+          seen.add(canonicalRkey);
 
-          const talkCount = db
-            .prepare("SELECT COUNT(*) as count FROM talk_concepts WHERE concept_uri = ?")
-            .get(concept.uri) as any;
+          // Use merged talk count (cross-talk aware) if available
+          const talkCount =
+            mergedTalkCounts[canonicalRkey] ??
+            (db.prepare("SELECT COUNT(*) as count FROM talk_concepts WHERE concept_uri = ?")
+              .get(concept.uri) as any)?.count ?? 0;
 
           return {
-            rkey: concept.rkey,
+            rkey: canonicalRkey,
             name: displayName,
             description: concept.description,
-            talkCount: talkCount?.count || 0,
+            talkCount,
           };
         }).filter(Boolean);
+
+        // Sort concepts by talk count descending within each cluster
+        concepts.sort((a: any, b: any) => b.talkCount - a.talkCount);
 
         return { id: cluster.id, label: cluster.label, description: cluster.description, concepts };
       });
 
-      return c.json({ clusters: enriched });
+      // Filter out empty clusters and sort by total talk coverage
+      const nonEmpty = enriched.filter((c: any) => c.concepts.length > 0);
+      nonEmpty.sort((a: any, b: any) => {
+        const aTotal = a.concepts.reduce((s: number, c: any) => s + c.talkCount, 0);
+        const bTotal = b.concepts.reduce((s: number, c: any) => s + c.talkCount, 0);
+        return bTotal - aTotal;
+      });
+
+      return c.json({ clusters: nonEmpty });
     } catch {
       return c.json({ clusters: [] });
     }
