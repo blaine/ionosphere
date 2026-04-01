@@ -194,36 +194,37 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                   {group.entries.map((entry) => (
                     <div
                       key={entry.word}
-                      className="text-[13px] leading-[1.6] text-neutral-500"
+                      className="flex items-baseline gap-1 text-[13px] leading-[1.6]"
                     >
-                      <span className="font-medium text-neutral-200">
+                      <span className="font-medium text-neutral-200 shrink-0">
                         {entry.word}
                       </span>
-                      {" — "}
-                      {entry.talks.slice(0, 5).map((talk, i) => (
-                        <span key={talk.rkey}>
-                          {i > 0 && ", "}
-                          <button
-                            onClick={() =>
-                              handleSelect(talk.rkey, entry.word, talk.firstTimestampNs)
-                            }
-                            className="text-neutral-500 hover:text-neutral-100 hover:underline underline-offset-2 transition-colors"
-                          >
-                            {talk.title}
-                          </button>
-                          {talk.count > 1 && (
-                            <span className="text-neutral-600">
-                              {" "}
-                              ({talk.count})
-                            </span>
-                          )}
-                        </span>
-                      ))}
-                      {entry.talks.length > 5 && (
-                        <span className="text-neutral-600">
-                          {" "}+{entry.talks.length - 5} more
-                        </span>
-                      )}
+                      <span className="flex-1 border-b border-dotted border-neutral-800 min-w-[8px] self-end mb-[3px]" />
+                      <span className="text-right shrink-0 truncate text-neutral-500" style={{ maxWidth: "80%" }}>
+                        {entry.talks.slice(0, 5).map((talk, i) => (
+                          <span key={talk.rkey}>
+                            {i > 0 && ", "}
+                            <button
+                              onClick={() =>
+                                handleSelect(talk.rkey, entry.word, talk.firstTimestampNs)
+                              }
+                              className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors"
+                            >
+                              {talk.title}
+                            </button>
+                            {talk.count > 1 && (
+                              <span className="text-neutral-600">
+                                {" "}({talk.count})
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                        {entry.talks.length > 5 && (
+                          <span className="text-neutral-600">
+                            {" "}+{entry.talks.length - 5}
+                          </span>
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
