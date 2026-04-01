@@ -6,13 +6,12 @@ import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvi
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 
-/** Aggressively seeks and plays the video once it appears. */
+/** Aggressively seeks and plays the video once HLS is ready. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
   useEffect(() => {
     let cancelled = false;
 
-    // Try immediately, then keep retrying
     function trySeekAndPlay() {
       if (cancelled) return;
       const video = document.querySelector<HTMLVideoElement>("video");
@@ -21,14 +20,24 @@ function InitialSeek({ timestampNs }: { timestampNs: number }) {
         return;
       }
 
-      // Seek via timestamp provider (adjusts for video offset)
-      if (timestampNs > 0) seekTo(timestampNs);
+      function doSeekAndPlay() {
+        if (cancelled) return;
+        if (timestampNs > 0) seekTo(timestampNs);
+        video!.play().catch(() => {});
+      }
 
-      // Force play — retry on each canplay/loadeddata event too
-      const play = () => video.play().catch(() => {});
-      play();
-      video.addEventListener("canplay", play, { once: true });
-      video.addEventListener("loadeddata", play, { once: true });
+      // If already enough data, seek now
+      if (video.readyState >= 2) {
+        doSeekAndPlay();
+        return;
+      }
+
+      // Otherwise wait for loadeddata (HLS has buffered enough to seek)
+      video.addEventListener("loadeddata", doSeekAndPlay, { once: true });
+      // Also try on canplay as backup
+      video.addEventListener("canplay", doSeekAndPlay, { once: true });
+      // Force play attempt even before seek (gets HLS buffering)
+      video.play().catch(() => {});
     }
 
     trySeekAndPlay();
