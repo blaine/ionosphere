@@ -163,6 +163,18 @@ export function buildConcordance(
   // Stages 3 & 4: Enrich with concept data (subentries, see, seeAlso)
   const enriched = enrichIndex(rawEntries, conceptList);
 
-  enriched.sort((a, b) => a.term.localeCompare(b.term));
-  return enriched;
+  // Deduplicate: if a multi-word entry is already a subentry label
+  // under one of its constituent words, suppress the standalone entry
+  const subentryLabels = new Set<string>();
+  for (const e of enriched) {
+    for (const sub of e.subentries) {
+      subentryLabels.add(sub.label.toLowerCase());
+    }
+  }
+  const deduped = enriched.filter(
+    (e) => !e.term.includes(" ") || !subentryLabels.has(e.term.toLowerCase())
+  );
+
+  deduped.sort((a, b) => a.term.localeCompare(b.term));
+  return deduped;
 }

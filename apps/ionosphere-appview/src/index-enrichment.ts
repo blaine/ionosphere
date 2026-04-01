@@ -146,27 +146,35 @@ export function enrichIndex(
     }
 
     // 3. Generate seeAlso from shared concepts
-    const myConcepts = wordToConceptRkeys.get(wordLower) ?? new Set();
-    const relatedEntryScores = new Map<string, number>();
+    // Only include entries that share 2+ concepts AND are directly
+    // referenced by a concept name/alias (not just any word that
+    // happens to appear in the same talk)
+    const myDirectConcepts = wordToConcepts.get(wordLower) ?? [];
+    const myConceptRkeys = new Set(myDirectConcepts.map((c) => c.rkey));
+    const seeAlso: string[] = [];
 
-    for (const otherEntry of entries) {
-      const otherLower = otherEntry.word.toLowerCase();
-      if (otherLower === wordLower) continue;
+    if (myConceptRkeys.size > 0) {
+      const relatedEntryScores = new Map<string, number>();
 
-      const otherConcepts = wordToConceptRkeys.get(otherLower) ?? new Set();
-      let sharedCount = 0;
-      for (const c of myConcepts) {
-        if (otherConcepts.has(c)) sharedCount++;
+      for (const otherEntry of entries) {
+        const otherLower = otherEntry.word.toLowerCase();
+        if (otherLower === wordLower) continue;
+
+        const otherDirectConcepts = wordToConcepts.get(otherLower) ?? [];
+        let sharedCount = 0;
+        for (const c of otherDirectConcepts) {
+          if (myConceptRkeys.has(c.rkey)) sharedCount++;
+        }
+        if (sharedCount >= 2) {
+          relatedEntryScores.set(otherEntry.word, sharedCount);
+        }
       }
-      if (sharedCount > 0) {
-        relatedEntryScores.set(otherEntry.word, sharedCount);
-      }
+
+      const sorted = [...relatedEntryScores.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+      for (const [word] of sorted) seeAlso.push(word);
     }
-
-    const seeAlso = [...relatedEntryScores.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([word]) => word);
 
     result.push({
       term: entry.word,

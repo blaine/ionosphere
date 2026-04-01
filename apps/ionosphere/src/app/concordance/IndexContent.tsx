@@ -143,19 +143,29 @@ function measureGroups(
 }
 
 /**
- * Distribute measured groups across N columns, minimizing max column height.
- * Greedy: always add next group to the shortest column.
- * Groups stay in alphabetical order within each column.
+ * Distribute groups into N columns, newspaper-style: fill column 1 first,
+ * then column 2, etc. Balanced by total height so columns end at roughly
+ * the same point. Read down-then-right, alphabetical order preserved.
  */
 function balanceColumns(groups: MeasuredGroup[], numColumns: number): MeasuredGroup[][] {
-  const columns: MeasuredGroup[][] = Array.from({ length: numColumns }, () => []);
-  const heights = new Array(numColumns).fill(0);
+  const totalHeight = groups.reduce((sum, g) => sum + g.height, 0);
+  const targetHeight = totalHeight / numColumns;
+
+  const columns: MeasuredGroup[][] = [];
+  let currentColumn: MeasuredGroup[] = [];
+  let currentHeight = 0;
 
   for (const group of groups) {
-    const minIdx = heights.indexOf(Math.min(...heights));
-    columns[minIdx].push(group);
-    heights[minIdx] += group.height;
+    currentColumn.push(group);
+    currentHeight += group.height;
+
+    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
+      columns.push(currentColumn);
+      currentColumn = [];
+      currentHeight = 0;
+    }
   }
+  columns.push(currentColumn); // last column gets remainder
 
   return columns;
 }
