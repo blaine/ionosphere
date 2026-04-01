@@ -182,11 +182,40 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     seekToNs: number;
   } | null>(null);
 
+  const [filter, setFilter] = useState("");
+  const [isRegex, setIsRegex] = useState(false);
+
+  // Filter entries by search term (plain text or regex)
+  const filteredEntries = useMemo(() => {
+    if (!filter) return entries;
+    try {
+      const pattern = isRegex ? new RegExp(filter, "i") : null;
+      return entries.filter((e) =>
+        pattern ? pattern.test(e.term) : e.term.toLowerCase().includes(filter.toLowerCase())
+      );
+    } catch {
+      // Invalid regex — treat as plain text
+      return entries.filter((e) =>
+        e.term.toLowerCase().includes(filter.toLowerCase())
+      );
+    }
+  }, [entries, filter, isRegex]);
+
+  // All letters present in the full (unfiltered) entries for the nav
+  const allLetters = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) {
+      const l = e.term[0]?.toUpperCase();
+      if (l && /[A-Z]/.test(l)) set.add(l);
+    }
+    return [...set].sort();
+  }, [entries]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnWidth, setColumnWidth] = useState(280);
   const numColumns = 4;
 
-  // Measure available width for columns
+  // Measure available width for columns (account for letter nav)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -200,10 +229,10 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     return () => observer.disconnect();
   }, [numColumns]);
 
-  // Group entries by first letter
+  // Group filtered entries by first letter
   const groups = useMemo(() => {
     const map = new Map<string, IndexEntry[]>();
-    for (const entry of entries) {
+    for (const entry of filteredEntries) {
       const letter = entry.term[0]?.toUpperCase() || "#";
       if (!map.has(letter)) map.set(letter, []);
       map.get(letter)!.push(entry);
@@ -211,7 +240,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     return [...map.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
-  }, [entries]);
+  }, [filteredEntries]);
 
   // Track whether we're client-side (Pretext needs canvas)
   const [mounted, setMounted] = useState(false);
@@ -251,21 +280,59 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     []
   );
 
+  const scrollToLetter = useCallback((letter: string) => {
+    const el = document.getElementById(`letter-${letter}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   return (
     <div className="h-full flex">
-      {/* Left: Pretext-balanced multi-column word index */}
+      {/* Letter nav — vertical strip on the left edge */}
+      <nav className="shrink-0 w-6 flex flex-col items-center justify-center gap-0.5 border-r border-neutral-800 py-2">
+        {allLetters.map((letter) => (
+          <button
+            key={letter}
+            onClick={() => scrollToLetter(letter)}
+            className="text-[10px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors"
+          >
+            {letter}
+          </button>
+        ))}
+      </nav>
+
+      {/* Main: search + multi-column word index */}
       <div ref={containerRef} className="flex-1 min-w-0 overflow-y-auto p-4">
-        <h1 className="text-xl font-bold mb-4 tracking-tight">Word Index</h1>
-        <p className="text-sm text-neutral-500 mb-6">
-          {entries.length.toLocaleString()} terms across{" "}
-          {new Set(entries.flatMap((e) => e.talks.map((t) => t.rkey))).size} talks
-        </p>
+        {/* Search bar */}
+        <div className="flex items-center gap-3 mb-4">
+          <h1 className="text-xl font-bold tracking-tight shrink-0">Word Index</h1>
+          <div className="flex-1 max-w-sm relative">
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder={isRegex ? "Filter (regex)..." : "Filter..."}
+              className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-neutral-500"
+            />
+            <button
+              onClick={() => setIsRegex(!isRegex)}
+              className={`absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1 rounded ${
+                isRegex ? "bg-neutral-600 text-neutral-200" : "text-neutral-600 hover:text-neutral-400"
+              }`}
+              title="Toggle regex mode"
+            >
+              .*
+            </button>
+          </div>
+          <span className="text-sm text-neutral-500 shrink-0">
+            {filteredEntries.length.toLocaleString()} terms
+          </span>
+        </div>
         <div className="flex gap-6 items-start">
           {columns.map((column, colIdx) => (
             <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
               {column.map((group) => (
                 <div key={group.letter} className="mb-4">
-                  <h2 className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
+                  <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
                     {group.letter}
                   </h2>
                   {group.entries.map((entry) => {
