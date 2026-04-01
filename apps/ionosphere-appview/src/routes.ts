@@ -223,11 +223,20 @@ export function createRoutes(db: Database.Database): Hono {
           if (seen.has(canonicalRkey)) return null;
           seen.add(canonicalRkey);
 
-          // Use merged talk count (cross-talk aware) if available
-          const talkCount =
-            mergedTalkCounts[canonicalRkey] ??
-            (db.prepare("SELECT COUNT(*) as count FROM talk_concepts WHERE concept_uri = ?")
-              .get(concept.uri) as any)?.count ?? 0;
+          // Count distinct talks across all merged concept rkeys
+          const allMergedRkeys = [canonicalRkey];
+          for (const [srcRkey, canon] of Object.entries(rkeyToCanonical)) {
+            if (canon === canonicalRkey) allMergedRkeys.push(srcRkey);
+          }
+          const mergedUris: string[] = [];
+          for (const r of allMergedRkeys) {
+            const row = db.prepare("SELECT uri FROM concepts WHERE rkey = ?").get(r) as any;
+            if (row) mergedUris.push(row.uri);
+          }
+          const ph = mergedUris.map(() => "?").join(",");
+          const talkCount = mergedUris.length > 0
+            ? (db.prepare(`SELECT COUNT(DISTINCT talk_uri) as count FROM talk_concepts WHERE concept_uri IN (${ph})`).get(...mergedUris) as any)?.count ?? 0
+            : 0;
 
           return {
             rkey: canonicalRkey,
@@ -264,14 +273,40 @@ export function createRoutes(db: Database.Database): Hono {
       .get(rkey);
     if (!concept) return c.json({ error: "not found" }, 404);
 
-    const talks = db
-      .prepare(
-        `SELECT t.* FROM talks t
-         JOIN talk_concepts tc ON t.uri = tc.talk_uri
-         WHERE tc.concept_uri = ?
-         ORDER BY t.starts_at ASC`
-      )
-      .all((concept as any).uri);
+    // Find all rkeys that were merged into this canonical concept
+    let mergeData: any = {};
+    try {
+      mergeData = JSON.parse(
+        readFileSync(path.resolve(import.meta.dirname, "../data/concept-merges.json"), "utf-8")
+      );
+    } catch {}
+
+    const rkeyToCanonical = mergeData.rkeyToCanonical || {};
+    // Collect all rkeys that map to this canonical (including itself)
+    const allRkeys = [rkey];
+    for (const [srcRkey, canonical] of Object.entries(rkeyToCanonical)) {
+      if (canonical === rkey) allRkeys.push(srcRkey);
+    }
+
+    // Get all concept URIs for these rkeys
+    const conceptUris: string[] = [];
+    for (const r of allRkeys) {
+      const row = db.prepare("SELECT uri FROM concepts WHERE rkey = ?").get(r) as any;
+      if (row) conceptUris.push(row.uri);
+    }
+
+    // Get talks for all merged concept URIs
+    const placeholders = conceptUris.map(() => "?").join(",");
+    const talks = conceptUris.length > 0
+      ? db
+          .prepare(
+            `SELECT DISTINCT t.* FROM talks t
+             JOIN talk_concepts tc ON t.uri = tc.talk_uri
+             WHERE tc.concept_uri IN (${placeholders})
+             ORDER BY t.starts_at ASC`
+          )
+          .all(...conceptUris)
+      : [];
 
     return c.json({ concept, talks });
   });

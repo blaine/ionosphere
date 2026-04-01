@@ -52,6 +52,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
   const [filter, setFilter] = useState("");
   const [expandedConcept, setExpandedConcept] = useState<string | null>(null);
   const [conceptTalks, setConceptTalks] = useState<Map<string, any[]>>(new Map());
+  const [widePlayer, setWidePlayer] = useState(false);
 
   const filteredClusters = useMemo(() => {
     if (!filter) return clusters;
@@ -104,19 +105,6 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
         if (res.ok) {
           const { talks } = await res.json();
           setConceptTalks((prev) => new Map(prev).set(conceptRkey, talks));
-          const withVideo = talks.find((t: any) => t.video_uri);
-          if (withVideo) {
-            const talkRes = await fetch(`${API_BASE}/talks/${withVideo.rkey}`);
-            if (talkRes.ok) {
-              const { talk } = await talkRes.json();
-              const doc = talk.document ? JSON.parse(talk.document) : null;
-              setSelectedTalk({
-                rkey: talk.rkey, title: talk.title, videoUri: talk.video_uri,
-                offsetNs: talk.video_offset_ns || 0,
-                document: doc?.facets?.length > 0 ? doc : null, seekToNs: 0,
-              });
-            }
-          }
         }
       } catch {}
     }
@@ -197,11 +185,20 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
         </div>
       </div>
 
-      <div className="w-[400px] shrink-0 border-l border-neutral-800 flex flex-col">
+      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
-            <div className="p-3 border-b border-neutral-800 text-sm font-medium truncate">{selectedTalk.title}</div>
+            <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
+              <button
+                onClick={() => setWidePlayer(!widePlayer)}
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0"
+                title={widePlayer ? "Collapse player" : "Expand player"}
+              >
+                {widePlayer ? "→" : "←"}
+              </button>
+              <span className="truncate">{selectedTalk.title}</span>
+            </div>
             <div className="shrink-0 aspect-video bg-black">
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
             </div>

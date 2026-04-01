@@ -184,6 +184,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
 
   const [filter, setFilter] = useState("");
   const [isRegex, setIsRegex] = useState(false);
+  const [widePlayer, setWidePlayer] = useState(false);
 
   // Filter entries by search term (plain text or regex)
   const filteredEntries = useMemo(() => {
@@ -454,12 +455,19 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       </div>
 
       {/* Right: player panel */}
-      <div className="w-[400px] shrink-0 border-l border-neutral-800 flex flex-col">
+      <div className={`${widePlayer ? "w-2/3" : "w-[400px]"} shrink-0 border-l border-neutral-800 flex flex-col transition-all`}>
         {selectedTalk ? (
           <TimestampProvider key={selectedTalk.rkey + selectedTalk.seekToNs}>
             <InitialSeek timestampNs={selectedTalk.seekToNs} />
-            <div className="p-3 border-b border-neutral-800 text-sm font-medium truncate">
-              {selectedTalk.title}
+            <div className="p-3 border-b border-neutral-800 text-sm font-medium flex items-center gap-2">
+              <button
+                onClick={() => setWidePlayer(!widePlayer)}
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0"
+                title={widePlayer ? "Collapse player" : "Expand player"}
+              >
+                {widePlayer ? "→" : "←"}
+              </button>
+              <span className="truncate">{selectedTalk.title}</span>
             </div>
             <div className="shrink-0 aspect-video bg-black">
               <VideoPlayer
