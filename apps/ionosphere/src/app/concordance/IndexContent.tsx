@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { prepare, layout } from "@chenglou/pretext";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -10,35 +11,20 @@ function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
   useEffect(() => {
     let cancelled = false;
-
     function trySeekAndPlay() {
       if (cancelled) return;
       const video = document.querySelector<HTMLVideoElement>("video");
-      if (!video) {
-        setTimeout(trySeekAndPlay, 100);
-        return;
-      }
-
+      if (!video) { setTimeout(trySeekAndPlay, 100); return; }
       function doSeekAndPlay() {
         if (cancelled) return;
         if (timestampNs > 0) seekTo(timestampNs);
         video!.play().catch(() => {});
       }
-
-      // If already enough data, seek now
-      if (video.readyState >= 2) {
-        doSeekAndPlay();
-        return;
-      }
-
-      // Otherwise wait for loadeddata (HLS has buffered enough to seek)
+      if (video.readyState >= 2) { doSeekAndPlay(); return; }
       video.addEventListener("loadeddata", doSeekAndPlay, { once: true });
-      // Also try on canplay as backup
       video.addEventListener("canplay", doSeekAndPlay, { once: true });
-      // Force play attempt even before seek (gets HLS buffering)
       video.play().catch(() => {});
     }
-
     trySeekAndPlay();
     return () => { cancelled = true; };
   }, [timestampNs, seekTo]);
@@ -69,16 +55,100 @@ interface LetterGroup {
   entries: IndexEntry[];
 }
 
+// --- Pretext measurement ---
+
+const FONT = "13px/1.6 ui-sans-serif, system-ui, sans-serif";
+const LINE_HEIGHT = 21;
+const HEADING_HEIGHT = 32;
+const GROUP_MARGIN = 16;
+
+/**
+ * Measure a letter group's height using Pretext.
+ * With the 20-per-group cap, this is fast (~500 entries total).
+ */
+function measureGroupHeight(
+  group: LetterGroup,
+  visibleCount: number,
+  columnWidth: number,
+  usePretext: boolean
+): number {
+  let height = HEADING_HEIGHT;
+  const visible = group.entries.slice(0, visibleCount);
+
+  for (const entry of visible) {
+    if (usePretext && columnWidth > 0) {
+      // Measure the term line with Pretext
+      const termText = entry.term;
+      const prepared = prepare(termText, FONT);
+      const measured = layout(prepared, columnWidth, LINE_HEIGHT);
+      height += measured.height;
+    } else {
+      height += LINE_HEIGHT;
+    }
+
+    // See-only entries are compact
+    if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
+      height += 4;
+      continue;
+    }
+    // Talk refs (max 5 shown)
+    height += Math.min(entry.talks.length, 5) * LINE_HEIGHT;
+    if (entry.talks.length > 5) height += LINE_HEIGHT;
+    // Subentries
+    for (const sub of entry.subentries || []) {
+      height += LINE_HEIGHT; // label
+      height += sub.talks.length * LINE_HEIGHT;
+    }
+    // See/seeAlso
+    if (entry.see?.length > 0) height += LINE_HEIGHT;
+    if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
+    height += 4; // entry margin
+  }
+
+  // "+N more" button
+  if (group.entries.length > visibleCount) height += LINE_HEIGHT;
+
+  height += GROUP_MARGIN;
+  return height;
+}
+
+/**
+ * Newspaper-style column distribution: fill down then right,
+ * balanced by measured height.
+ */
+function distributeColumns(
+  groups: LetterGroup[],
+  heights: number[],
+  numColumns: number
+): LetterGroup[][] {
+  const totalHeight = heights.reduce((sum, h) => sum + h, 0);
+  const targetHeight = totalHeight / numColumns;
+
+  const columns: LetterGroup[][] = [];
+  let currentColumn: LetterGroup[] = [];
+  let currentHeight = 0;
+
+  for (let i = 0; i < groups.length; i++) {
+    currentColumn.push(groups[i]);
+    currentHeight += heights[i];
+
+    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
+      columns.push(currentColumn);
+      currentColumn = [];
+      currentHeight = 0;
+    }
+  }
+  columns.push(currentColumn);
+
+  return columns;
+}
+
 // --- Component ---
 
 export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [selectedTalk, setSelectedTalk] = useState<{
-    rkey: string;
-    title: string;
-    videoUri: string;
-    offsetNs: number;
-    document: any;
-    seekToNs: number;
+    rkey: string; title: string; videoUri: string;
+    offsetNs: number; document: any; seekToNs: number;
   } | null>(null);
 
   const [filter, setFilter] = useState("");
@@ -88,7 +158,27 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [expandedLetters, setExpandedLetters] = useState<Set<string>>(new Set());
   const ENTRIES_PER_GROUP = 20;
 
-  // Filter entries by search term (plain text or regex)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [columnWidth, setColumnWidth] = useState(280);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Measure available width
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      const padding = 32;
+      const available = el.clientWidth - padding;
+      const cols = Math.max(1, Math.floor(available / 300));
+      const gap = (cols - 1) * 24;
+      setColumnWidth(Math.max(200, Math.floor((available - gap) / cols)));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Filter entries
   const filteredEntries = useMemo(() => {
     if (!filter) return entries;
     try {
@@ -97,14 +187,13 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
         pattern ? pattern.test(e.term) : e.term.toLowerCase().includes(filter.toLowerCase())
       );
     } catch {
-      // Invalid regex — treat as plain text
       return entries.filter((e) =>
         e.term.toLowerCase().includes(filter.toLowerCase())
       );
     }
   }, [entries, filter, isRegex]);
 
-  // All letters present in the full (unfiltered) entries for the nav
+  // All letters for nav
   const allLetters = useMemo(() => {
     const set = new Set<string>();
     for (const e of entries) {
@@ -114,7 +203,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     return [...set].sort();
   }, [entries]);
 
-  // Group filtered entries by first letter
+  // Group by letter
   const groups = useMemo(() => {
     const map = new Map<string, IndexEntry[]>();
     for (const entry of filteredEntries) {
@@ -127,31 +216,31 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [filteredEntries]);
 
+  // Pretext-measured column distribution
+  const columns = useMemo(() => {
+    const numCols = Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
+    const heights = groups.map((g) => {
+      const visibleCount = expandedLetters.has(g.letter) || filter ? g.entries.length : ENTRIES_PER_GROUP;
+      return measureGroupHeight(g, visibleCount, columnWidth, mounted);
+    });
+    return distributeColumns(groups, heights, numCols);
+  }, [groups, columnWidth, mounted, expandedLetters, filter]);
+
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
       try {
         const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-        console.log("[Index] fetching talk", rkey);
         const res = await fetch(`${API_BASE}/talks/${rkey}`);
-        if (!res.ok) {
-          console.error("[Index] fetch failed:", res.status);
-          return;
-        }
+        if (!res.ok) return;
         const { talk } = await res.json();
-        console.log("[Index] loaded talk:", talk.title, "video:", !!talk.video_uri);
         const doc = talk.document ? JSON.parse(talk.document) : null;
         setSelectedTalk({
-          rkey,
-          title: talk.title,
-          videoUri: talk.video_uri,
+          rkey, title: talk.title, videoUri: talk.video_uri,
           offsetNs: talk.video_offset_ns || 0,
-          document: doc?.facets?.length > 0 ? doc : null,
-          seekToNs: timestampNs,
+          document: doc?.facets?.length > 0 ? doc : null, seekToNs: timestampNs,
         });
         setShowMobilePlayer(true);
-      } catch (err) {
-        console.error("[Index] handleSelect error:", err);
-      }
+      } catch {}
     },
     []
   );
@@ -169,8 +258,8 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
 
   return (
     <div className="h-full flex">
-      {/* Letter nav — vertical strip on the left edge */}
-      <nav className="shrink-0 w-8 flex flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
+      {/* Letter nav */}
+      <nav className="shrink-0 w-8 flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
         {allLetters.map((letter) => (
           <button
             key={letter}
@@ -182,9 +271,9 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
         ))}
       </nav>
 
-      {/* Main: search + multi-column word index */}
-      <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
-        {/* Search bar — sticky */}
+      {/* Main: search + Pretext-balanced columns */}
+      <div ref={containerRef} className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
+        {/* Sticky search */}
         <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
           <div className="flex-1 max-w-sm relative">
             <input
@@ -200,144 +289,107 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                 isRegex ? "bg-neutral-600 text-neutral-200" : "text-neutral-600 hover:text-neutral-400"
               }`}
               title="Toggle regex mode"
-            >
-              .*
-            </button>
+            >.*</button>
           </div>
           <span className="text-sm text-neutral-500 shrink-0">
             {filteredEntries.length.toLocaleString()} terms
           </span>
         </div>
-        <div style={{ columnWidth: "280px", columnGap: "1.5rem" }}>
-          {groups.map((group) => {
-            const isExpanded = expandedLetters.has(group.letter) || !!filter;
-            const visibleEntries = isExpanded ? group.entries : group.entries.slice(0, ENTRIES_PER_GROUP);
-            const hasMore = !isExpanded && group.entries.length > ENTRIES_PER_GROUP;
 
-            return (
-            <div key={group.letter} className="break-inside-avoid mb-4">
-              <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
-                {group.letter}
-                {group.entries.length > ENTRIES_PER_GROUP && (
-                  <span className="text-neutral-700 text-xs font-normal ml-1">({group.entries.length})</span>
-                )}
-              </h2>
-                  {visibleEntries.map((entry) => {
-                    // "see"-only entry: compact redirect
-                    const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
-                    if (isSeeOnly) {
+        {/* Pretext-balanced columns */}
+        <div className="flex gap-6 items-start">
+          {columns.map((column, colIdx) => (
+            <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
+              {column.map((group) => {
+                const isExpanded = expandedLetters.has(group.letter) || !!filter;
+                const visibleEntries = isExpanded ? group.entries : group.entries.slice(0, ENTRIES_PER_GROUP);
+                const hasMore = !isExpanded && group.entries.length > ENTRIES_PER_GROUP;
+
+                return (
+                  <div key={group.letter} className="mb-4">
+                    <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
+                      {group.letter}
+                      {group.entries.length > ENTRIES_PER_GROUP && (
+                        <span className="text-neutral-700 text-xs font-normal ml-1">({group.entries.length})</span>
+                      )}
+                    </h2>
+                    {visibleEntries.map((entry) => {
+                      const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
+                      if (isSeeOnly) {
+                        return (
+                          <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-1">
+                            <span className="text-neutral-400">{entry.term}</span>
+                            <span className="text-neutral-600 italic"> — see{" "}
+                              {entry.see.map((ref, i) => (
+                                <span key={ref}>{i > 0 && ", "}
+                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                                </span>
+                              ))}
+                            </span>
+                          </div>
+                        );
+                      }
                       return (
-                        <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-1">
-                          <span className="text-neutral-400">{entry.term}</span>
-                          <span className="text-neutral-600 italic"> — see{" "}
-                            {entry.see.map((ref, i) => (
-                              <span key={ref}>
-                                {i > 0 && ", "}
-                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                              </span>
-                            ))}
-                          </span>
+                        <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-2">
+                          <div className="font-medium text-neutral-200">{entry.term}</div>
+                          {entry.talks.slice(0, 5).map((talk) => (
+                            <div key={talk.rkey} className="truncate text-neutral-500 pl-3">
+                              <button
+                                onClick={() => handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)}
+                                className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                              >{talk.title}</button>
+                              {talk.count > 1 && <span className="text-neutral-600"> ({talk.count})</span>}
+                            </div>
+                          ))}
+                          {entry.talks.length > 5 && (
+                            <div className="text-neutral-600 pl-3">+{entry.talks.length - 5} more</div>
+                          )}
+                          {entry.subentries?.map((sub) => (
+                            <div key={sub.label} className="pl-3">
+                              <span className="text-neutral-400 italic text-xs">{sub.label}</span>
+                              {sub.talks.map((talk) => (
+                                <div key={talk.rkey} className="truncate text-neutral-500 pl-3">
+                                  <button
+                                    onClick={() => handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)}
+                                    className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                                  >{talk.title}</button>
+                                  {talk.count > 1 && <span className="text-neutral-600"> ({talk.count})</span>}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                          {entry.see?.length > 0 && (
+                            <div className="text-neutral-600 italic pl-3">
+                              see{" "}{entry.see.map((ref, i) => (
+                                <span key={ref}>{i > 0 && ", "}
+                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {entry.seeAlso?.length > 0 && (
+                            <div className="text-neutral-600 text-xs pl-3">
+                              see also:{" "}{entry.seeAlso.map((ref, i) => (
+                                <span key={ref}>{i > 0 && ", "}
+                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
-                    }
-
-                    return (
-                      <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-2">
-                        <div className="font-medium text-neutral-200">
-                          {entry.term}
-                        </div>
-                        {/* Direct talk refs */}
-                        {entry.talks.slice(0, 5).map((talk) => (
-                          <div
-                            key={talk.rkey}
-                            className="truncate text-neutral-500 pl-3"
-                            style={{ maxWidth: "100%" }}
-                          >
-                            <button
-                              onClick={() =>
-                                handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)
-                              }
-                              className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
-                            >
-                              {talk.title}
-                            </button>
-                            {talk.count > 1 && (
-                              <span className="text-neutral-600">
-                                {" "}({talk.count})
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                        {entry.talks.length > 5 && (
-                          <div className="text-neutral-600 pl-3">
-                            +{entry.talks.length - 5} more
-                          </div>
-                        )}
-                        {/* Subentries */}
-                        {entry.subentries?.map((sub) => (
-                          <div key={sub.label} className="pl-3">
-                            <span className="text-neutral-400 italic text-xs">{sub.label}</span>
-                            {sub.talks.map((talk) => (
-                              <div
-                                key={talk.rkey}
-                                className="truncate text-neutral-500 pl-3"
-                                style={{ maxWidth: "100%" }}
-                              >
-                                <button
-                                  onClick={() =>
-                                    handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)
-                                  }
-                                  className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
-                                >
-                                  {talk.title}
-                                </button>
-                                {talk.count > 1 && (
-                                  <span className="text-neutral-600">
-                                    {" "}({talk.count})
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-                        {/* See references */}
-                        {entry.see?.length > 0 && (
-                          <div className="text-neutral-600 italic pl-3">
-                            see{" "}
-                            {entry.see.map((ref, i) => (
-                              <span key={ref}>
-                                {i > 0 && ", "}
-                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {/* See also */}
-                        {entry.seeAlso?.length > 0 && (
-                          <div className="text-neutral-600 text-xs pl-3">
-                            see also:{" "}
-                            {entry.seeAlso.map((ref, i) => (
-                              <span key={ref}>
-                                {i > 0 && ", "}
-                                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {hasMore && (
-                    <button
-                      onClick={() => setExpandedLetters((prev) => new Set(prev).add(group.letter))}
-                      className="text-[12px] text-neutral-600 hover:text-neutral-400 mt-1"
-                    >
-                      +{group.entries.length - ENTRIES_PER_GROUP} more...
-                    </button>
-                  )}
+                    })}
+                    {hasMore && (
+                      <button
+                        onClick={() => setExpandedLetters((prev) => new Set(prev).add(group.letter))}
+                        className="text-[12px] text-neutral-600 hover:text-neutral-400 mt-1"
+                      >+{group.entries.length - ENTRIES_PER_GROUP} more...</button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          );
-          })}
+          ))}
         </div>
       </div>
 
@@ -356,23 +408,16 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
               <button
                 onClick={() => { setShowMobilePlayer(false); setSelectedTalk(null); }}
                 className="md:hidden text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 text-sm"
-              >
-                &larr; Back to list
-              </button>
+              >&larr; Back</button>
               <button
                 onClick={() => setWidePlayer(!widePlayer)}
                 className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 hidden md:block"
                 title={widePlayer ? "Collapse player" : "Expand player"}
-              >
-                {widePlayer ? "\u2192" : "\u2190"}
-              </button>
+              >{widePlayer ? "\u2192" : "\u2190"}</button>
               <span className="truncate">{selectedTalk.title}</span>
             </div>
             <div className="shrink-0 bg-black overflow-hidden">
-              <VideoPlayer
-                videoUri={selectedTalk.videoUri}
-                offsetNs={selectedTalk.offsetNs}
-              />
+              <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
             </div>
             {selectedTalk.document && (
               <div className="flex-1 min-h-0">
