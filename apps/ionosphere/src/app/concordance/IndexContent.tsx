@@ -6,18 +6,26 @@ import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvi
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 
-/** Seeks the video to a timestamp after a short delay (lets HLS load first). */
+/** Seeks the video to a timestamp after HLS loads, then plays. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
   useEffect(() => {
-    if (timestampNs > 0) {
-      const timer = setTimeout(() => {
+    if (timestampNs <= 0) return;
+
+    // Poll for the video element (HLS creates it async)
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts++;
+      const video = document.querySelector<HTMLVideoElement>("video");
+      if (video && video.readyState >= 1) {
+        clearInterval(poll);
         seekTo(timestampNs);
-        const video = document.querySelector<HTMLVideoElement>("video");
-        video?.play().catch(() => {});
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
+        video.play().catch(() => {});
+      }
+      if (attempts > 50) clearInterval(poll); // give up after ~5s
+    }, 100);
+
+    return () => clearInterval(poll);
   }, [timestampNs, seekTo]);
   return null;
 }
@@ -67,28 +75,27 @@ function entryToText(entry: IndexEntry): string {
 }
 
 /**
- * Measure each letter group's height using Pretext.
- * Pretext measures how tall each entry will be at the given column width,
- * accounting for line wrapping. This gives us real measurements for
- * balanced column distribution.
+ * Measure each letter group's height using Pretext (client-side only).
+ * Falls back to line-count estimation when Pretext isn't available (SSR).
  */
 function measureGroups(
   groups: LetterGroup[],
-  columnWidth: number
+  columnWidth: number,
+  usePretext: boolean
 ): MeasuredGroup[] {
   return groups.map((g) => {
     let height = HEADING_HEIGHT;
     for (const entry of g.entries) {
-      // Word line (may wrap if word is very long — measure it)
-      const wordPrepared = prepare(entry.word, FONT);
-      const wordMeasured = layout(wordPrepared, columnWidth, LINE_HEIGHT);
-      height += wordMeasured.height;
-      // Each talk ref is a single truncated line
+      if (usePretext) {
+        const wordPrepared = prepare(entry.word, FONT);
+        const wordMeasured = layout(wordPrepared, columnWidth, LINE_HEIGHT);
+        height += wordMeasured.height;
+      } else {
+        height += LINE_HEIGHT;
+      }
       const talkLines = Math.min(entry.talks.length, 5);
       height += talkLines * LINE_HEIGHT;
-      // +more line
       if (entry.talks.length > 5) height += LINE_HEIGHT;
-      // Bottom margin
       height += 4;
     }
     height += GROUP_MARGIN;
@@ -157,11 +164,15 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [entries]);
 
-  // Measure with Pretext and balance across columns
+  // Track whether we're client-side (Pretext needs canvas)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Measure with Pretext (client-side) and balance across columns
   const columns = useMemo(() => {
-    const measured = measureGroups(groups, columnWidth);
+    const measured = measureGroups(groups, columnWidth, mounted);
     return balanceColumns(measured, numColumns);
-  }, [groups, columnWidth, numColumns]);
+  }, [groups, columnWidth, numColumns, mounted]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
