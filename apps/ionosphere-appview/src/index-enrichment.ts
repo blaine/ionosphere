@@ -123,30 +123,23 @@ export function enrichIndex(
     let topLevelTalks = entry.talks;
 
     if (entry.talks.length >= 3) {
-      const talkRkeySet = new Set(entry.talks.map((t) => t.rkey));
       const coveredRkeys = new Set<string>();
 
-      // Find concepts that co-occur with this entry
+      // Only use concepts directly related to this word (name/alias match)
       const relatedConcepts = wordToConcepts.get(wordLower) ?? [];
-      // Also include any concept whose talks overlap with this entry's talks
-      const allRelated = new Set(relatedConcepts);
-      for (const concept of concepts) {
-        const conceptTalkSet = new Set(concept.talkRkeys);
-        let overlap = 0;
-        for (const rkey of talkRkeySet) {
-          if (conceptTalkSet.has(rkey)) overlap++;
-        }
-        if (overlap > 0) allRelated.add(concept);
-      }
 
-      for (const concept of allRelated) {
+      for (const concept of relatedConcepts) {
         const conceptTalkRkeys = new Set(concept.talkRkeys);
         const subTalks = entry.talks.filter((t) => conceptTalkRkeys.has(t.rkey));
         if (subTalks.length > 0) {
-          subentries.push({ label: concept.name, talks: subTalks });
+          subentries.push({ label: concept.name, talks: subTalks.slice(0, 3) });
           for (const t of subTalks) coveredRkeys.add(t.rkey);
         }
       }
+
+      // Cap subentries at 3 most relevant (by talk count)
+      subentries.sort((a, b) => b.talks.length - a.talks.length);
+      subentries.splice(3);
 
       // Top-level talks are those not covered by any subentry
       topLevelTalks = entry.talks.filter((t) => !coveredRkeys.has(t.rkey));
@@ -178,7 +171,7 @@ export function enrichIndex(
     result.push({
       term: entry.word,
       proper: entry.proper,
-      talks: topLevelTalks,
+      talks: topLevelTalks.slice(0, 5),
       subentries,
       see,
       seeAlso,
