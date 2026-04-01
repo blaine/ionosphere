@@ -285,7 +285,9 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     let userInitiated = false;
 
     const onWheel = () => { userInitiated = true; };
-    const onTouchStart = () => { userInitiated = true; };
+    // Only touchmove triggers scroll-scrub, not touchstart.
+    // A tap (touchstart without move) should not seek — it's for
+    // clicking words or play/pause.
     const onTouchMove = () => { userInitiated = true; };
 
     const onScroll = () => {
@@ -307,14 +309,12 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     };
 
     container.addEventListener("wheel", onWheel, { passive: true });
-    container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: true });
 
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       container.removeEventListener("scroll", onScroll);
       container.removeEventListener("wheel", onWheel);
-      container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
       cancelAnimationFrame(rafId);
       clearTimeout(userScrollTimer.current);
