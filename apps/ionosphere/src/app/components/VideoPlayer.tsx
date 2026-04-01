@@ -44,9 +44,11 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           }
         });
 
-        // Once first fragment is buffered, ensure playback starts
+        // Auto-play once the first fragment is buffered (not on every fragment)
+        let hasAutoPlayed = false;
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          if (video!.paused) {
+          if (!hasAutoPlayed && video!.paused) {
+            hasAutoPlayed = true;
             video!.play().catch(() => {});
           }
         });
