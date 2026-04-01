@@ -47,9 +47,23 @@ interface Speaker {
   handle?: string;
 }
 
+interface Talk {
+  rkey: string;
+  title: string;
+  speaker_names: string;
+  starts_at: string;
+}
+
+interface SpeakerWithTalks {
+  rkey: string;
+  name: string;
+  handle?: string;
+  talks: Talk[];
+}
+
 interface LetterGroup {
   letter: string;
-  speakers: Speaker[];
+  speakers: SpeakerWithTalks[];
 }
 
 interface MeasuredGroup extends LetterGroup {
@@ -60,8 +74,8 @@ const LINE_HEIGHT = 22;
 const HEADING_HEIGHT = 36;
 const GROUP_MARGIN = 16;
 
-function groupByLetter(speakers: Speaker[]): LetterGroup[] {
-  const map = new Map<string, Speaker[]>();
+function groupByLetter(speakers: SpeakerWithTalks[]): LetterGroup[] {
+  const map = new Map<string, SpeakerWithTalks[]>();
   for (const s of speakers) {
     const letter = s.name[0]?.toUpperCase() || "#";
     if (!map.has(letter)) map.set(letter, []);
@@ -74,8 +88,12 @@ function groupByLetter(speakers: Speaker[]): LetterGroup[] {
 
 function measureGroups(groups: LetterGroup[]): MeasuredGroup[] {
   return groups.map((g) => {
-    // heading + one line per speaker (name + handle) + margin
-    const height = HEADING_HEIGHT + g.speakers.length * LINE_HEIGHT + GROUP_MARGIN;
+    let height = HEADING_HEIGHT;
+    for (const s of g.speakers) {
+      // speaker name line + one line per talk
+      height += LINE_HEIGHT + s.talks.length * LINE_HEIGHT;
+    }
+    height += GROUP_MARGIN;
     return { ...g, height };
   });
 }
@@ -103,7 +121,26 @@ function balanceColumns(groups: MeasuredGroup[], numColumns: number): MeasuredGr
   return columns;
 }
 
-export default function SpeakersListContent({ speakers }: { speakers: Speaker[] }) {
+/** Match talks to speakers by checking if speaker name appears in talk's speaker_names field */
+function buildSpeakersWithTalks(speakers: Speaker[], talks: Talk[]): SpeakerWithTalks[] {
+  return speakers.map((speaker) => {
+    const speakerTalks = talks.filter((talk) => {
+      if (!talk.speaker_names) return false;
+      // speaker_names is comma-separated; check if this speaker's name appears
+      const names = talk.speaker_names.split(",").map((n) => n.trim().toLowerCase());
+      return names.includes(speaker.name.toLowerCase());
+    });
+    return { ...speaker, talks: speakerTalks };
+  });
+}
+
+export default function SpeakersListContent({
+  speakers,
+  talks,
+}: {
+  speakers: Speaker[];
+  talks: Talk[];
+}) {
   const [selectedTalk, setSelectedTalk] = useState<{
     rkey: string;
     title: string;
@@ -131,9 +168,14 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
     return () => observer.disconnect();
   }, [numColumns]);
 
+  const speakersWithTalks = useMemo(
+    () => buildSpeakersWithTalks(speakers, talks),
+    [speakers, talks]
+  );
+
   const sortedSpeakers = useMemo(
-    () => [...speakers].sort((a, b) => a.name.localeCompare(b.name)),
-    [speakers]
+    () => [...speakersWithTalks].sort((a, b) => a.name.localeCompare(b.name)),
+    [speakersWithTalks]
   );
 
   const filteredSpeakers = useMemo(() => {
@@ -142,7 +184,8 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
     return sortedSpeakers.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
-        (s.handle || "").toLowerCase().includes(q)
+        (s.handle || "").toLowerCase().includes(q) ||
+        s.talks.some((t) => t.title.toLowerCase().includes(q))
     );
   }, [sortedSpeakers, filter]);
 
@@ -162,18 +205,10 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
     return balanceColumns(measured, numColumns);
   }, [groups, numColumns]);
 
-  const handleSelect = useCallback(async (speakerRkey: string) => {
+  const handleSelectTalk = useCallback(async (rkey: string) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-      // Fetch the speaker's talks
-      const speakerRes = await fetch(`${API_BASE}/speakers/${speakerRkey}`);
-      if (!speakerRes.ok) return;
-      const { talks } = await speakerRes.json();
-      if (!talks || talks.length === 0) return;
-
-      // Load the first talk with full document
-      const firstTalk = talks[0];
-      const talkRes = await fetch(`${API_BASE}/talks/${firstTalk.rkey}`);
+      const talkRes = await fetch(`${API_BASE}/talks/${rkey}`);
       if (!talkRes.ok) return;
       const { talk } = await talkRes.json();
       const doc = talk.document ? JSON.parse(talk.document) : null;
@@ -187,7 +222,7 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
         seekToNs: 0,
       });
     } catch (err) {
-      console.error("[Speakers] handleSelect error:", err);
+      console.error("[Speakers] handleSelectTalk error:", err);
     }
   }, []);
 
@@ -221,7 +256,7 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter by name or handle..."
+              placeholder="Filter by name, handle, or talk..."
               className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-neutral-500"
             />
           </div>
@@ -242,16 +277,29 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
                     {group.letter}
                   </h2>
                   {group.speakers.map((speaker) => (
-                    <button
+                    <div
                       key={speaker.rkey}
-                      onClick={() => handleSelect(speaker.rkey)}
-                      className="block w-full text-left text-[13px] leading-[1.6] mb-0.5 hover:text-neutral-100 transition-colors"
+                      className="text-[13px] leading-[1.6] mb-2"
                     >
-                      <span className="font-medium text-neutral-200">{speaker.name}</span>
-                      {speaker.handle && (
-                        <span className="text-neutral-600 ml-1.5">@{speaker.handle}</span>
-                      )}
-                    </button>
+                      <div className="font-medium text-neutral-200">
+                        {speaker.name}
+                        {speaker.handle && (
+                          <span className="text-neutral-600 font-normal ml-1.5">
+                            @{speaker.handle}
+                          </span>
+                        )}
+                      </div>
+                      {speaker.talks.map((talk) => (
+                        <div key={talk.rkey} className="pl-3 truncate text-neutral-500">
+                          <button
+                            onClick={() => handleSelectTalk(talk.rkey)}
+                            className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+                          >
+                            {talk.title}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   ))}
                 </div>
               ))}
@@ -282,7 +330,7 @@ export default function SpeakersListContent({ speakers }: { speakers: Speaker[] 
           </TimestampProvider>
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm p-6 text-center">
-            Click a speaker to play their talk
+            Click a talk to play it
           </div>
         )}
       </div>
