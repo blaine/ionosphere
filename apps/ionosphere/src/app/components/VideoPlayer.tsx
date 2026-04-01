@@ -25,9 +25,57 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
     async function setupHls() {
       const { default: Hls } = await import("hls.js");
       if (Hls.isSupported()) {
-        hls = new Hls();
+        hls = new Hls({ debug: false });
         hls.loadSource(playlistUrl);
         hls.attachMedia(video!);
+
+        // When manifest loads, try to select the AAC audio track
+        // (Streamplace serves both original + AAC renditions)
+        hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+          const tracks = hls!.audioTracks;
+          if (tracks.length > 1) {
+            // Prefer the newer AAC track (usually the last one added)
+            const aacTrack = tracks.findIndex((t: any) =>
+              t.name?.includes("bafk") || t.url?.includes("bafk")
+            );
+            if (aacTrack >= 0 && hls!.audioTrack !== aacTrack) {
+              hls!.audioTrack = aacTrack;
+            }
+          }
+        });
+
+        // Error recovery
+        let mediaErrorRecoveries = 0;
+        hls.on(Hls.Events.ERROR, (_: any, data: any) => {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (mediaErrorRecoveries < 5) {
+              mediaErrorRecoveries++;
+              hls!.recoverMediaError();
+              return;
+            }
+            // Last resort: swap audio track if available
+            const tracks = hls!.audioTracks;
+            if (tracks.length > 1) {
+              const next = (hls!.audioTrack + 1) % tracks.length;
+              hls!.audioTrack = next;
+              mediaErrorRecoveries = 0;
+              return;
+            }
+          }
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hls!.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls!.recoverMediaError();
+                break;
+              default:
+                hls!.destroy();
+                break;
+            }
+          }
+        });
 
         // Seek to offset once media is loaded
         if (offsetS > 0) {
@@ -81,6 +129,6 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
   }, [onSeek, offsetS]);
 
   return (
-    <video ref={videoRef} controls className="w-full max-h-full rounded-lg bg-black" />
+    <video ref={videoRef} controls className="max-w-full max-h-full rounded-lg bg-black" />
   );
 }

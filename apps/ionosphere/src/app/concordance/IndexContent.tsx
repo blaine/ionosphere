@@ -6,26 +6,33 @@ import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvi
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 
-/** Seeks the video to a timestamp after HLS loads, then plays. */
+/** Aggressively seeks and plays the video once it appears. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
   useEffect(() => {
-    if (timestampNs <= 0) return;
+    let cancelled = false;
 
-    // Poll for the video element (HLS creates it async)
-    let attempts = 0;
-    const poll = setInterval(() => {
-      attempts++;
+    // Try immediately, then keep retrying
+    function trySeekAndPlay() {
+      if (cancelled) return;
       const video = document.querySelector<HTMLVideoElement>("video");
-      if (video && video.readyState >= 1) {
-        clearInterval(poll);
-        seekTo(timestampNs);
-        video.play().catch(() => {});
+      if (!video) {
+        setTimeout(trySeekAndPlay, 100);
+        return;
       }
-      if (attempts > 50) clearInterval(poll); // give up after ~5s
-    }, 100);
 
-    return () => clearInterval(poll);
+      // Seek via timestamp provider (adjusts for video offset)
+      if (timestampNs > 0) seekTo(timestampNs);
+
+      // Force play — retry on each canplay/loadeddata event too
+      const play = () => video.play().catch(() => {});
+      play();
+      video.addEventListener("canplay", play, { once: true });
+      video.addEventListener("loadeddata", play, { once: true });
+    }
+
+    trySeekAndPlay();
+    return () => { cancelled = true; };
   }, [timestampNs, seekTo]);
   return null;
 }
@@ -176,18 +183,28 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
-      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-      const res = await fetch(`${API_BASE}/talks/${rkey}`);
-      const { talk } = await res.json();
-      const doc = talk.document ? JSON.parse(talk.document) : null;
-      setSelectedTalk({
-        rkey,
-        title: talk.title,
-        videoUri: talk.video_uri,
-        offsetNs: talk.video_offset_ns || 0,
-        document: doc?.facets?.length > 0 ? doc : null,
-        seekToNs: timestampNs,
-      });
+      try {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
+        console.log("[Index] fetching talk", rkey);
+        const res = await fetch(`${API_BASE}/talks/${rkey}`);
+        if (!res.ok) {
+          console.error("[Index] fetch failed:", res.status);
+          return;
+        }
+        const { talk } = await res.json();
+        console.log("[Index] loaded talk:", talk.title, "video:", !!talk.video_uri);
+        const doc = talk.document ? JSON.parse(talk.document) : null;
+        setSelectedTalk({
+          rkey,
+          title: talk.title,
+          videoUri: talk.video_uri,
+          offsetNs: talk.video_offset_ns || 0,
+          document: doc?.facets?.length > 0 ? doc : null,
+          seekToNs: timestampNs,
+        });
+      } catch (err) {
+        console.error("[Index] handleSelect error:", err);
+      }
     },
     []
   );
