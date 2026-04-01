@@ -79,10 +79,17 @@ function measureGroups(
   return groups.map((g) => {
     let height = HEADING_HEIGHT;
     for (const entry of g.entries) {
-      const text = entryToText(entry);
-      const prepared = prepare(text, FONT);
-      const measured = layout(prepared, columnWidth, LINE_HEIGHT);
-      height += measured.height;
+      // Word line (may wrap if word is very long — measure it)
+      const wordPrepared = prepare(entry.word, FONT);
+      const wordMeasured = layout(wordPrepared, columnWidth, LINE_HEIGHT);
+      height += wordMeasured.height;
+      // Each talk ref is a single truncated line
+      const talkLines = Math.min(entry.talks.length, 5);
+      height += talkLines * LINE_HEIGHT;
+      // +more line
+      if (entry.talks.length > 5) height += LINE_HEIGHT;
+      // Bottom margin
+      height += 4;
     }
     height += GROUP_MARGIN;
     return { ...g, height };
@@ -192,39 +199,36 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                     {group.letter}
                   </h2>
                   {group.entries.map((entry) => (
-                    <div
-                      key={entry.word}
-                      className="flex items-baseline gap-1 text-[13px] leading-[1.6]"
-                    >
-                      <span className="font-medium text-neutral-200 shrink-0">
+                    <div key={entry.word} className="text-[13px] leading-[1.6] mb-1">
+                      <div className="font-medium text-neutral-200">
                         {entry.word}
-                      </span>
-                      <span className="flex-1 border-b border-dotted border-neutral-800 min-w-[8px] self-end mb-[3px]" />
-                      <span className="text-right shrink-0 truncate text-neutral-500" style={{ maxWidth: "80%" }}>
-                        {entry.talks.slice(0, 5).map((talk, i) => (
-                          <span key={talk.rkey}>
-                            {i > 0 && ", "}
-                            <button
-                              onClick={() =>
-                                handleSelect(talk.rkey, entry.word, talk.firstTimestampNs)
-                              }
-                              className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors"
-                            >
-                              {talk.title}
-                            </button>
-                            {talk.count > 1 && (
-                              <span className="text-neutral-600">
-                                {" "}({talk.count})
-                              </span>
-                            )}
-                          </span>
-                        ))}
-                        {entry.talks.length > 5 && (
-                          <span className="text-neutral-600">
-                            {" "}+{entry.talks.length - 5}
-                          </span>
-                        )}
-                      </span>
+                      </div>
+                      {entry.talks.slice(0, 5).map((talk) => (
+                        <div
+                          key={talk.rkey}
+                          className="truncate text-neutral-500 pl-3"
+                          style={{ maxWidth: "100%" }}
+                        >
+                          <button
+                            onClick={() =>
+                              handleSelect(talk.rkey, entry.word, talk.firstTimestampNs)
+                            }
+                            className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-right"
+                          >
+                            {talk.title}
+                          </button>
+                          {talk.count > 1 && (
+                            <span className="text-neutral-600">
+                              {" "}({talk.count})
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {entry.talks.length > 5 && (
+                        <div className="text-neutral-600 pl-3">
+                          +{entry.talks.length - 5} more
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
