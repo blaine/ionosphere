@@ -173,12 +173,12 @@ export default function SpeakersListContent({
   return (
     <div className="h-full flex">
       {/* Letter nav */}
-      <nav className="shrink-0 w-6 flex flex-col items-center justify-center gap-1.5 border-r border-neutral-800 py-2">
+      <nav className="shrink-0 w-8 flex flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
         {allLetters.map((letter) => (
           <button
             key={letter}
             onClick={() => scrollToLetter(letter)}
-            className="text-[10px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors"
+            className="text-[11px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors w-6 h-6 flex items-center justify-center"
           >
             {letter}
           </button>

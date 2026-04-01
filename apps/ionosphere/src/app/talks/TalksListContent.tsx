@@ -173,12 +173,12 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
   return (
     <div className="h-full flex">
       {/* Day nav — vertical strip on the left edge */}
-      <nav className="shrink-0 w-10 flex flex-col items-center justify-center gap-1.5 border-r border-neutral-800 py-2">
+      <nav className="shrink-0 w-10 flex flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
         {dayNav.map(({ day, shortLabel }) => (
           <button
             key={day}
             onClick={() => scrollToDay(day)}
-            className="text-[10px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors"
+            className="text-[11px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors w-6 h-6 flex items-center justify-center"
           >
             {shortLabel}
           </button>
