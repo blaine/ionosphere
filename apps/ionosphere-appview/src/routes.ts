@@ -58,6 +58,15 @@ function overlayAnnotations(
 export function createRoutes(db: Database.Database): Hono {
   const app = new Hono();
 
+  // CORS for client-side fetches from the Next.js frontend
+  app.use("*", async (c, next) => {
+    await next();
+    c.header("Access-Control-Allow-Origin", "*");
+    c.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+    c.header("Access-Control-Allow-Headers", "Content-Type");
+  });
+  app.options("*", (c) => c.text("", 204));
+
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   app.get("/talks", (c) => {
