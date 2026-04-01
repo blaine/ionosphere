@@ -44,19 +44,27 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           }
         });
 
-        // Error recovery
+        // Once first fragment is buffered, ensure playback starts
+        hls.on(Hls.Events.FRAG_BUFFERED, () => {
+          if (video!.paused) {
+            video!.play().catch(() => {});
+          }
+        });
+
+        // Error recovery with logging
         let mediaErrorRecoveries = 0;
         hls.on(Hls.Events.ERROR, (_: any, data: any) => {
+          console.warn("[HLS]", data.type, data.details, data.fatal ? "FATAL" : "");
           if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             if (mediaErrorRecoveries < 5) {
               mediaErrorRecoveries++;
               hls!.recoverMediaError();
               return;
             }
-            // Last resort: swap audio track if available
             const tracks = hls!.audioTracks;
             if (tracks.length > 1) {
               const next = (hls!.audioTrack + 1) % tracks.length;
+              console.warn("[HLS] Swapping to audio track", next);
               hls!.audioTrack = next;
               mediaErrorRecoveries = 0;
               return;
