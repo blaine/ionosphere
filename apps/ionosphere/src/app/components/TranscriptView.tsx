@@ -388,6 +388,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // Track if user is selecting text — pause auto-scroll
   const userSelecting = useRef(false);
   useEffect(() => {
+    if (typeof document === "undefined") return;
     const onSelectionChange = () => {
       const sel = window.getSelection();
       userSelecting.current = !!(sel && !sel.isCollapsed && containerRef.current?.contains(sel.anchorNode));
