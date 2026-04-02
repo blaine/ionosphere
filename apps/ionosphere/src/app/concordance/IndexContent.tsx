@@ -618,10 +618,10 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                 className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 hidden md:block"
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >{widePlayer ? "\u2192" : "\u2190"}</button>
-              <a href={`/talks/${selectedTalk.rkey}`} className="truncate hover:text-neutral-100 transition-colors">{selectedTalk.title}</a>
+              <a href={`/talks/${selectedTalk.rkey}`} className="truncate hover:text-neutral-100 transition-colors min-w-0">{selectedTalk.title}</a>
               <a
                 href={`/talks/${selectedTalk.rkey}`}
-                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 text-xs"
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 text-xs ml-1"
                 title="Open full talk page"
               >&#x2197;</a>
             </div>
