@@ -197,8 +197,8 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       const gap = (cols - 1) * 24;
       setColumnWidth(Math.max(200, Math.floor((available - gap) / cols)));
       setNumCols(cols);
-      // Column height = container height minus search bar (~52px)
-      setColumnHeight(el.clientHeight - 52);
+      // Column height = container height minus search bar + padding (~44px)
+      setColumnHeight(el.clientHeight - 44);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -314,20 +314,19 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return cols;
   }, [scrollColumn, numCols, columnHeight, flowItems, itemHeights, cumulativeHeights]);
 
-  // Scroll handler: wheel scrolls columns
+  // Scroll handler: wheel scrolls columns (multi-column only)
   useEffect(() => {
+    if (numCols <= 1) return;
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      // Map vertical scroll to column advancement
-      // deltaY ~100 per scroll tick, advance 1 column per tick
       const delta = Math.sign(e.deltaY);
       setScrollColumn((prev) => Math.max(0, Math.min(maxScroll, prev + delta)));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [maxScroll]);
+  }, [maxScroll, numCols]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -464,9 +463,9 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       </nav>
 
       {/* Main area */}
-      <div ref={containerRef} className={`flex-1 min-w-0 flex flex-col overflow-hidden p-4 ${showMobilePlayer ? "hidden md:flex" : ""}`}>
+      <div ref={containerRef} className={`flex-1 min-w-0 flex flex-col overflow-hidden px-4 pt-3 pb-2 ${showMobilePlayer ? "hidden md:flex" : ""}`}>
         {/* Search bar */}
-        <div className="flex items-center gap-3 mb-3 shrink-0">
+        <div className="flex items-center gap-3 mb-2 shrink-0">
           <div className="flex-1 max-w-sm relative">
             <input
               type="text"
@@ -493,14 +492,20 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           )}
         </div>
 
-        {/* Columns — fixed height, no vertical scroll */}
-        <div className="flex gap-6 flex-1 min-h-0">
-          {visibleColumns.map((items, colIdx) => (
-            <div key={`${scrollColumn}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden" style={{ maxHeight: columnHeight > 0 ? columnHeight : undefined }}>
-              {items.map(renderItem)}
-            </div>
-          ))}
-        </div>
+        {/* Columns — multi-column: fixed height, paged. Single column: vertical scroll */}
+        {numCols <= 1 ? (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {flowItems.map(renderItem)}
+          </div>
+        ) : (
+          <div className="flex gap-6 flex-1 min-h-0">
+            {visibleColumns.map((items, colIdx) => (
+              <div key={`${scrollColumn}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
+                {items.map(renderItem)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Right: player panel */}
