@@ -1,9 +1,22 @@
+import type { Metadata } from "next";
 import { getSpeaker, getSpeakers, getTalks } from "@/lib/api";
 import TalksListContent from "@/app/talks/TalksListContent";
 
 export async function generateStaticParams() {
   const { speakers } = await getSpeakers();
   return speakers.map((s: any) => ({ rkey: s.rkey }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ rkey: string }> }): Promise<Metadata> {
+  const { rkey } = await params;
+  const { speaker, talks } = await getSpeaker(rkey);
+  const description = `${talks.length} talk${talks.length !== 1 ? "s" : ""} by ${speaker.name} at ATmosphereConf 2026`;
+  return {
+    title: `${speaker.name} — Ionosphere`,
+    description,
+    openGraph: { title: speaker.name, description, url: `https://ionosphere.tv/speakers/${rkey}` },
+    twitter: { card: "summary", title: speaker.name, description },
+  };
 }
 
 export default async function SpeakerPage({ params }: { params: Promise<{ rkey: string }> }) {

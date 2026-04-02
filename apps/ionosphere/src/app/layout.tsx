@@ -6,6 +6,19 @@ import { AuthProvider } from "@/lib/auth";
 export const metadata: Metadata = {
   title: "Ionosphere",
   description: "Semantically enriched conference video archive for ATmosphereConf 2026",
+  metadataBase: new URL("https://ionosphere.tv"),
+  openGraph: {
+    title: "Ionosphere",
+    description: "Semantically enriched conference video archive for ATmosphereConf 2026",
+    url: "https://ionosphere.tv",
+    siteName: "Ionosphere",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Ionosphere",
+    description: "Semantically enriched conference video archive for ATmosphereConf 2026",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
