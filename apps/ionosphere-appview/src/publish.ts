@@ -140,14 +140,41 @@ async function main() {
   }
   console.log(`\nPublished ${transcriptCount} transcripts.`);
 
-  // 5. Publish concepts (from PDS — they were written by enrich.ts)
-  // Concepts are already on the PDS from the enrichment pipeline.
-  // Just verify they're there.
-  const conceptsRes = await fetch(
-    `${PDS_URL}/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=tv.ionosphere.concept&limit=100`
-  );
-  const conceptsData = await conceptsRes.json();
-  console.log(`\nConcepts already on PDS: ${conceptsData.records?.length ?? 0}`);
+  // 5. Publish concepts
+  const concepts = db.prepare("SELECT * FROM concepts").all() as any[];
+  console.log(`\nPublishing ${concepts.length} concepts...`);
+  for (const concept of concepts) {
+    await pds.putRecord("tv.ionosphere.concept", concept.rkey, {
+      $type: "tv.ionosphere.concept",
+      name: concept.name,
+      ...(concept.aliases && { aliases: JSON.parse(concept.aliases) }),
+      ...(concept.description && { description: concept.description }),
+      ...(concept.wikidata_id && { wikidataId: concept.wikidata_id }),
+      ...(concept.url && { url: concept.url }),
+    });
+  }
+  console.log(`  Done.`);
+
+  // 6. Publish annotations
+  const annotations = db.prepare("SELECT * FROM annotations").all() as any[];
+  console.log(`\nPublishing ${annotations.length} annotations...`);
+  for (const ann of annotations) {
+    const talkUri = ann.talk_uri
+      ? ann.talk_uri.replace(/^at:\/\/[^/]+/, `at://${did}`)
+      : null;
+    const transcriptUri = ann.transcript_uri.replace(/^at:\/\/[^/]+/, `at://${did}`);
+    const conceptUri = ann.concept_uri.replace(/^at:\/\/[^/]+/, `at://${did}`);
+    await pds.putRecord("tv.ionosphere.annotation", ann.rkey, {
+      $type: "tv.ionosphere.annotation",
+      transcriptUri,
+      ...(talkUri && { talkUri }),
+      conceptUri,
+      byteStart: ann.byte_start,
+      byteEnd: ann.byte_end,
+      ...(ann.text && { text: ann.text }),
+    });
+  }
+  console.log(`  Done.`);
 
   console.log(`\nAll records published to ${PDS_URL}`);
   console.log(`DID: ${did}`);
