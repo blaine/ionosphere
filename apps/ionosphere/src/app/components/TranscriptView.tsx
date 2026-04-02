@@ -391,7 +391,10 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     if (typeof window === "undefined" || !document?.addEventListener) return;
     const onSelectionChange = () => {
       const sel = window.getSelection?.();
-      userSelecting.current = !!(sel && !sel.isCollapsed && containerRef.current?.contains(sel.anchorNode));
+      const hasSelection = !!(sel && !sel.isCollapsed);
+      userSelecting.current = hasSelection;
+      // Clear scroll target when selecting to fully stop auto-scroll
+      if (hasSelection) scrollTarget.current = null;
     };
     document.addEventListener("selectionchange", onSelectionChange);
     return () => document.removeEventListener("selectionchange", onSelectionChange);
