@@ -322,20 +322,28 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return distributeColumns(visibleGroups, heights, numCols);
   }, [visibleGroups, groups, groupHeights, numCols]);
 
-  // Update centroid from scroll — track which rendered group is in the viewport
+  // Update centroid from scroll — track the topmost visible group
   const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollCentroidRef = useRef(false); // true when scrollToLetter initiated the scroll
   useEffect(() => {
     if (filter) return;
+    const visibleSet = new Set<string>();
     const observer = new IntersectionObserver(
       (entries) => {
+        if (scrollCentroidRef.current) return; // ignore during programmatic scroll
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const letter = entry.target.getAttribute("data-letter");
-            if (letter) setCentroidLetter(letter);
-          }
+          const letter = entry.target.getAttribute("data-letter");
+          if (!letter) continue;
+          if (entry.isIntersecting) visibleSet.add(letter);
+          else visibleSet.delete(letter);
+        }
+        // Pick the earliest letter alphabetically from the visible set
+        if (visibleSet.size > 0) {
+          const sorted = [...visibleSet].sort();
+          setCentroidLetter(sorted[0]);
         }
       },
-      { rootMargin: "-20% 0px -60% 0px" }
+      { rootMargin: "0px 0px -70% 0px" } // top 30% of viewport
     );
     for (const el of groupRefs.current.values()) {
       observer.observe(el);
@@ -365,11 +373,13 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   );
 
   const scrollToLetter = useCallback((letter: string) => {
+    scrollCentroidRef.current = true; // suppress observer during scroll
     setCentroidLetter(letter);
-    // The group will render on next frame; scroll to it after
     requestAnimationFrame(() => {
       const el = document.getElementById(`letter-${letter}`);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Re-enable observer after scroll settles
+      setTimeout(() => { scrollCentroidRef.current = false; }, 500);
     });
   }, []);
 
