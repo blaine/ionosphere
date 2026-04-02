@@ -26,10 +26,13 @@ let _oauthClientPromise: Promise<BrowserOAuthClient> | null = null;
 function getOAuthClient(): Promise<BrowserOAuthClient> {
   if (!_oauthClientPromise) {
     const origin = window.location.origin;
-    // Localhost uses loopback client ID (just the origin, no path).
-    // Production uses the client-metadata.json URL.
     const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
-    const clientId = isLocalhost ? origin : `${origin}/client-metadata.json`;
+    // Loopback client ID: http://localhost?scope=atproto&redirect_uri=...
+    // Must be exactly "http://localhost" with params in query string (no port, no path).
+    // Production: full URL to client-metadata.json
+    const clientId = isLocalhost
+      ? `http://localhost?scope=atproto&redirect_uri=${encodeURIComponent(origin + "/auth/callback")}`
+      : `${origin}/client-metadata.json`;
 
     _oauthClientPromise = BrowserOAuthClient.load({
       clientId,
