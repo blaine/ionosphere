@@ -354,6 +354,17 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     []
   );
 
+  // Optimistic comments — rendered immediately before the round-trip completes
+  const [pendingComments, setPendingComments] = useState<CommentData[]>([]);
+
+  // Merge server comments + pending, dedup by URI
+  const allComments = useMemo(() => {
+    if (pendingComments.length === 0) return comments || [];
+    const serverUris = new Set((comments || []).map((c) => c.uri));
+    const stillPending = pendingComments.filter((p) => !serverUris.has(p.uri));
+    return [...(comments || []), ...stillPending];
+  }, [comments, pendingComments]);
+
   const wordHasComment = useMemo(() => {
     if (allComments.length === 0) return new Set<number>();
     const set = new Set<number>();
@@ -407,18 +418,6 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
 
   // Expanded reaction group (which span's comments are shown)
   const [expandedSpan, setExpandedSpan] = useState<string | null>(null);
-
-  // Optimistic comments — rendered immediately before the round-trip completes
-  const [pendingComments, setPendingComments] = useState<CommentData[]>([]);
-
-  // Merge server comments + pending, dedup by text+anchor
-  const allComments = useMemo(() => {
-    if (pendingComments.length === 0) return comments || [];
-    const serverUris = new Set((comments || []).map((c) => c.uri));
-    // Remove pending comments that have arrived from the server
-    const stillPending = pendingComments.filter((p) => !serverUris.has(p.uri));
-    return [...(comments || []), ...stillPending];
-  }, [comments, pendingComments]);
 
   const handlePublish = useCallback(async (byteStart: number, byteEnd: number, text: string) => {
     if (!agent || !transcriptUri) return;
