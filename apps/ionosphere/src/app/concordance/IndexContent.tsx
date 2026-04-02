@@ -403,6 +403,22 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >{widePlayer ? "\u2192" : "\u2190"}</button>
               <span className="truncate">{selectedTalk.title}</span>
+              {/* Whole-talk reactions */}
+              {(() => {
+                const wholeTalk = comments.filter(c => c.byte_start === null && c.text.length <= 2 && !/[a-zA-Z]/.test(c.text));
+                if (wholeTalk.length === 0) return null;
+                const counts = new Map<string, number>();
+                for (const c of wholeTalk) counts.set(c.text, (counts.get(c.text) || 0) + 1);
+                return (
+                  <span className="ml-auto shrink-0 flex gap-1 text-xs">
+                    {[...counts.entries()].map(([emoji, count]) => (
+                      <span key={emoji} className="bg-neutral-800 rounded-full px-1.5 py-0.5">
+                        {emoji}{count > 1 && <span className="text-neutral-500 ml-0.5">{count}</span>}
+                      </span>
+                    ))}
+                  </span>
+                );
+              })()}
             </div>
             <div className="shrink-0 bg-black overflow-hidden">
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
