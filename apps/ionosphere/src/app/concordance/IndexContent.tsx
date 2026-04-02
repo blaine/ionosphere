@@ -234,8 +234,18 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   } | null>(null);
 
   const [comments, setComments] = useState<CommentData[]>([]);
+  const [filterInput, setFilterInput] = useState("");
   const [filter, setFilter] = useState("");
   const [isRegex, setIsRegex] = useState(false);
+  const filterTimer = useRef<ReturnType<typeof setTimeout>>();
+  const handleFilterChange = useCallback((value: string) => {
+    setFilterInput(value);
+    clearTimeout(filterTimer.current);
+    filterTimer.current = setTimeout(() => {
+      setFilter(value);
+      setStartIndex(0);
+    }, 150);
+  }, []);
   const [widePlayer, setWidePlayer] = useState(false);
   const [showMobilePlayer, setShowMobilePlayer] = useState(false);
 
@@ -555,8 +565,8 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           <div className="flex-1 max-w-sm relative">
             <input
               type="text"
-              value={filter}
-              onChange={(e) => { setFilter(e.target.value); setStartIndex(0); }}
+              value={filterInput}
+              onChange={(e) => handleFilterChange(e.target.value)}
               placeholder={isRegex ? "Filter (regex)..." : "Filter..."}
               className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-neutral-500"
             />
