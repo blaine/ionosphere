@@ -290,38 +290,71 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [filteredEntries]);
 
-  // Progressive rendering — start with a subset of groups, expand on scroll
-  const [visibleGroupCount, setVisibleGroupCount] = useState(8);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Pretext-measured heights for ALL groups (cheap — no DOM)
+  const groupHeights = useMemo(() => {
+    return groups.map((g) => measureGroupHeight(g, g.entries.length, columnWidth, mounted));
+  }, [groups, columnWidth, mounted]);
 
-  // Reset visible count when filter changes
-  useEffect(() => { setVisibleGroupCount(8); }, [filter]);
+  // Column layout for ALL groups (distributes by height, no rendering)
+  const numCols = useMemo(() => {
+    return Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
+  }, [columnWidth]);
 
+  const columnLayout = useMemo(() => {
+    return distributeColumns(groups, groupHeights, numCols);
+  }, [groups, groupHeights, numCols]);
+
+  // Per-column: cumulative height offsets for each group (for spacer sizing)
+  const columnOffsets = useMemo(() => {
+    return columnLayout.map((col) => {
+      const offsets: number[] = [];
+      let h = 0;
+      for (const group of col) {
+        offsets.push(h);
+        const idx = groups.indexOf(group);
+        h += idx >= 0 ? groupHeights[idx] : 0;
+      }
+      offsets.push(h); // total height
+      return offsets;
+    });
+  }, [columnLayout, groups, groupHeights]);
+
+  // Centroid: which letter group index is "centered" in the viewport
+  const [centroidLetter, setCentroidLetter] = useState("A");
+  const RENDER_WINDOW = 5; // render groups within ±5 of centroid in the alphabet
+
+  // Which group indices are visible (within window of centroid)
+  const visibleLetters = useMemo(() => {
+    if (filter) return new Set(groups.map((g) => g.letter)); // show all when filtering
+    const centroidIdx = groups.findIndex((g) => g.letter === centroidLetter);
+    const center = centroidIdx >= 0 ? centroidIdx : 0;
+    const set = new Set<string>();
+    for (let i = Math.max(0, center - RENDER_WINDOW); i < Math.min(groups.length, center + RENDER_WINDOW + 1); i++) {
+      set.add(groups[i].letter);
+    }
+    return set;
+  }, [groups, centroidLetter, filter]);
+
+  // Update centroid from scroll position using IntersectionObserver
+  const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
+    if (filter) return; // don't update centroid when filtering
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisibleGroupCount((prev) => Math.min(prev + 6, groups.length));
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const letter = entry.target.getAttribute("data-letter");
+            if (letter) setCentroidLetter(letter);
+          }
         }
       },
-      { rootMargin: "400px" }
+      { rootMargin: "-20% 0px -60% 0px" } // trigger when group enters top third
     );
-    observer.observe(sentinel);
+    for (const el of groupRefs.current.values()) {
+      observer.observe(el);
+    }
     return () => observer.disconnect();
-  }, [groups.length]);
-
-  const visibleGroups = useMemo(() => filter ? groups : groups.slice(0, visibleGroupCount), [groups, visibleGroupCount, filter]);
-
-  // Pretext-measured column distribution (only for visible groups)
-  const columns = useMemo(() => {
-    const numCols = Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
-    const heights = visibleGroups.map((g) => {
-      return measureGroupHeight(g, g.entries.length, columnWidth, mounted);
-    });
-    return distributeColumns(visibleGroups, heights, numCols);
-  }, [visibleGroups, columnWidth, mounted, expandedLetters, filter]);
+  }, [groups, visibleLetters, filter]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -345,8 +378,12 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   );
 
   const scrollToLetter = useCallback((letter: string) => {
-    const el = document.getElementById(`letter-${letter}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setCentroidLetter(letter);
+    // The group will render on next frame; scroll to it after
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`letter-${letter}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }, []);
 
   const scrollToTerm = useCallback((term: string) => {
@@ -375,7 +412,9 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           <button
             key={letter}
             onClick={() => scrollToLetter(letter)}
-            className="text-[11px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors w-6 h-6 flex items-center justify-center"
+            className={`text-[11px] leading-none transition-colors w-6 h-6 flex items-center justify-center ${
+              letter === centroidLetter ? "text-neutral-100 font-bold" : "text-neutral-500 hover:text-neutral-100"
+            }`}
           >
             {letter}
           </button>
@@ -407,12 +446,27 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           </span>
         </div>
 
-        {/* Pretext-balanced columns */}
+        {/* Pretext-balanced columns with viewport virtualization */}
         <div className="flex gap-6 items-start">
-          {columns.map((column, colIdx) => (
+          {columnLayout.map((column, colIdx) => (
             <div key={colIdx} className="min-w-0 flex-1">
-              {column.map((group) => (
-                  <div key={group.letter} className="mb-4">
+              {column.map((group, groupIdx) => {
+                const isVisible = visibleLetters.has(group.letter);
+                const gIdx = groups.indexOf(group);
+                const height = gIdx >= 0 ? groupHeights[gIdx] : 0;
+
+                if (!isVisible) {
+                  // Spacer preserving measured height
+                  return <div key={group.letter} id={`letter-${group.letter}`} style={{ height }} />;
+                }
+
+                return (
+                  <div
+                    key={group.letter}
+                    ref={(el) => { if (el) groupRefs.current.set(group.letter, el); else groupRefs.current.delete(group.letter); }}
+                    data-letter={group.letter}
+                    className="mb-4"
+                  >
                     <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
                       {group.letter}
                     </h2>
@@ -471,14 +525,10 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                       );
                     })}
                   </div>
-              ))}
+                );
+              })}
             </div>
           ))}
-        {visibleGroupCount < groups.length && (
-          <div ref={sentinelRef} className="text-center text-neutral-600 text-xs py-4">
-            Loading more...
-          </div>
-        )}
         </div>
       </div>
 
