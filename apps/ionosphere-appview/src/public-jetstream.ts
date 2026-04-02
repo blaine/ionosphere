@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { JetstreamClient } from "./jetstream.js";
-import { processEvent } from "./indexer.js";
+import { processEvent, type JetstreamEvent } from "./indexer.js";
 
 const PUBLIC_JETSTREAM_URL = process.env.PUBLIC_JETSTREAM_URL ?? "wss://jetstream1.us-east.bsky.network";
 
@@ -51,5 +51,83 @@ export function startPublicJetstream(db: Database.Database): JetstreamClient {
     onError: (err) => console.error("Public Jetstream error:", err),
   });
 
+  // Backfill comments from known authors on startup
+  backfillComments(db).catch((err) =>
+    console.error("[Public Jetstream] Backfill error:", err)
+  );
+
   return client;
+}
+
+/**
+ * Backfill comments from DIDs that already have comments in the DB.
+ * Fetches their tv.ionosphere.comment records directly from their PDS
+ * to catch anything the Jetstream missed.
+ */
+async function backfillComments(db: Database.Database): Promise<void> {
+  const authors = db
+    .prepare("SELECT DISTINCT author_did FROM comments")
+    .all() as { author_did: string }[];
+
+  if (authors.length === 0) return;
+
+  for (const { author_did } of authors) {
+    try {
+      // Resolve DID to PDS endpoint
+      const didDoc = await fetch(
+        `https://plc.directory/${author_did}`
+      ).then((r) => r.json());
+
+      const pdsEndpoint = didDoc?.service?.find(
+        (s: any) => s.type === "AtprotoPersonalDataServer"
+      )?.serviceEndpoint;
+
+      if (!pdsEndpoint) continue;
+
+      // Fetch all comments from this author's PDS
+      let cursor: string | undefined;
+      let total = 0;
+      do {
+        const params = new URLSearchParams({
+          repo: author_did,
+          collection: "tv.ionosphere.comment",
+          limit: "100",
+        });
+        if (cursor) params.set("cursor", cursor);
+
+        const res = await fetch(
+          `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?${params}`
+        );
+        if (!res.ok) break;
+        const data = await res.json();
+
+        for (const record of data.records || []) {
+          const rkey = record.uri.split("/").pop()!;
+          const event: JetstreamEvent = {
+            did: author_did,
+            kind: "commit",
+            commit: {
+              operation: "create",
+              collection: "tv.ionosphere.comment",
+              rkey,
+              record: record.value,
+              cid: record.cid || "",
+              rev: "",
+            },
+            time_us: Date.now() * 1000,
+          };
+          try {
+            processEvent(db, event);
+            total++;
+          } catch {}
+        }
+
+        cursor = data.cursor;
+      } while (cursor);
+
+      if (total > 0) {
+        console.log(`[Public Jetstream] Backfilled ${total} comments from ${author_did.slice(0, 24)}...`);
+      }
+    } catch {}
+  }
 }
