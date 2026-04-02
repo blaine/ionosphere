@@ -64,10 +64,12 @@ export async function resolveProfile(
  * from a DID we haven't seen. Does not block the caller.
  */
 export function ensureProfile(db: Database.Database, did: string): void {
-  const exists = db
-    .prepare("SELECT 1 FROM profiles WHERE did = ?")
-    .get(did);
-  if (!exists) {
-    resolveProfile(db, did).catch(() => {});
+  const existing = db
+    .prepare("SELECT fetched_at FROM profiles WHERE did = ?")
+    .get(did) as any;
+  if (existing) {
+    const age = Date.now() - new Date(existing.fetched_at).getTime();
+    if (age < PROFILE_MAX_AGE_MS) return;
   }
+  resolveProfile(db, did).catch(() => {});
 }
