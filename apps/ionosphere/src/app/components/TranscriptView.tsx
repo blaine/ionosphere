@@ -1,7 +1,7 @@
 "use client";
 
 import { useTimestamp } from "./TimestampProvider";
-import { useRef, useEffect, useMemo, useCallback, forwardRef } from "react";
+import { useRef, useEffect, useMemo, useCallback, forwardRef, useState } from "react";
 import {
   extractData,
   brightnessAtTime,
@@ -121,7 +121,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // below. This creates a seamless, continuous mapping — line N's extended
   // bottom == line N+1's extended top.
   useEffect(() => {
-    if (userScrolling.current) return;
+    if (userScrolling.current || userSelecting.current) return;
     const container = containerRef.current;
     if (!container || currentTimeNs <= 0) return;
 
@@ -199,7 +199,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     const LERP = 0.15; // easing factor — higher = snappier
 
     const animate = () => {
-      if (!userScrolling.current && scrollTarget.current !== null) {
+      if (!userScrolling.current && !userSelecting.current && scrollTarget.current !== null) {
         const diff = scrollTarget.current - container.scrollTop;
         if (Math.abs(diff) > 0.5) {
           container.scrollTop += diff * LERP;
@@ -363,6 +363,42 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     return set;
   }, [words, comments]);
 
+  // Group comments by byte range for margin indicators
+  // Key: "byteStart-byteEnd", Value: { emoji counts, text comments }
+  const reactionGroups = useMemo(() => {
+    if (!comments || comments.length === 0) return new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
+    const groups = new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
+    for (const c of comments) {
+      if (c.byte_start === null || c.byte_end === null) continue;
+      const key = `${c.byte_start}-${c.byte_end}`;
+      if (!groups.has(key)) {
+        groups.set(key, { emojis: new Map(), texts: [], byteStart: c.byte_start, byteEnd: c.byte_end });
+      }
+      const group = groups.get(key)!;
+      const isEmoji = c.text.length <= 2 && !/[a-zA-Z]/.test(c.text);
+      if (isEmoji) {
+        group.emojis.set(c.text, (group.emojis.get(c.text) || 0) + 1);
+      } else {
+        group.texts.push(c);
+      }
+    }
+    return groups;
+  }, [comments]);
+
+  // Track if user is selecting text — pause auto-scroll
+  const userSelecting = useRef(false);
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const sel = window.getSelection();
+      userSelecting.current = !!(sel && !sel.isCollapsed && containerRef.current?.contains(sel.anchorNode));
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  // Expanded reaction group (which span's comments are shown)
+  const [expandedSpan, setExpandedSpan] = useState<string | null>(null);
+
   const handlePublish = useCallback(async (byteStart: number, byteEnd: number, text: string) => {
     if (!agent || !transcriptUri) return;
     try {
@@ -406,6 +442,57 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
           hasComment={wordHasComment.has(i)}
         />
       ))}
+      {/* Reaction margin indicators */}
+      {[...reactionGroups.entries()].map(([key, group]) => {
+        // Find the first word span that overlaps this range to position the indicator
+        const firstWordIdx = words.findIndex(
+          (w) => w.byteStart < group.byteEnd && w.byteEnd > group.byteStart
+        );
+        const el = firstWordIdx >= 0 ? wordRefsMap.current.get(firstWordIdx) : null;
+        if (!el) return null;
+
+        const emojiStr = [...group.emojis.entries()]
+          .map(([emoji, count]) => (count > 1 ? `${emoji}${count}` : emoji))
+          .join("");
+        const hasTexts = group.texts.length > 0;
+        const isExpanded = expandedSpan === key;
+
+        return (
+          <div
+            key={key}
+            className="absolute right-1 z-20"
+            style={{ top: el.offsetTop - 2 }}
+          >
+            <button
+              onClick={() => setExpandedSpan(isExpanded ? null : key)}
+              className="text-[11px] bg-neutral-900/80 border border-neutral-700/50 rounded-full px-1.5 py-0.5 hover:bg-neutral-800 transition-colors"
+              title={`${group.emojis.size + group.texts.length} reactions`}
+            >
+              {emojiStr || "💬"}
+              {hasTexts && !emojiStr && group.texts.length}
+            </button>
+            {isExpanded && (
+              <div className="absolute right-0 top-full mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl p-2 min-w-[200px] max-w-[300px] z-50">
+                {group.emojis.size > 0 && (
+                  <div className="flex gap-1 flex-wrap mb-1">
+                    {[...group.emojis.entries()].map(([emoji, count]) => (
+                      <span key={emoji} className="text-sm">
+                        {emoji}{count > 1 && <span className="text-[10px] text-neutral-500">{count}</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {group.texts.map((c) => (
+                  <div key={c.uri} className="text-[12px] text-neutral-300 border-t border-neutral-700 pt-1 mt-1">
+                    <span className="text-neutral-500">{c.author_did.slice(8, 24)}...</span>
+                    <p>{c.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
       {/* Bottom spacer: lets last word scroll up to the playhead (33% mark) */}
       <div style={{ height: "calc(67% + 1rem)" }} />
     </div>
