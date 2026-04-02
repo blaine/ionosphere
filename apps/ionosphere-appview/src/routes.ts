@@ -196,7 +196,11 @@ export function createRoutes(db: Database.Database): Hono {
 
     const placeholders = subjectUris.map(() => "?").join(",");
     const comments = db.prepare(
-      `SELECT * FROM comments WHERE subject_uri IN (${placeholders}) ORDER BY created_at ASC`
+      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM comments c
+       LEFT JOIN profiles p ON c.author_did = p.did
+       WHERE c.subject_uri IN (${placeholders})
+       ORDER BY c.created_at ASC`
     ).all(...subjectUris);
 
     return c.json({ comments });
@@ -207,7 +211,11 @@ export function createRoutes(db: Database.Database): Hono {
     if (!subject) return c.json({ comments: [] });
 
     const comments = db.prepare(
-      "SELECT * FROM comments WHERE subject_uri = ? ORDER BY created_at ASC"
+      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM comments c
+       LEFT JOIN profiles p ON c.author_did = p.did
+       WHERE c.subject_uri = ?
+       ORDER BY c.created_at ASC`
     ).all(subject);
 
     return c.json({ comments });
