@@ -28,6 +28,9 @@ export async function publishComment(
 export interface CommentData {
   uri: string;
   author_did: string;
+  author_handle?: string | null;
+  author_display_name?: string | null;
+  author_avatar_url?: string | null;
   rkey: string;
   subject_uri: string;
   text: string;
@@ -35,6 +38,11 @@ export interface CommentData {
   byte_start: number | null;
   byte_end: number | null;
   created_at: string;
+}
+
+/** Returns true if the text is an emoji reaction (not a text comment). */
+export function isEmojiReaction(text: string): boolean {
+  return text.length <= 2 && !/[a-zA-Z]/.test(text);
 }
 
 export async function fetchComments(talkRkey: string): Promise<CommentData[]> {
