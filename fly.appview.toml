@@ -14,6 +14,7 @@ primary_region = "sjc"
   PUBLIC_JETSTREAM_URL = "wss://jetstream1.us-west.bsky.network"
   BOT_HANDLE = "ionosphere.tv"
   BOT_DID = "did:plc:lkeq4oghyhnztbu4dxr3joff"
+  FRONTEND_URL = "https://ionosphere.tv"
 
 [http_service]
   internal_port = 8080

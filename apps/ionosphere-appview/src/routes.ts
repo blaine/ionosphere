@@ -453,9 +453,18 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ entries });
   });
 
-  // Invalidate cache (call after data changes)
-  app.post("/xrpc/tv.ionosphere.invalidateConcordance", (c) => {
+  // Invalidate all caches (call after data changes)
+  app.post("/xrpc/tv.ionosphere.invalidate", (c) => {
     indexCache = null;
+
+    // Trigger frontend ISR revalidation
+    const frontendUrl = process.env.FRONTEND_URL;
+    const revalidateSecret = process.env.REVALIDATE_SECRET;
+    if (frontendUrl) {
+      const qs = revalidateSecret ? `?secret=${encodeURIComponent(revalidateSecret)}` : "";
+      fetch(`${frontendUrl}/api/revalidate${qs}`, { method: "POST" }).catch(() => {});
+    }
+
     return c.json({ ok: true });
   });
 
