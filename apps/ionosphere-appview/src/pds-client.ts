@@ -22,8 +22,16 @@ export async function retryWithBackoff<T>(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
+      // If rate limited, wait until the reset time
+      if (err?.status === 429 && err?.headers?.["ratelimit-reset"]) {
+        const resetAt = Number(err.headers["ratelimit-reset"]);
+        const waitSec = Math.max(resetAt - Math.floor(Date.now() / 1000), 1);
+        console.log(`Rate limited — waiting ${waitSec}s until reset...`);
+        await delay(waitSec * 1000 + 1000);
+        continue;
+      }
       if (attempt < maxRetries) {
         const waitMs = Math.min(initialDelay * Math.pow(2, attempt), maxDelay);
         await delay(waitMs);
