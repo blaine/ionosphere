@@ -76,7 +76,7 @@ async function init() {
 
 const app = createRoutes(db);
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
+serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
   console.log(`Ionosphere appview running on http://localhost:${info.port}`);
   console.log(`PDS: ${PDS_URL} | Jetstream: ${JETSTREAM_URL}`);
 });
