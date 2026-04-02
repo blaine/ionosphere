@@ -67,9 +67,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const newAgent = new Agent(result.session);
           setAgent(newAgent);
           setDid(result.session.did);
+          // Fetch profile from public API (no auth needed)
           try {
-            const profile = await newAgent.getProfile({ actor: result.session.did });
-            setHandle(profile.data.handle);
+            const res = await fetch(
+              `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(result.session.did)}`
+            );
+            if (res.ok) {
+              const profile = await res.json();
+              setHandle(profile.handle);
+            }
           } catch {}
         }
       } catch (err) {
