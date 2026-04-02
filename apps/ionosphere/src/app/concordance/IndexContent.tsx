@@ -146,7 +146,19 @@ function distributeColumns(
 
 // --- Component ---
 
-export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
+export default function IndexContent({ entries: initialEntries }: { entries: IndexEntry[] | null }) {
+  const [entries, setEntries] = useState<IndexEntry[] | null>(initialEntries);
+  const [loading, setLoading] = useState(!initialEntries);
+
+  useEffect(() => {
+    if (initialEntries) return;
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
+    fetch(`${API_BASE}/xrpc/tv.ionosphere.getConcordance`)
+      .then((r) => r.json())
+      .then((d) => { setEntries(d.entries); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [initialEntries]);
+
   const [selectedTalk, setSelectedTalk] = useState<{
     rkey: string; title: string; videoUri: string;
     offsetNs: number; document: any; seekToNs: number;
@@ -182,6 +194,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
 
   // Filter entries
   const filteredEntries = useMemo(() => {
+    if (!entries) return [];
     if (!filter) return entries;
     try {
       const pattern = isRegex ? new RegExp(filter, "i") : null;
@@ -258,6 +271,14 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center text-neutral-500 text-sm">
+        Building concordance index... this takes a few minutes the first time.
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex">
