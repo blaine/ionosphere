@@ -1,9 +1,9 @@
 {
-  "client_id": "http://localhost:9402/client-metadata.json",
+  "client_id": "https://ionosphere.tv/client-metadata.json",
   "client_name": "Ionosphere",
-  "client_uri": "http://localhost:9402",
-  "redirect_uris": ["http://localhost:9402/auth/callback"],
-  "scope": "atproto",
+  "client_uri": "https://ionosphere.tv",
+  "redirect_uris": ["https://ionosphere.tv/auth/callback"],
+  "scope": "atproto repo:tv.ionosphere.comment",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",

@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 
-const DB_PATH = path.resolve(
+const DB_PATH = process.env.DB_PATH || path.resolve(
   import.meta.dirname,
   "../../data/ionosphere.sqlite"
 );

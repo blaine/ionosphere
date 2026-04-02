@@ -1,0 +1,23 @@
+app = "ionosphere-web"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "apps/ionosphere/Dockerfile"
+  [build.args]
+    NEXT_PUBLIC_API_URL = "https://ionosphere-appview.fly.dev"
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
+  NEXT_PUBLIC_API_URL = "https://ionosphere-appview.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

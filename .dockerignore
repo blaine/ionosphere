@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.claude
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+apps/ionosphere-appview/data/pds
+docs

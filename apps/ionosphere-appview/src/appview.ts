@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT ?? 3001);
 const JETSTREAM_URL = process.env.JETSTREAM_URL ?? "ws://localhost:2580";
 const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
 const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
+const BOT_DID = process.env.BOT_DID ?? "";
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
@@ -20,20 +21,32 @@ migrate(db);
 
 async function init() {
   // Resolve the DID for the bot account
-  try {
-    const res = await fetch(
-      `${PDS_URL}/xrpc/com.atproto.identity.resolveHandle?handle=${BOT_HANDLE}`
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const did = data.did;
-      console.log(`Resolved ${BOT_HANDLE} → ${did}`);
-      await backfill(db, PDS_URL, did);
-    } else {
-      console.warn(`Could not resolve handle ${BOT_HANDLE}: ${res.status}`);
+  let did = BOT_DID;
+  if (!did) {
+    try {
+      const res = await fetch(
+        `${PDS_URL}/xrpc/com.atproto.identity.resolveHandle?handle=${BOT_HANDLE}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        did = data.did;
+      } else {
+        console.warn(`Could not resolve handle ${BOT_HANDLE}: ${res.status}`);
+      }
+    } catch (err) {
+      console.warn("Handle resolution failed:", (err as Error).message);
     }
-  } catch (err) {
-    console.warn("Backfill skipped:", (err as Error).message);
+  }
+
+  if (did) {
+    console.log(`Backfilling from ${did}`);
+    try {
+      await backfill(db, PDS_URL, did);
+    } catch (err) {
+      console.warn("Backfill failed:", (err as Error).message);
+    }
+  } else {
+    console.warn("No DID resolved, skipping backfill");
   }
 
   // ── Jetstream for live updates ──────────────────────────────────────────────
