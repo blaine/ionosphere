@@ -398,13 +398,31 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ concept, talks });
   });
 
+  // Strip timestampsNs from concordance entries for the main response (fetched on demand)
+  function stripTimestamps(entries: any[]): any[] {
+    return entries.map((e: any) => ({
+      ...e,
+      talks: e.talks.map((t: any) => {
+        const { timestampsNs, ...rest } = t;
+        return rest;
+      }),
+      subentries: e.subentries?.map((s: any) => ({
+        ...s,
+        talks: s.talks.map((t: any) => {
+          const { timestampsNs, ...rest } = t;
+          return rest;
+        }),
+      })),
+    }));
+  }
+
   // Cache the concordance — NLP pipeline takes ~2.5 min, data is static
   let indexCache: { entries: any[]; builtAt: number } | null = null;
 
   app.get("/xrpc/tv.ionosphere.getConcordance", (c) => {
     // Serve from cache if available
     if (indexCache) {
-      return c.json({ entries: indexCache.entries });
+      return c.json({ entries: stripTimestamps(indexCache.entries) });
     }
 
     console.log("[index] Building concordance (this takes a couple minutes the first time)...");
@@ -450,7 +468,34 @@ export function createRoutes(db: Database.Database): Hono {
     indexCache = { entries, builtAt: Date.now() };
     console.log(`[index] Concordance built: ${entries.length} entries in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 
-    return c.json({ entries });
+    return c.json({ entries: stripTimestamps(entries) });
+  });
+
+  // On-demand timecodes for a specific term + talk
+  app.get("/xrpc/tv.ionosphere.getTimecodes", (c) => {
+    const term = c.req.query("term");
+    const rkey = c.req.query("rkey");
+    if (!term || !rkey) return c.json({ error: "missing term or rkey" }, 400);
+    if (!indexCache) return c.json({ timestamps: [] });
+
+    // Search entries and subentries for the matching term + talk
+    for (const entry of indexCache.entries) {
+      if (entry.term.toLowerCase() === term.toLowerCase()) {
+        for (const talk of entry.talks) {
+          if (talk.rkey === rkey && talk.timestampsNs) {
+            return c.json({ timestamps: talk.timestampsNs });
+          }
+        }
+        for (const sub of entry.subentries || []) {
+          for (const talk of sub.talks) {
+            if (talk.rkey === rkey && talk.timestampsNs) {
+              return c.json({ timestamps: talk.timestampsNs });
+            }
+          }
+        }
+      }
+    }
+    return c.json({ timestamps: [] });
   });
 
   // Invalidate all caches (call after data changes)

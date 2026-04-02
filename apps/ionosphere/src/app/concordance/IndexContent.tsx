@@ -39,7 +39,6 @@ interface TalkRef {
   title: string;
   count: number;
   firstTimestampNs: number;
-  timestampsNs?: number[];
 }
 
 function formatTimecode(ns: number): string {
@@ -55,7 +54,20 @@ function TalkEntry({ talk, term, onSelect }: {
   onSelect: (rkey: string, term: string, seekToNs: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasMultiple = talk.count > 1 && talk.timestampsNs && talk.timestampsNs.length > 1;
+  const [timestamps, setTimestamps] = useState<number[] | null>(null);
+  const hasMultiple = talk.count > 1;
+
+  const handleExpand = useCallback(() => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !timestamps) {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
+      fetch(`${API_BASE}/xrpc/tv.ionosphere.getTimecodes?term=${encodeURIComponent(term)}&rkey=${encodeURIComponent(talk.rkey)}`)
+        .then((r) => r.json())
+        .then((d) => setTimestamps(d.timestamps || []))
+        .catch(() => setTimestamps([]));
+    }
+  }, [expanded, timestamps, term, talk.rkey]);
 
   return (
     <div className="text-neutral-500 pl-3">
@@ -66,21 +78,22 @@ function TalkEntry({ talk, term, onSelect }: {
         >{talk.title}</button>
         {hasMultiple && (
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={handleExpand}
             className="text-neutral-600 hover:text-neutral-400 ml-1 transition-colors"
           >({talk.count}){expanded ? " \u25B4" : " \u25BE"}</button>
         )}
-        {talk.count > 1 && !hasMultiple && <span className="text-neutral-600"> ({talk.count})</span>}
       </div>
-      {expanded && talk.timestampsNs && (
+      {expanded && (
         <div className="flex flex-wrap gap-x-2 gap-y-0.5 pl-2 mt-0.5 mb-1">
-          {talk.timestampsNs.map((ts, i) => (
+          {timestamps ? timestamps.map((ts, i) => (
             <button
               key={i}
               onClick={() => onSelect(talk.rkey, term, ts)}
               className="text-[11px] text-neutral-600 hover:text-neutral-300 tabular-nums transition-colors"
             >{formatTimecode(ts)}</button>
-          ))}
+          )) : (
+            <span className="text-[11px] text-neutral-700">loading...</span>
+          )}
         </div>
       )}
     </div>
