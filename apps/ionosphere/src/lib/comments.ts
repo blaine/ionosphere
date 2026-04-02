@@ -16,13 +16,22 @@ export async function publishComment(
     record.anchor = anchor;
   }
 
-  const result = await agent.com.atproto.repo.createRecord({
-    repo: agent.assertDid,
-    collection: "tv.ionosphere.comment",
-    record,
-  });
-
-  return result.data.uri;
+  console.log("[comment] publishing to", agent.assertDid, "session did:", (agent as any).sessionManager?.did);
+  try {
+    const result = await agent.com.atproto.repo.createRecord({
+      repo: agent.assertDid,
+      collection: "tv.ionosphere.comment",
+      record,
+    });
+    console.log("[comment] published:", result.data.uri);
+    return result.data.uri;
+  } catch (err: any) {
+    console.error("[comment] publish failed:", err.status, err.message);
+    if (err.headers) {
+      console.error("[comment] response headers:", Object.fromEntries(err.headers.entries?.() || []));
+    }
+    throw err;
+  }
 }
 
 export interface CommentData {
