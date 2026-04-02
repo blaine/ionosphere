@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { ensureProfile } from "./profiles.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -340,6 +341,8 @@ function indexUserComment(
     anchor?.byteEnd ?? null,
     record.createdAt as string
   );
+
+  ensureProfile(db, did);
 }
 
 function rebuildTalkConcepts(db: Database.Database, _deletedUri: string): void {
