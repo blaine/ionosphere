@@ -5,6 +5,7 @@ import { prepare, layout } from "@chenglou/pretext";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
+import { fetchComments, type CommentData } from "@/lib/comments";
 
 /** Aggressively seeks and plays the video once HLS is ready. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
@@ -152,6 +153,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     talkUri: string;
   } | null>(null);
 
+  const [comments, setComments] = useState<CommentData[]>([]);
   const [filter, setFilter] = useState("");
   const [isRegex, setIsRegex] = useState(false);
   const [widePlayer, setWidePlayer] = useState(false);
@@ -240,6 +242,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
           talkUri: talk.uri,
         });
         setShowMobilePlayer(true);
+        fetchComments(rkey).then(setComments);
       } catch {}
     },
     []
@@ -406,7 +409,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
             </div>
             {selectedTalk.document && (
               <div className="flex-1 min-h-0">
-                <TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} />
+                <TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} comments={comments} onCommentPublished={() => fetchComments(selectedTalk.rkey).then(setComments)} />
               </div>
             )}
           </TimestampProvider>

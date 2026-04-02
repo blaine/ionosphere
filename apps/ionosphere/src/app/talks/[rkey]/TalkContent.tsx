@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { TimestampProvider } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
+import { fetchComments, type CommentData } from "@/lib/comments";
 
 interface TalkContentProps {
   talk: any;
@@ -12,6 +13,16 @@ interface TalkContentProps {
 }
 
 export default function TalkContent({ talk, speakers, concepts }: TalkContentProps) {
+  const [comments, setComments] = useState<CommentData[]>([]);
+
+  useEffect(() => {
+    fetchComments(talk.rkey).then(setComments);
+  }, [talk.rkey]);
+
+  const handleCommentPublished = useCallback(() => {
+    fetchComments(talk.rkey).then(setComments);
+  }, [talk.rkey]);
+
   const durationMin = talk.duration ? (talk.duration / 1e9 / 60).toFixed(0) : null;
   const document = useMemo(() => {
     if (!talk.document) return null;
@@ -117,7 +128,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
           <div className="h-1/2 px-4 pb-4 pt-1 flex justify-center">
             <div style={videoWidth ? { width: videoWidth } : undefined} className={`h-full ${videoWidth ? "" : "w-full"}`}>
               {document ? (
-                <TranscriptView document={document} transcriptUri={talk.uri} />
+                <TranscriptView document={document} transcriptUri={talk.uri} comments={comments} onCommentPublished={handleCommentPublished} />
               ) : (
                 <div className="h-full flex items-center justify-center text-neutral-500 text-sm border border-neutral-800 rounded-lg">
                   {talk.video_uri ? "Transcript not yet available." : "No recording available for this talk."}

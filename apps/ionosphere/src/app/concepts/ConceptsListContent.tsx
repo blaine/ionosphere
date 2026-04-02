@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
+import { fetchComments, type CommentData } from "@/lib/comments";
 
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
@@ -50,6 +51,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
     talkUri: string;
   } | null>(null);
 
+  const [comments, setComments] = useState<CommentData[]>([]);
   const [filter, setFilter] = useState("");
   const [expandedConcept, setExpandedConcept] = useState<string | null>(null);
   const [conceptTalks, setConceptTalks] = useState<Map<string, any[]>>(new Map());
@@ -105,6 +107,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
         talkUri: talk.uri,
       });
       setShowMobilePlayer(true);
+      fetchComments(rkey).then(setComments);
     } catch {}
   }, []);
 
@@ -193,7 +196,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
             </div>
             {selectedTalk.document && (
-              <div className="flex-1 min-h-0"><TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} /></div>
+              <div className="flex-1 min-h-0"><TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} comments={comments} onCommentPublished={() => fetchComments(selectedTalk.rkey).then(setComments)} /></div>
             )}
           </TimestampProvider>
         ) : (
