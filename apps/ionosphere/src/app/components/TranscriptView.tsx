@@ -10,9 +10,15 @@ import {
   type WordSpan,
   type ConceptSpan,
 } from "@/lib/transcript";
+import { useAuth } from "@/lib/auth";
+import { publishComment, type CommentData } from "@/lib/comments";
+import TextSelector from "./TextSelector";
 
 interface TranscriptViewProps {
   document: TranscriptDocument;
+  comments?: CommentData[];
+  transcriptUri?: string;
+  onCommentPublished?: () => void;
 }
 
 const WordSpanComponent = forwardRef<
@@ -22,8 +28,9 @@ const WordSpanComponent = forwardRef<
     concept: ConceptSpan | null;
     currentTimeNs: number;
     onSeek: (ns: number) => void;
+    hasComment?: boolean;
   }
->(function WordSpanComponent({ word, concept, currentTimeNs, onSeek }, ref) {
+>(function WordSpanComponent({ word, concept, currentTimeNs, onSeek, hasComment }, ref) {
   // Brightness at shared boundary times — guaranteed continuous with neighbors
   const startB = brightnessAtTime(currentTimeNs, word.boundaryStartTime);
   const endB = brightnessAtTime(currentTimeNs, word.boundaryEndTime);
@@ -48,11 +55,15 @@ const WordSpanComponent = forwardRef<
     WebkitTextFillColor: "transparent",
   };
 
+  const commentClass = hasComment ? " border-b border-blue-500/30" : "";
+
   return (
     <span
       ref={ref}
+      data-byte-start={word.byteStart}
+      data-byte-end={word.byteEnd}
       onClick={() => onSeek(word.startTime)}
-      className={`cursor-pointer${concept ? " underline decoration-amber-500/30 underline-offset-2" : ""}`}
+      className={`cursor-pointer${concept ? " underline decoration-amber-500/30 underline-offset-2" : ""}${commentClass}`}
       style={style}
       title={concept ? concept.conceptName : undefined}
     >
@@ -61,8 +72,9 @@ const WordSpanComponent = forwardRef<
   );
 });
 
-export default function TranscriptView({ document }: TranscriptViewProps) {
+export default function TranscriptView({ document, comments, transcriptUri, onCommentPublished }: TranscriptViewProps) {
   const { currentTimeNs, paused, seekTo } = useTimestamp();
+  const { agent } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeIndexRef = useRef<number>(-1);
   const scrollScrubbing = useRef(false);
@@ -337,12 +349,36 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
     []
   );
 
+  const wordHasComment = useMemo(() => {
+    if (!comments || comments.length === 0) return new Set<number>();
+    const set = new Set<number>();
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const has = comments.some(c =>
+        c.byte_start !== null && c.byte_end !== null &&
+        c.byte_start < word.byteEnd && c.byte_end > word.byteStart
+      );
+      if (has) set.add(i);
+    }
+    return set;
+  }, [words, comments]);
+
+  const handlePublish = useCallback(async (byteStart: number, byteEnd: number, text: string) => {
+    if (!agent || !transcriptUri) return;
+    try {
+      await publishComment(agent, transcriptUri, text, { byteStart, byteEnd });
+      onCommentPublished?.();
+    } catch (err) {
+      console.error("Failed to publish comment:", err);
+    }
+  }, [agent, transcriptUri, onCommentPublished]);
 
   return (
     <div
       ref={containerRef}
-      className="h-full p-4 rounded-lg border border-neutral-800 overflow-y-auto leading-relaxed select-none"
+      className="relative h-full p-4 rounded-lg border border-neutral-800 overflow-y-auto leading-relaxed select-text"
     >
+      <TextSelector containerRef={containerRef} onComment={handlePublish} wordSpans={words} />
       {/* Playhead indicator at 1/3 from top */}
       <div
         className="pointer-events-none sticky z-10 -mx-4"
@@ -367,6 +403,7 @@ export default function TranscriptView({ document }: TranscriptViewProps) {
           concept={wordConcepts[i]?.[0] || null}
           currentTimeNs={currentTimeNs}
           onSeek={handleSeek}
+          hasComment={wordHasComment.has(i)}
         />
       ))}
       {/* Bottom spacer: lets last word scroll up to the playhead (33% mark) */}
