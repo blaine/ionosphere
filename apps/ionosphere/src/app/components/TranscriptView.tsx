@@ -121,7 +121,8 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // below. This creates a seamless, continuous mapping — line N's extended
   // bottom == line N+1's extended top.
   useEffect(() => {
-    if (userScrolling.current || userSelecting.current) return;
+    const sel = window.getSelection?.();
+    if (userScrolling.current || (sel && !sel.isCollapsed)) return;
     const container = containerRef.current;
     if (!container || currentTimeNs <= 0) return;
 
@@ -199,7 +200,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     const LERP = 0.15; // easing factor — higher = snappier
 
     const animate = () => {
-      if (!userScrolling.current && !userSelecting.current && scrollTarget.current !== null) {
+      // Check selection state directly every frame — more reliable than selectionchange event
+      const sel = window.getSelection?.();
+      const hasSelection = !!(sel && !sel.isCollapsed);
+
+      if (!userScrolling.current && !hasSelection && scrollTarget.current !== null) {
         const diff = scrollTarget.current - container.scrollTop;
         if (Math.abs(diff) > 0.5) {
           container.scrollTop += diff * LERP;
