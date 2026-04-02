@@ -72,18 +72,25 @@ const HEADING_HEIGHT = 36;
 const GROUP_MARGIN = 16;
 const TALK_ENTRY_HEIGHT = LINE_HEIGHT * 2; // title + metadata
 
-// Conference days — March 30 talks fold into March 29 (timezone edge case)
+// Conference days — March 30 talks fold into Sunday March 29 (timezone edge case)
 const DAY_LABELS: Record<string, string> = {
-  "2026-03-26": "Wednesday, March 26",
-  "2026-03-27": "Thursday, March 27",
-  "2026-03-28": "Friday, March 28",
-  "2026-03-29": "Saturday, March 29",
+  "2026-03-26": "Thursday, March 26",
+  "2026-03-27": "Friday, March 27",
+  "2026-03-28": "Saturday, March 28",
+  "2026-03-29": "Sunday, March 29",
 };
+
+function getEdtDate(startsAt: string): string {
+  const d = new Date(startsAt);
+  const edtMs = d.getTime() - 4 * 60 * 60 * 1000;
+  const edt = new Date(edtMs);
+  return edt.toISOString().slice(0, 10);
+}
 
 function groupByDay(talks: Talk[]): DayGroup[] {
   const byDay = new Map<string, Talk[]>();
   for (const talk of talks) {
-    let day = talk.starts_at?.slice(0, 10) || "";
+    let day = talk.starts_at ? getEdtDate(talk.starts_at) : "";
     if (!day || !DAY_LABELS[day]) {
       // Fold March 30 into March 29, skip truly unknown
       if (day === "2026-03-30") day = "2026-03-29";
@@ -104,10 +111,15 @@ function groupByDay(talks: Talk[]): DayGroup[] {
 function formatTime(startsAt: string): string {
   if (!startsAt) return "";
   try {
-    return new Date(startsAt).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+    const d = new Date(startsAt);
+    // Conference timezone: EDT (UTC-4)
+    const edtMs = d.getTime() - 4 * 60 * 60 * 1000;
+    const edt = new Date(edtMs);
+    const h = edt.getUTCHours();
+    const m = edt.getUTCMinutes();
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return m === 0 ? `${h12} ${ampm}` : `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
   } catch {
     return "";
   }
@@ -222,40 +234,56 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
                   >
                     {group.label}
                   </h2>
-                  {group.talks.map((talk) => (
-                    <button
-                      key={talk.rkey}
-                      onClick={() => handleSelect(talk.rkey)}
-                      className={`block w-full text-left text-[13px] leading-[1.6] mb-1.5 hover:text-neutral-100 transition-colors ${
-                        selectedTalk?.rkey === talk.rkey
-                          ? "bg-neutral-900 rounded px-1 -mx-1"
-                          : ""
-                      }`}
-                    >
-                      <div className="font-medium text-neutral-200">
-                        {talk.title}
+                  {(() => {
+                    // Group talks by time slot
+                    const timeSlots = new Map<string, Talk[]>();
+                    for (const talk of group.talks) {
+                      const time = formatTime(talk.starts_at);
+                      if (!timeSlots.has(time)) timeSlots.set(time, []);
+                      timeSlots.get(time)!.push(talk);
+                    }
+                    return [...timeSlots.entries()].map(([time, slotTalks]) => (
+                      <div key={time}>
+                        {time && (
+                          <div className="text-[11px] text-neutral-600 mt-2 mb-0.5">{time}</div>
+                        )}
+                        {slotTalks.map((talk) => (
+                          <button
+                            key={talk.rkey}
+                            onClick={() => handleSelect(talk.rkey)}
+                            className={`block w-full text-left text-[13px] leading-[1.6] mb-1.5 hover:text-neutral-100 transition-colors ${
+                              selectedTalk?.rkey === talk.rkey
+                                ? "bg-neutral-900 rounded px-1 -mx-1"
+                                : ""
+                            }`}
+                          >
+                            <div className="font-medium text-neutral-200">
+                              {talk.title}
+                            </div>
+                            <div className="text-xs text-neutral-500 truncate">
+                              {talk.speaker_names}
+                              {talk.room && <> &middot; {talk.room}</>}
+                              {talk.starts_at && <> &middot; {formatTime(talk.starts_at)}</>}
+                              {(() => {
+                                const emojis: [string, number][] = talk.reaction_summary || [];
+                                const count = talk.comment_count || 0;
+                                if (emojis.length === 0 && count === 0) return null;
+                                return (
+                                  <>
+                                    {" \u00b7 "}
+                                    {emojis.map(([emoji, n]) => (
+                                      <span key={emoji}>{emoji}{n > 1 ? n : ""}</span>
+                                    ))}
+                                    {count > 0 && <span>{emojis.length > 0 ? " " : ""}{"\uD83D\uDCAC"}{count}</span>}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                      <div className="text-xs text-neutral-500 truncate">
-                        {talk.speaker_names}
-                        {talk.room && <> &middot; {talk.room}</>}
-                        {talk.starts_at && <> &middot; {formatTime(talk.starts_at)}</>}
-                        {(() => {
-                          const emojis: [string, number][] = talk.reaction_summary || [];
-                          const count = talk.comment_count || 0;
-                          if (emojis.length === 0 && count === 0) return null;
-                          return (
-                            <>
-                              {" \u00b7 "}
-                              {emojis.map(([emoji, n]) => (
-                                <span key={emoji}>{emoji}{n > 1 ? n : ""}</span>
-                              ))}
-                              {count > 0 && <span>{emojis.length > 0 ? " " : ""}{"\uD83D\uDCAC"}{count}</span>}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </button>
-                  ))}
+                    ));
+                  })()}
                 </div>
             </div>
           ))}
