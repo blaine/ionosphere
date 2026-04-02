@@ -71,7 +71,7 @@ export function createRoutes(db: Database.Database): Hono {
 
   app.get("/health", (c) => c.json({ status: "ok" }));
 
-  app.get("/talks", (c) => {
+  app.get("/xrpc/tv.ionosphere.getTalks", (c) => {
     const talks = db
       .prepare(
         `SELECT t.*, GROUP_CONCAT(s.name) as speaker_names
@@ -129,8 +129,9 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ talks: enriched });
   });
 
-  app.get("/talks/:rkey", (c) => {
-    const { rkey } = c.req.param();
+  app.get("/xrpc/tv.ionosphere.getTalk", (c) => {
+    const rkey = c.req.query("rkey");
+    if (!rkey) return c.json({ error: "missing rkey" }, 400);
     const talk = db
       .prepare("SELECT * FROM talks WHERE rkey = ?")
       .get(rkey);
@@ -195,15 +196,16 @@ export function createRoutes(db: Database.Database): Hono {
     });
   });
 
-  app.get("/speakers", (c) => {
+  app.get("/xrpc/tv.ionosphere.getSpeakers", (c) => {
     const speakers = db
       .prepare("SELECT * FROM speakers ORDER BY name ASC")
       .all();
     return c.json({ speakers });
   });
 
-  app.get("/speakers/:rkey", (c) => {
-    const { rkey } = c.req.param();
+  app.get("/xrpc/tv.ionosphere.getSpeaker", (c) => {
+    const rkey = c.req.query("rkey");
+    if (!rkey) return c.json({ error: "missing rkey" }, 400);
     const speaker = db
       .prepare("SELECT * FROM speakers WHERE rkey = ?")
       .get(rkey);
@@ -221,51 +223,54 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ speaker, talks });
   });
 
-  app.get("/concepts", (c) => {
+  app.get("/xrpc/tv.ionosphere.getConcepts", (c) => {
     const concepts = db
       .prepare("SELECT * FROM concepts ORDER BY name ASC")
       .all();
     return c.json({ concepts });
   });
 
-  app.get("/talks/:rkey/comments", (c) => {
-    const { rkey } = c.req.param();
-    const talk = db.prepare("SELECT uri FROM talks WHERE rkey = ?").get(rkey) as any;
-    if (!talk) return c.json({ comments: [] });
-
-    const transcript = db.prepare("SELECT uri FROM transcripts WHERE talk_uri = ?").get(talk.uri) as any;
-
-    const subjectUris = [talk.uri];
-    if (transcript) subjectUris.push(transcript.uri);
-
-    const placeholders = subjectUris.map(() => "?").join(",");
-    const comments = db.prepare(
-      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
-       FROM comments c
-       LEFT JOIN profiles p ON c.author_did = p.did
-       WHERE c.subject_uri IN (${placeholders})
-       ORDER BY c.created_at ASC`
-    ).all(...subjectUris);
-
-    return c.json({ comments });
-  });
-
-  app.get("/comments", (c) => {
+  app.get("/xrpc/tv.ionosphere.getComments", (c) => {
+    const talkRkey = c.req.query("talkRkey");
     const subject = c.req.query("subject");
-    if (!subject) return c.json({ comments: [] });
 
-    const comments = db.prepare(
-      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
-       FROM comments c
-       LEFT JOIN profiles p ON c.author_did = p.did
-       WHERE c.subject_uri = ?
-       ORDER BY c.created_at ASC`
-    ).all(subject);
+    if (talkRkey) {
+      const talk = db.prepare("SELECT uri FROM talks WHERE rkey = ?").get(talkRkey) as any;
+      if (!talk) return c.json({ comments: [] });
 
-    return c.json({ comments });
+      const transcript = db.prepare("SELECT uri FROM transcripts WHERE talk_uri = ?").get(talk.uri) as any;
+
+      const subjectUris = [talk.uri];
+      if (transcript) subjectUris.push(transcript.uri);
+
+      const placeholders = subjectUris.map(() => "?").join(",");
+      const comments = db.prepare(
+        `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+         FROM comments c
+         LEFT JOIN profiles p ON c.author_did = p.did
+         WHERE c.subject_uri IN (${placeholders})
+         ORDER BY c.created_at ASC`
+      ).all(...subjectUris);
+
+      return c.json({ comments });
+    }
+
+    if (subject) {
+      const comments = db.prepare(
+        `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+         FROM comments c
+         LEFT JOIN profiles p ON c.author_did = p.did
+         WHERE c.subject_uri = ?
+         ORDER BY c.created_at ASC`
+      ).all(subject);
+
+      return c.json({ comments });
+    }
+
+    return c.json({ comments: [] });
   });
 
-  app.get("/concepts/clusters", (c) => {
+  app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
       const data = JSON.parse(readFileSync(clustersPath, "utf-8"));
@@ -347,8 +352,9 @@ export function createRoutes(db: Database.Database): Hono {
     }
   });
 
-  app.get("/concepts/:rkey", (c) => {
-    const { rkey } = c.req.param();
+  app.get("/xrpc/tv.ionosphere.getConcept", (c) => {
+    const rkey = c.req.query("rkey");
+    if (!rkey) return c.json({ error: "missing rkey" }, 400);
     const concept = db
       .prepare("SELECT * FROM concepts WHERE rkey = ?")
       .get(rkey);
@@ -395,7 +401,7 @@ export function createRoutes(db: Database.Database): Hono {
   // Cache the concordance — NLP pipeline takes ~2.5 min, data is static
   let indexCache: { entries: any[]; builtAt: number } | null = null;
 
-  app.get("/index", (c) => {
+  app.get("/xrpc/tv.ionosphere.getConcordance", (c) => {
     // Serve from cache if available
     if (indexCache) {
       return c.json({ entries: indexCache.entries });
@@ -448,7 +454,7 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   // Invalidate cache (call after data changes)
-  app.post("/index/invalidate", (c) => {
+  app.post("/xrpc/tv.ionosphere.invalidateConcordance", (c) => {
     indexCache = null;
     return c.json({ ok: true });
   });
