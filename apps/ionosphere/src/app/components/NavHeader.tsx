@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import AuthButton from "./AuthButton";
 
 const NAV_ITEMS = [
   { href: "/talks", label: "Talks" },
@@ -39,6 +40,8 @@ export default function NavHeader() {
           </a>
         ))}
 
+        <div className="ml-auto hidden md:block"><AuthButton /></div>
+
         {/* Mobile: current section + hamburger */}
         <div className="md:hidden flex items-center gap-2 ml-auto relative">
           <span className="text-sm text-neutral-300">{currentLabel}</span>
@@ -75,6 +78,9 @@ export default function NavHeader() {
                   {item.label}
                 </a>
               ))}
+              <div className="border-t border-neutral-700 px-4 py-2.5">
+                <AuthButton />
+              </div>
             </div>
           )}
         </div>
