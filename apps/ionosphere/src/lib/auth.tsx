@@ -48,7 +48,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [handle, setHandle] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // AT Protocol OAuth requires 127.0.0.1 for loopback, not localhost
   useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+      window.location.replace(
+        window.location.href.replace("localhost", "127.0.0.1")
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hostname === "localhost") return;
     async function restore() {
       try {
         const client = await getOAuthClient();
