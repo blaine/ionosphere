@@ -49,24 +49,21 @@ export default function TextSelector({ containerRef, onComment, wordSpans }: Tex
       if (toolbarRef.current?.contains(e.target as Node)) return;
 
       const sel = window.getSelection();
-      console.log("[TextSelector] mouseup, selection:", sel?.toString().slice(0, 30), "collapsed:", sel?.isCollapsed);
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
         setSelection(null);
         return;
       }
 
       const container = containerRef.current;
-      if (!container) { console.log("[TextSelector] no container ref"); return; }
+      if (!container) return;
 
       const range = sel.getRangeAt(0);
       if (!container.contains(range.commonAncestorContainer)) {
-        console.log("[TextSelector] selection outside container");
         setSelection(null);
         return;
       }
 
       const byteRange = getByteRange(sel);
-      console.log("[TextSelector] byteRange:", byteRange);
       if (!byteRange) { setSelection(null); return; }
 
       const rect = range.getBoundingClientRect();

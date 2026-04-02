@@ -31,7 +31,7 @@ function getOAuthClient(): Promise<BrowserOAuthClient> {
     // Must be exactly "http://localhost" with params in query string (no port, no path).
     // Production: full URL to client-metadata.json
     const clientId = isLocalhost
-      ? `http://localhost?scope=${encodeURIComponent("atproto transition:generic")}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${window.location.port}/auth/callback`)}`
+      ? `http://localhost?scope=${encodeURIComponent("atproto repo:tv.ionosphere.comment")}&redirect_uri=${encodeURIComponent(`http://127.0.0.1:${window.location.port}/auth/callback`)}`
       : `${origin}/client-metadata.json`;
 
     _oauthClientPromise = BrowserOAuthClient.load({
@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (userHandle: string) => {
     const client = await getOAuthClient();
         await client.signIn(userHandle, {
-      scope: "atproto transition:generic",
+      scope: "atproto repo:tv.ionosphere.comment",
     });
   }, []);
 
