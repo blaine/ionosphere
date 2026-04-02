@@ -21,16 +21,16 @@ export function useAuth() {
   return ctx;
 }
 
-let _oauthClient: BrowserOAuthClient | null = null;
+let _oauthClientPromise: Promise<BrowserOAuthClient> | null = null;
 
-function getOAuthClient(): BrowserOAuthClient {
-  if (!_oauthClient) {
-    _oauthClient = new BrowserOAuthClient({
-      clientMetadata: `${window.location.origin}/client-metadata.json`,
+function getOAuthClient(): Promise<BrowserOAuthClient> {
+  if (!_oauthClientPromise) {
+    _oauthClientPromise = BrowserOAuthClient.load({
+      clientId: `${window.location.origin}/client-metadata.json`,
       handleResolver: "https://bsky.social",
     });
   }
-  return _oauthClient;
+  return _oauthClientPromise;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function restore() {
       try {
-        const client = getOAuthClient();
+        const client = await getOAuthClient();
         const result = await client.init();
         if (result?.session) {
           const newAgent = new Agent(result.session);
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (userHandle: string) => {
-    const client = getOAuthClient();
+    const client = await getOAuthClient();
     await client.signIn(userHandle, { scope: "atproto" });
   }, []);
 
