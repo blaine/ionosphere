@@ -39,6 +39,52 @@ interface TalkRef {
   title: string;
   count: number;
   firstTimestampNs: number;
+  timestampsNs?: number[];
+}
+
+function formatTimecode(ns: number): string {
+  const totalSec = Math.floor(ns / 1e9);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function TalkEntry({ talk, term, onSelect }: {
+  talk: TalkRef;
+  term: string;
+  onSelect: (rkey: string, term: string, seekToNs: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasMultiple = talk.count > 1 && talk.timestampsNs && talk.timestampsNs.length > 1;
+
+  return (
+    <div className="text-neutral-500 pl-3">
+      <div className="truncate">
+        <button
+          onClick={() => onSelect(talk.rkey, term, talk.firstTimestampNs)}
+          className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
+        >{talk.title}</button>
+        {hasMultiple && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-neutral-600 hover:text-neutral-400 ml-1 transition-colors"
+          >({talk.count}){expanded ? " \u25B4" : " \u25BE"}</button>
+        )}
+        {talk.count > 1 && !hasMultiple && <span className="text-neutral-600"> ({talk.count})</span>}
+      </div>
+      {expanded && talk.timestampsNs && (
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 pl-2 mt-0.5 mb-1">
+          {talk.timestampsNs.map((ts, i) => (
+            <button
+              key={i}
+              onClick={() => onSelect(talk.rkey, term, ts)}
+              className="text-[11px] text-neutral-600 hover:text-neutral-300 tabular-nums transition-colors"
+            >{formatTimecode(ts)}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface IndexEntry {
@@ -349,13 +395,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                         <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-2">
                           <div className="font-medium text-neutral-200">{entry.term}</div>
                           {entry.talks.slice(0, 5).map((talk) => (
-                            <div key={talk.rkey} className="truncate text-neutral-500 pl-3">
-                              <button
-                                onClick={() => handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)}
-                                className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
-                              >{talk.title}</button>
-                              {talk.count > 1 && <span className="text-neutral-600"> ({talk.count})</span>}
-                            </div>
+                            <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
                           ))}
                           {entry.talks.length > 5 && (
                             <div className="text-neutral-600 pl-3">+{entry.talks.length - 5} more</div>
@@ -364,13 +404,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                             <div key={sub.label} className="pl-3">
                               <span className="text-neutral-400 italic text-xs">{sub.label}</span>
                               {sub.talks.map((talk) => (
-                                <div key={talk.rkey} className="truncate text-neutral-500 pl-3">
-                                  <button
-                                    onClick={() => handleSelect(talk.rkey, entry.term, talk.firstTimestampNs)}
-                                    className="hover:text-neutral-100 hover:underline underline-offset-2 transition-colors text-left"
-                                  >{talk.title}</button>
-                                  {talk.count > 1 && <span className="text-neutral-600"> ({talk.count})</span>}
-                                </div>
+                                <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
                               ))}
                             </div>
                           ))}

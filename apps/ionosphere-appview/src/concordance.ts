@@ -40,7 +40,7 @@ export function buildConcordance(
     properCount: number;
     lowerCount: number;
     originalCapitalized: string;
-    talkMap: Map<string, { title: string; count: number; firstTimestampNs: number }>;
+    talkMap: Map<string, { title: string; count: number; firstTimestampNs: number; timestampsNs: number[] }>;
   }>();
 
   for (const t of transcripts) {
@@ -82,10 +82,11 @@ export function buildConcordance(
       }
 
       if (!entry.talkMap.has(t.talkRkey)) {
-        entry.talkMap.set(t.talkRkey, { title: t.talkTitle, count: 1, firstTimestampNs: timestampNs });
+        entry.talkMap.set(t.talkRkey, { title: t.talkTitle, count: 1, firstTimestampNs: timestampNs, timestampsNs: [timestampNs] });
       } else {
         const ref = entry.talkMap.get(t.talkRkey)!;
         ref.count++;
+        ref.timestampsNs.push(timestampNs);
         if (timestampNs < ref.firstTimestampNs) ref.firstTimestampNs = timestampNs;
       }
     }
@@ -97,7 +98,8 @@ export function buildConcordance(
   for (const [lemma, data] of index) {
     const talks: TalkRef[] = [];
     for (const [rkey, ref] of data.talkMap) {
-      talks.push({ rkey, title: ref.title, count: ref.count, firstTimestampNs: ref.firstTimestampNs });
+      const timestamps = ref.timestampsNs.sort((a, b) => a - b);
+      talks.push({ rkey, title: ref.title, count: ref.count, firstTimestampNs: ref.firstTimestampNs, timestampsNs: timestamps });
     }
     talks.sort((a, b) => b.count - a.count);
 
@@ -112,7 +114,7 @@ export function buildConcordance(
 
   // Stage 2b: Add bigram terms as entries
   // For each significant bigram, aggregate talk references
-  const bigramIndex = new Map<string, Map<string, { title: string; count: number; firstTimestampNs: number }>>();
+  const bigramIndex = new Map<string, Map<string, { title: string; count: number; firstTimestampNs: number; timestampsNs: number[] }>>();
 
   for (const t of transcripts) {
     const decoded = decode({ text: t.text, startMs: t.startMs, timings: t.timings });
@@ -132,10 +134,11 @@ export function buildConcordance(
       const talkMap = bigramIndex.get(pair)!;
 
       if (!talkMap.has(t.talkRkey)) {
-        talkMap.set(t.talkRkey, { title: t.talkTitle, count: 1, firstTimestampNs: timestampNs });
+        talkMap.set(t.talkRkey, { title: t.talkTitle, count: 1, firstTimestampNs: timestampNs, timestampsNs: [timestampNs] });
       } else {
         const ref = talkMap.get(t.talkRkey)!;
         ref.count++;
+        ref.timestampsNs.push(timestampNs);
         if (timestampNs < ref.firstTimestampNs) ref.firstTimestampNs = timestampNs;
       }
     }
@@ -144,7 +147,8 @@ export function buildConcordance(
   for (const [term, talkMap] of bigramIndex) {
     const talks: TalkRef[] = [];
     for (const [rkey, ref] of talkMap) {
-      talks.push({ rkey, title: ref.title, count: ref.count, firstTimestampNs: ref.firstTimestampNs });
+      const timestamps = ref.timestampsNs.sort((a, b) => a - b);
+      talks.push({ rkey, title: ref.title, count: ref.count, firstTimestampNs: ref.firstTimestampNs, timestampsNs: timestamps });
     }
     talks.sort((a, b) => b.count - a.count);
 
