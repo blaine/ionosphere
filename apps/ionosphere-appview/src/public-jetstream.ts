@@ -15,7 +15,21 @@ export function startPublicJetstream(db: Database.Database): JetstreamClient {
 
   const getCursor = (): number | null => {
     const row = db.prepare("SELECT cursor_us FROM _public_cursor WHERE id = 1").get() as any;
-    return row?.cursor_us ?? null;
+    const cursor = row?.cursor_us ?? null;
+
+    // If cursor is more than 60 seconds behind, skip to now.
+    // The public firehose is too large to replay — we'd rather miss
+    // old comments than be permanently behind.
+    if (cursor !== null) {
+      const nowUs = Date.now() * 1000;
+      const behindS = (nowUs - cursor) / 1e6;
+      if (behindS > 60) {
+        console.log(`[Public Jetstream] Cursor ${behindS.toFixed(0)}s behind, skipping to now`);
+        return null; // null = start from live
+      }
+    }
+
+    return cursor;
   };
 
   const setCursor = (cursor: number): void => {
