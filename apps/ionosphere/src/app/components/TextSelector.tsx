@@ -105,10 +105,13 @@ export default function TextSelector({ containerRef, onComment, wordSpans }: Tex
 
   if (!selection || !did) return null;
 
-  const containerRect = containerRef.current?.getBoundingClientRect();
-  if (!containerRect) return null;
+  const container = containerRef.current;
+  const containerRect = container?.getBoundingClientRect();
+  if (!containerRect || !container) return null;
 
-  const top = selection.rect.top - containerRect.top - 44;
+  // Account for scroll offset — getBoundingClientRect is viewport-relative
+  // but we're positioned inside the scrollable container
+  const top = selection.rect.top - containerRect.top + container.scrollTop - 44;
   const left = Math.min(
     Math.max(selection.rect.left - containerRect.left + selection.rect.width / 2, 80),
     containerRect.width - 80
