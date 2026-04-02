@@ -149,6 +149,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
   const [selectedTalk, setSelectedTalk] = useState<{
     rkey: string; title: string; videoUri: string;
     offsetNs: number; document: any; seekToNs: number;
+    talkUri: string;
   } | null>(null);
 
   const [filter, setFilter] = useState("");
@@ -236,6 +237,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
           rkey, title: talk.title, videoUri: talk.video_uri,
           offsetNs: talk.video_offset_ns || 0,
           document: doc?.facets?.length > 0 ? doc : null, seekToNs: timestampNs,
+          talkUri: talk.uri,
         });
         setShowMobilePlayer(true);
       } catch {}
@@ -404,7 +406,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
             </div>
             {selectedTalk.document && (
               <div className="flex-1 min-h-0">
-                <TranscriptView document={selectedTalk.document} />
+                <TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} />
               </div>
             )}
           </TimestampProvider>

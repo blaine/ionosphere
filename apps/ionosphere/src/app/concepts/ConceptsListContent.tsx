@@ -47,6 +47,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
   const [selectedTalk, setSelectedTalk] = useState<{
     rkey: string; title: string; videoUri: string;
     offsetNs: number; document: any; seekToNs: number;
+    talkUri: string;
   } | null>(null);
 
   const [filter, setFilter] = useState("");
@@ -101,6 +102,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
         rkey, title: talk.title, videoUri: talk.video_uri,
         offsetNs: talk.video_offset_ns || 0,
         document: doc?.facets?.length > 0 ? doc : null, seekToNs: 0,
+        talkUri: talk.uri,
       });
       setShowMobilePlayer(true);
     } catch {}
@@ -191,7 +193,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
             </div>
             {selectedTalk.document && (
-              <div className="flex-1 min-h-0"><TranscriptView document={selectedTalk.document} /></div>
+              <div className="flex-1 min-h-0"><TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} /></div>
             )}
           </TimestampProvider>
         ) : (

@@ -105,6 +105,7 @@ export default function SpeakersListContent({
     offsetNs: number;
     document: any;
     seekToNs: number;
+    talkUri: string;
   } | null>(null);
 
   const [filter, setFilter] = useState("");
@@ -158,6 +159,7 @@ export default function SpeakersListContent({
         offsetNs: talk.video_offset_ns || 0,
         document: doc?.facets?.length > 0 ? doc : null,
         seekToNs: 0,
+        talkUri: talk.uri,
       });
       setShowMobilePlayer(true);
     } catch (err) {
@@ -277,7 +279,7 @@ export default function SpeakersListContent({
             </div>
             {selectedTalk.document && (
               <div className="flex-1 min-h-0">
-                <TranscriptView document={selectedTalk.document} />
+                <TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} />
               </div>
             )}
           </TimestampProvider>

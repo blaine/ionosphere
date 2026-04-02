@@ -117,7 +117,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
           <div className="h-1/2 px-4 pb-4 pt-1 flex justify-center">
             <div style={videoWidth ? { width: videoWidth } : undefined} className={`h-full ${videoWidth ? "" : "w-full"}`}>
               {document ? (
-                <TranscriptView document={document} />
+                <TranscriptView document={document} transcriptUri={talk.uri} />
               ) : (
                 <div className="h-full flex items-center justify-center text-neutral-500 text-sm border border-neutral-800 rounded-lg">
                   {talk.video_uri ? "Transcript not yet available." : "No recording available for this talk."}
