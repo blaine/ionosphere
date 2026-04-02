@@ -200,10 +200,10 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   const [numCols, setNumCols] = useState(4);
 
   // Measure container
+  const searchBarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = containerRef.current;
-    const colEl = columnsRef.current;
-    if (!el || !colEl) return;
+    if (!el) return;
     const observer = new ResizeObserver(() => {
       const available = el.clientWidth;
       if (available < 640) {
@@ -218,10 +218,11 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       const gap = (cols - 1) * 24;
       setColumnWidth(Math.max(200, Math.floor((usable - gap) / cols)));
       setNumCols(cols);
-      setColumnHeight(colEl.clientHeight);
+      // Column height = container height minus search bar and padding
+      const searchH = searchBarRef.current?.offsetHeight || 0;
+      setColumnHeight(el.clientHeight - searchH - 20); // 20 = pt-3 + pb-2 + mb-2
     });
     observer.observe(el);
-    observer.observe(colEl);
     return () => observer.disconnect();
   }, []);
 
@@ -488,7 +489,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       {/* Main area */}
       <div ref={containerRef} className={`flex-1 min-w-0 flex flex-col overflow-hidden px-4 pt-3 pb-2 ${showMobilePlayer ? "hidden md:flex" : ""}`}>
         {/* Search bar */}
-        <div className="flex items-center gap-3 mb-2 shrink-0">
+        <div ref={searchBarRef} className="flex items-center gap-3 mb-2 shrink-0">
           <div className="flex-1 max-w-sm relative">
             <input
               type="text"
