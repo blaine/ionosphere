@@ -436,7 +436,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // Track if user is selecting text — pause auto-scroll
   const userSelecting = useRef(false);
   useEffect(() => {
-    if (typeof window === "undefined" || !document?.addEventListener) return;
+    if (typeof window === "undefined") return;
     const onSelectionChange = () => {
       const sel = window.getSelection?.();
       const hasSelection = !!(sel && !sel.isCollapsed);
@@ -444,8 +444,8 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       // Clear scroll target when selecting to fully stop auto-scroll
       if (hasSelection) scrollTarget.current = null;
     };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
+    window.document.addEventListener("selectionchange", onSelectionChange);
+    return () => window.document.removeEventListener("selectionchange", onSelectionChange);
   }, []);
 
   // Expanded reaction group (which span's comments are shown)
