@@ -72,7 +72,7 @@ const HEADING_HEIGHT = 36;
 const GROUP_MARGIN = 16;
 const TALK_ENTRY_HEIGHT = LINE_HEIGHT * 2; // title + metadata
 
-// Conference days — March 30 talks fold into Sunday March 29 (timezone edge case)
+// Conference days in PDT (UTC-7)
 const DAY_LABELS: Record<string, string> = {
   "2026-03-26": "Thursday, March 26",
   "2026-03-27": "Friday, March 27",
@@ -80,17 +80,17 @@ const DAY_LABELS: Record<string, string> = {
   "2026-03-29": "Sunday, March 29",
 };
 
-function getEdtDate(startsAt: string): string {
+function getPdtDate(startsAt: string): string {
   const d = new Date(startsAt);
-  const edtMs = d.getTime() - 4 * 60 * 60 * 1000;
-  const edt = new Date(edtMs);
-  return edt.toISOString().slice(0, 10);
+  const pdtMs = d.getTime() - 7 * 60 * 60 * 1000;
+  const pdt = new Date(pdtMs);
+  return pdt.toISOString().slice(0, 10);
 }
 
 function groupByDay(talks: Talk[]): DayGroup[] {
   const byDay = new Map<string, Talk[]>();
   for (const talk of talks) {
-    let day = talk.starts_at ? getEdtDate(talk.starts_at) : "";
+    let day = talk.starts_at ? getPdtDate(talk.starts_at) : "";
     if (!day || !DAY_LABELS[day]) {
       // Fold March 30 into March 29, skip truly unknown
       if (day === "2026-03-30") day = "2026-03-29";
@@ -112,11 +112,11 @@ function formatTime(startsAt: string): string {
   if (!startsAt) return "";
   try {
     const d = new Date(startsAt);
-    // Conference timezone: EDT (UTC-4)
-    const edtMs = d.getTime() - 4 * 60 * 60 * 1000;
-    const edt = new Date(edtMs);
-    const h = edt.getUTCHours();
-    const m = edt.getUTCMinutes();
+    // Conference timezone: PDT (UTC-7)
+    const pdtMs = d.getTime() - 7 * 60 * 60 * 1000;
+    const pdt = new Date(pdtMs);
+    const h = pdt.getUTCHours();
+    const m = pdt.getUTCMinutes();
     const ampm = h >= 12 ? "PM" : "AM";
     const h12 = h % 12 || 12;
     return m === 0 ? `${h12} ${ampm}` : `${h12}:${m.toString().padStart(2, "0")} ${ampm}`;
