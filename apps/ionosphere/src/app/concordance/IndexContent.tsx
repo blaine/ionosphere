@@ -172,9 +172,17 @@ function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: num
 const MobileConcordance = React.forwardRef<HTMLDivElement, {
   flowItems: FlowItem[];
   renderItem: (item: FlowItem, extraMargin: number) => React.ReactNode;
-}>(function MobileConcordance({ flowItems, renderItem }, ref) {
+  onSetVisibleCount?: React.MutableRefObject<((count: number) => void) | undefined>;
+}>(function MobileConcordance({ flowItems, renderItem, onSetVisibleCount }, ref) {
   const BATCH = 200;
   const [visibleCount, setVisibleCount] = useState(BATCH);
+
+  // Expose setter for parent (letter nav)
+  useEffect(() => {
+    if (onSetVisibleCount) {
+      onSetVisibleCount.current = (count: number) => setVisibleCount((prev) => Math.max(prev, Math.min(count, flowItems.length)));
+    }
+  }, [onSetVisibleCount, flowItems.length]);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -418,10 +426,23 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     []
   );
 
+  const mobileVisibleCountRef = useRef<(count: number) => void>();
   const scrollToLetter = useCallback((letter: string) => {
-    const idx = letterToIndex.get(letter);
-    if (idx !== undefined) setStartIndex(idx);
-  }, [letterToIndex]);
+    if (numCols <= 1) {
+      // Mobile: ensure items up to this letter are loaded, then scroll
+      const idx = letterToIndex.get(letter);
+      if (idx !== undefined && mobileVisibleCountRef.current) {
+        mobileVisibleCountRef.current(idx + 200); // load up to the letter + a buffer
+      }
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`heading-${letter}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } else {
+      const idx = letterToIndex.get(letter);
+      if (idx !== undefined) setStartIndex(idx);
+    }
+  }, [letterToIndex, numCols]);
 
   const scrollToTerm = useCallback((term: string) => {
     for (let i = 0; i < flowItems.length; i++) {
@@ -450,7 +471,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     const style = extraMargin > 0 ? { marginBottom: extraMargin } : undefined;
     if (item.type === "heading") {
       return (
-        <h2 key={`h-${item.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1 mt-3 first:mt-0" style={style}>
+        <h2 key={`h-${item.letter}`} id={`heading-${item.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1 mt-3 first:mt-0" style={style}>
           {item.letter}
         </h2>
       );
@@ -513,7 +534,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   return (
     <div className="h-full flex">
       {/* Letter nav */}
-      <nav className="shrink-0 w-8 flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
+      <nav className="shrink-0 w-8 flex flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1">
         {allLetters.map((letter) => (
           <button
             key={letter}
@@ -554,7 +575,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
 
         {/* Columns */}
         {numCols <= 1 ? (
-          <MobileConcordance ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
+          <MobileConcordance ref={columnsRef} flowItems={flowItems} renderItem={renderItem} onSetVisibleCount={mobileVisibleCountRef} />
         ) : (
           <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
             {visibleFilled.map((col, colIdx) => (
