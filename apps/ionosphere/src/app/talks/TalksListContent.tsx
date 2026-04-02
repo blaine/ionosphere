@@ -192,18 +192,20 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
 
   return (
     <div className="h-full flex">
-      {/* Day nav — vertical strip on the left edge */}
-      <nav className="shrink-0 w-10 flex flex-col items-center justify-center gap-0 border-r border-neutral-800 py-1 hidden md:flex">
-        {dayNav.map(({ day, shortLabel }) => (
-          <button
-            key={day}
-            onClick={() => scrollToDay(day)}
-            className="text-[11px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors w-6 h-6 flex items-center justify-center"
-          >
-            {shortLabel}
-          </button>
-        ))}
-      </nav>
+      {/* Day nav — vertical strip on the left edge (only when 2+ days) */}
+      {dayNav.length > 1 && (
+        <nav className="shrink-0 w-8 hidden md:flex flex-col items-center justify-center border-r border-neutral-800 py-1">
+          {dayNav.map(({ day, shortLabel }) => (
+            <button
+              key={day}
+              onClick={() => scrollToDay(day)}
+              className="text-[11px] leading-none text-neutral-500 hover:text-neutral-100 transition-colors w-7 h-7 flex items-center justify-center"
+            >
+              {shortLabel}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {/* Main: search + multi-column talk list */}
       <div className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
