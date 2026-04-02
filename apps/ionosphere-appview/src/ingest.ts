@@ -1,9 +1,38 @@
 import { openDb, migrate } from "./db.js";
 import { correlate, type ScheduleEvent, type VodRecord } from "./correlate.js";
-import { loadLens, applyLens } from "@ionosphere/format/lenses";
+import { loadLens, applyLens, init as initPanproto, createPipeline } from "@ionosphere/format/lenses";
+import type { ProtolensChainHandle } from "@ionosphere/format/lenses";
 import { resolveLensRecord } from "./lens-resolver.js";
 
 const scheduleLens = loadLens("schedule-to-talk.lens.json");
+
+/**
+ * Build a native panproto pipeline for the schedule-to-talk transform.
+ * Returns null if WASM is not available.
+ *
+ * Uses the PipelineBuilder combinator API (@panproto/core@0.23+):
+ *   renameField — rename JSON property keys
+ *   hoistField — unnest fields from intermediate objects
+ */
+async function buildSchedulePipeline(): Promise<ProtolensChainHandle | null> {
+  try {
+    const pp = await initPanproto();
+    const parent = "community.lexicon.calendar.event:body";
+    const ad = `${parent}.additionalData`;
+
+    return createPipeline(pp)
+      .renameField(parent, "name", "title")
+      .hoistField(parent, ad, "room")
+      .hoistField(parent, ad, "category")
+      .hoistField(parent, ad, "type")
+      .renameField(parent, "type", "talkType")
+      .hoistField(parent, ad, "speakers")
+      .build();
+  } catch {
+    // WASM not available — fall back to JS applyLens
+    return null;
+  }
+}
 
 const SCHEDULE_DID = "did:plc:3xewinw4wtimo2lqfy5fm5sw";
 const SCHEDULE_COLLECTION = "community.lexicon.calendar.event";
@@ -85,6 +114,13 @@ function slugify(name: string): string {
 }
 
 async function main() {
+  // Try to build native panproto pipeline (WASM-backed, bidirectional)
+  const schedulePipeline = await buildSchedulePipeline();
+  if (schedulePipeline) {
+    console.log("Using panproto PipelineBuilder for schedule-to-talk transform");
+  }
+
+  // Fall back to JSON lens spec (JS-only applyLens) if WASM is not available
   let scheduleLensResolved;
   try {
     const resolved = await resolveLensRecord("community.lexicon.calendar.event", "tv.ionosphere.talk");

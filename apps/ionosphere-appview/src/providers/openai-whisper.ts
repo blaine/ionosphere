@@ -20,9 +20,12 @@ export async function openaiWhisperProvider(
     timestamp_granularities: ["word"],
   });
 
-  // Lens candidate: openai.whisper.verbose_json → tv.ionosphere.transcript
-  // Currently a simple field mapping. Graduate to panproto lens when the
-  // pipeline() combinator API is available (see panproto/panproto#15).
+  // Lens: openai.whisper.verbose_json -> tv.ionosphere.transcript
+  // The pipeline() combinator API is now available in @panproto/core@0.23+.
+  // This can be expressed as:
+  //   createPipeline(pp).mapItems("words", { step_type: "add_field", ... })
+  // For now, this remains a simple field mapping since the transform is trivial
+  // (just adding a default confidence field per word).
 
   // Lens: OpenAI's word format → ionosphere WordTimestamp
   // OpenAI returns { word, start, end } — we add confidence (not provided, default 1.0)

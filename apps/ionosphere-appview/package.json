@@ -6,7 +6,7 @@
     "@atproto/api": "^0.15.0",
     "@hono/node-server": "^1.13.0",
     "@ionosphere/format": "workspace:*",
-    "@panproto/core": "^0.22.0",
+    "@panproto/core": "^0.25.1",
     "an-array-of-english-words": "^2.0.0",
     "better-sqlite3": "^12.8.0",
     "compromise": "^14.15.0",
