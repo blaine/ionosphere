@@ -231,7 +231,7 @@ export default function IndexContent({ entries }: { entries: IndexEntry[] }) {
     async (rkey: string, _word: string, timestampNs: number) => {
       try {
         const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-        const res = await fetch(`${API_BASE}/talks/${rkey}`);
+        const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
         if (!res.ok) return;
         const { talk } = await res.json();
         const doc = talk.document ? JSON.parse(talk.document) : null;

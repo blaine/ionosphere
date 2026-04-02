@@ -7,33 +7,33 @@ async function fetchApi<T>(path: string): Promise<T> {
 }
 
 export async function getTalks() {
-  return fetchApi<{ talks: any[] }>("/talks");
+  return fetchApi<{ talks: any[] }>("/xrpc/tv.ionosphere.getTalks");
 }
 
 export async function getTalk(rkey: string) {
-  return fetchApi<{ talk: any; speakers: any[]; concepts: any[] }>(`/talks/${rkey}`);
+  return fetchApi<{ talk: any; speakers: any[]; concepts: any[] }>(`/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
 }
 
 export async function getSpeakers() {
-  return fetchApi<{ speakers: any[] }>("/speakers");
+  return fetchApi<{ speakers: any[] }>("/xrpc/tv.ionosphere.getSpeakers");
 }
 
 export async function getSpeaker(rkey: string) {
-  return fetchApi<{ speaker: any; talks: any[] }>(`/speakers/${rkey}`);
+  return fetchApi<{ speaker: any; talks: any[] }>(`/xrpc/tv.ionosphere.getSpeaker?rkey=${encodeURIComponent(rkey)}`);
 }
 
 export async function getConcepts() {
-  return fetchApi<{ concepts: any[] }>("/concepts");
+  return fetchApi<{ concepts: any[] }>("/xrpc/tv.ionosphere.getConcepts");
 }
 
 export async function getConcept(rkey: string) {
-  return fetchApi<{ concept: any; talks: any[] }>(`/concepts/${rkey}`);
+  return fetchApi<{ concept: any; talks: any[] }>(`/xrpc/tv.ionosphere.getConcept?rkey=${encodeURIComponent(rkey)}`);
 }
 
 export async function getIndex() {
-  return fetchApi<{ entries: any[] }>("/index");
+  return fetchApi<{ entries: any[] }>("/xrpc/tv.ionosphere.getConcordance");
 }
 
 export async function getConceptClusters() {
-  return fetchApi<{ clusters: any[] }>("/concepts/clusters");
+  return fetchApi<{ clusters: any[] }>("/xrpc/tv.ionosphere.getConceptClusters");
 }

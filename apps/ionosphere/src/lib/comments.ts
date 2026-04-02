@@ -47,7 +47,7 @@ export function isEmojiReaction(text: string): boolean {
 
 export async function fetchComments(talkRkey: string): Promise<CommentData[]> {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-  const res = await fetch(`${API_BASE}/talks/${talkRkey}/comments`);
+  const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getComments?talkRkey=${encodeURIComponent(talkRkey)}`);
   if (!res.ok) return [];
   const { comments } = await res.json();
   return comments;
@@ -55,7 +55,7 @@ export async function fetchComments(talkRkey: string): Promise<CommentData[]> {
 
 export async function fetchReplies(commentUri: string): Promise<CommentData[]> {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-  const res = await fetch(`${API_BASE}/comments?subject=${encodeURIComponent(commentUri)}`);
+  const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getComments?subject=${encodeURIComponent(commentUri)}`);
   if (!res.ok) return [];
   const { comments } = await res.json();
   return comments;

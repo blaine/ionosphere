@@ -149,7 +149,7 @@ export default function SpeakersListContent({
   const handleSelectTalk = useCallback(async (rkey: string) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-      const talkRes = await fetch(`${API_BASE}/talks/${rkey}`);
+      const talkRes = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
       if (!talkRes.ok) return;
       const { talk } = await talkRes.json();
       const doc = talk.document ? JSON.parse(talk.document) : null;

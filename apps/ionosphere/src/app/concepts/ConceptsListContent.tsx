@@ -84,7 +84,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
     if (!conceptTalks.has(conceptRkey)) {
       try {
         const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-        const res = await fetch(`${API_BASE}/concepts/${conceptRkey}`);
+        const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getConcept?rkey=${encodeURIComponent(conceptRkey)}`);
         if (res.ok) {
           const { talks } = await res.json();
           setConceptTalks((prev) => new Map(prev).set(conceptRkey, talks));
@@ -96,7 +96,7 @@ export default function ConceptsListContent({ clusters }: { clusters: Cluster[] 
   const handleTalkClick = useCallback(async (rkey: string) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
-      const res = await fetch(`${API_BASE}/talks/${rkey}`);
+      const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
       if (!res.ok) return;
       const { talk } = await res.json();
       const doc = talk.document ? JSON.parse(talk.document) : null;
