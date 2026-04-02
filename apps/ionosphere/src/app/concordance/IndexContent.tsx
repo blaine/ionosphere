@@ -153,15 +153,16 @@ function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: num
 
   while (i < flowItems.length) {
     const h = estimateItemHeight(flowItems[i], columnWidth);
-    if (used + h > columnHeight && items.length > 0) break; // column full (but always take at least one)
+    if (used + h > columnHeight && items.length > 0) break;
     items.push(flowItems[i]);
     used += h;
     i++;
   }
 
-  // Vertical justification: distribute remaining space
+  // Vertical justification: distribute remaining space as extra margin
+  // Cap at 6px per gap to avoid huge gaps with few items
   const remaining = Math.max(0, columnHeight - used);
-  const extraSpacing = items.length > 1 ? remaining / (items.length - 1) : 0;
+  const extraSpacing = items.length > 1 ? Math.min(remaining / (items.length - 1), 6) : 0;
 
   return { items, endIndex: i, usedHeight: used, extraSpacing };
 }
@@ -220,7 +221,9 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       setNumCols(cols);
       // Column height = container height minus search bar and padding
       const searchH = searchBarRef.current?.offsetHeight || 0;
-      setColumnHeight(el.clientHeight - searchH - 20); // 20 = pt-3 + pb-2 + mb-2
+      const h = el.clientHeight - searchH - 20;
+      console.log("[concordance] container:", el.clientHeight, "search:", searchH, "columnHeight:", h);
+      setColumnHeight(h);
     });
     observer.observe(el);
     return () => observer.disconnect();
