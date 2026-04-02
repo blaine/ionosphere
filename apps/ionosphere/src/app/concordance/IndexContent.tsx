@@ -436,7 +436,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       }
       requestAnimationFrame(() => {
         const el = document.getElementById(`heading-${letter}`);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (el) el.scrollIntoView({ behavior: "instant", block: "start" });
       });
     } else {
       const idx = letterToIndex.get(letter);
