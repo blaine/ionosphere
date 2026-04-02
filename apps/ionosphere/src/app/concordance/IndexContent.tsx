@@ -211,7 +211,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   // All letters for nav
   const allLetters = useMemo(() => {
     const set = new Set<string>();
-    for (const e of entries) {
+    for (const e of entries || []) {
       const l = e.term[0]?.toUpperCase();
       if (l && /[A-Z]/.test(l)) set.add(l);
     }
