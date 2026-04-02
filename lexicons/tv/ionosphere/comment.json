@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.comment",
+  "revision": 1,
+  "description": "A comment or reaction on a transcript, talk, or another comment.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["subject", "text", "createdAt"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the transcript, talk, or parent comment."
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000,
+            "description": "Comment body or single emoji reaction."
+          },
+          "facets": {
+            "type": "array",
+            "items": { "type": "ref", "ref": "app.bsky.richtext.facet" },
+            "description": "Rich text facets in the comment."
+          },
+          "anchor": {
+            "type": "ref",
+            "ref": "#byteRange",
+            "description": "Optional byte range on the subject's text."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    },
+    "byteRange": {
+      "type": "object",
+      "required": ["byteStart", "byteEnd"],
+      "properties": {
+        "byteStart": { "type": "integer" },
+        "byteEnd": { "type": "integer" }
+      }
+    }
+  }
+}
