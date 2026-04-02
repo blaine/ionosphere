@@ -355,25 +355,25 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   );
 
   const wordHasComment = useMemo(() => {
-    if (!comments || comments.length === 0) return new Set<number>();
+    if (allComments.length === 0) return new Set<number>();
     const set = new Set<number>();
     for (let i = 0; i < words.length; i++) {
       const word = words[i];
-      const has = comments.some(c =>
+      const has = allComments.some(c =>
         c.byte_start !== null && c.byte_end !== null &&
         c.byte_start < word.byteEnd && c.byte_end > word.byteStart
       );
       if (has) set.add(i);
     }
     return set;
-  }, [words, comments]);
+  }, [words, allComments]);
 
   // Group comments by byte range for margin indicators
   // Key: "byteStart-byteEnd", Value: { emoji counts, text comments }
   const reactionGroups = useMemo(() => {
-    if (!comments || comments.length === 0) return new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
+    if (allComments.length === 0) return new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
     const groups = new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
-    for (const c of comments) {
+    for (const c of allComments) {
       if (c.byte_start === null || c.byte_end === null) continue;
       const key = `${c.byte_start}-${c.byte_end}`;
       if (!groups.has(key)) {
@@ -388,7 +388,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       }
     }
     return groups;
-  }, [comments]);
+  }, [allComments]);
 
   // Track if user is selecting text — pause auto-scroll
   const userSelecting = useRef(false);
@@ -408,10 +408,41 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // Expanded reaction group (which span's comments are shown)
   const [expandedSpan, setExpandedSpan] = useState<string | null>(null);
 
+  // Optimistic comments — rendered immediately before the round-trip completes
+  const [pendingComments, setPendingComments] = useState<CommentData[]>([]);
+
+  // Merge server comments + pending, dedup by text+anchor
+  const allComments = useMemo(() => {
+    if (pendingComments.length === 0) return comments || [];
+    const serverUris = new Set((comments || []).map((c) => c.uri));
+    // Remove pending comments that have arrived from the server
+    const stillPending = pendingComments.filter((p) => !serverUris.has(p.uri));
+    return [...(comments || []), ...stillPending];
+  }, [comments, pendingComments]);
+
   const handlePublish = useCallback(async (byteStart: number, byteEnd: number, text: string) => {
     if (!agent || !transcriptUri) return;
+
+    // Optimistic: add immediately
+    const optimisticComment: CommentData = {
+      uri: `pending-${Date.now()}`,
+      author_did: agent.assertDid,
+      rkey: "",
+      subject_uri: transcriptUri,
+      text,
+      facets: null,
+      byte_start: byteStart,
+      byte_end: byteEnd,
+      created_at: new Date().toISOString(),
+    };
+    setPendingComments((prev) => [...prev, optimisticComment]);
+
     try {
-      await publishComment(agent, transcriptUri, text, { byteStart, byteEnd });
+      const uri = await publishComment(agent, transcriptUri, text, { byteStart, byteEnd });
+      // Update the pending comment with the real URI so dedup works
+      setPendingComments((prev) =>
+        prev.map((p) => (p === optimisticComment ? { ...p, uri } : p))
+      );
       onCommentPublished?.();
     } catch (err) {
       console.error("Failed to publish comment:", err);
