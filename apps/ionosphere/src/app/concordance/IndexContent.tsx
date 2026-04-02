@@ -295,50 +295,37 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return groups.map((g) => measureGroupHeight(g, g.entries.length, columnWidth, mounted));
   }, [groups, columnWidth, mounted]);
 
-  // Column layout for ALL groups (distributes by height, no rendering)
   const numCols = useMemo(() => {
     return Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
   }, [columnWidth]);
 
-  const columnLayout = useMemo(() => {
-    return distributeColumns(groups, groupHeights, numCols);
-  }, [groups, groupHeights, numCols]);
-
-  // Per-column: cumulative height offsets for each group (for spacer sizing)
-  const columnOffsets = useMemo(() => {
-    return columnLayout.map((col) => {
-      const offsets: number[] = [];
-      let h = 0;
-      for (const group of col) {
-        offsets.push(h);
-        const idx = groups.indexOf(group);
-        h += idx >= 0 ? groupHeights[idx] : 0;
-      }
-      offsets.push(h); // total height
-      return offsets;
-    });
-  }, [columnLayout, groups, groupHeights]);
-
   // Centroid: which letter group index is "centered" in the viewport
   const [centroidLetter, setCentroidLetter] = useState("A");
-  const RENDER_WINDOW = 5; // render groups within ±5 of centroid in the alphabet
+  const RENDER_WINDOW = 5;
 
-  // Which group indices are visible (within window of centroid)
-  const visibleLetters = useMemo(() => {
-    if (filter) return new Set(groups.map((g) => g.letter)); // show all when filtering
+  // Visible groups: window around centroid (or all when filtering)
+  const visibleGroups = useMemo(() => {
+    if (filter) return groups;
     const centroidIdx = groups.findIndex((g) => g.letter === centroidLetter);
     const center = centroidIdx >= 0 ? centroidIdx : 0;
-    const set = new Set<string>();
-    for (let i = Math.max(0, center - RENDER_WINDOW); i < Math.min(groups.length, center + RENDER_WINDOW + 1); i++) {
-      set.add(groups[i].letter);
-    }
-    return set;
+    const start = Math.max(0, center - RENDER_WINDOW);
+    const end = Math.min(groups.length, center + RENDER_WINDOW + 1);
+    return groups.slice(start, end);
   }, [groups, centroidLetter, filter]);
 
-  // Update centroid from scroll position using IntersectionObserver
+  // Distribute only visible groups into columns — they flow naturally
+  const columns = useMemo(() => {
+    const heights = visibleGroups.map((g) => {
+      const idx = groups.indexOf(g);
+      return idx >= 0 ? groupHeights[idx] : 0;
+    });
+    return distributeColumns(visibleGroups, heights, numCols);
+  }, [visibleGroups, groups, groupHeights, numCols]);
+
+  // Update centroid from scroll — track which rendered group is in the viewport
   const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   useEffect(() => {
-    if (filter) return; // don't update centroid when filtering
+    if (filter) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -348,13 +335,13 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           }
         }
       },
-      { rootMargin: "-20% 0px -60% 0px" } // trigger when group enters top third
+      { rootMargin: "-20% 0px -60% 0px" }
     );
     for (const el of groupRefs.current.values()) {
       observer.observe(el);
     }
     return () => observer.disconnect();
-  }, [groups, visibleLetters, filter]);
+  }, [visibleGroups, filter]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -446,21 +433,11 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           </span>
         </div>
 
-        {/* Pretext-balanced columns with viewport virtualization */}
+        {/* Pretext-balanced columns — only visible groups rendered */}
         <div className="flex gap-6 items-start">
-          {columnLayout.map((column, colIdx) => (
+          {columns.map((column, colIdx) => (
             <div key={colIdx} className="min-w-0 flex-1">
-              {column.map((group, groupIdx) => {
-                const isVisible = visibleLetters.has(group.letter);
-                const gIdx = groups.indexOf(group);
-                const height = gIdx >= 0 ? groupHeights[gIdx] : 0;
-
-                if (!isVisible) {
-                  // Spacer preserving measured height
-                  return <div key={group.letter} id={`letter-${group.letter}`} style={{ height }} />;
-                }
-
-                return (
+              {column.map((group) => (
                   <div
                     key={group.letter}
                     ref={(el) => { if (el) groupRefs.current.set(group.letter, el); else groupRefs.current.delete(group.letter); }}
@@ -525,8 +502,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                       );
                     })}
                   </div>
-                );
-              })}
+              ))}
             </div>
           ))}
         </div>
