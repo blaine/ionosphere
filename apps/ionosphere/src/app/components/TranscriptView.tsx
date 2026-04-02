@@ -354,6 +354,12 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     []
   );
 
+  // Discoverability hint for first-time users
+  const [showHint, setShowHint] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !localStorage.getItem("has_commented");
+  });
+
   // Optimistic comments — rendered immediately before the round-trip completes
   const [pendingComments, setPendingComments] = useState<CommentData[]>([]);
 
@@ -462,6 +468,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     };
     setPendingComments((prev) => [...prev, optimisticComment]);
 
+    if (showHint) {
+      localStorage.setItem("has_commented", "1");
+      setShowHint(false);
+    }
+
     try {
       const uri = await publishComment(agent, transcriptUri, text, { byteStart, byteEnd });
       // Update the pending comment with the real URI so dedup works
@@ -563,6 +574,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
           </div>
         );
       })}
+      {showHint && (
+        <p className="text-center text-xs text-neutral-600 mt-4 select-none">
+          Select text to add a reaction
+        </p>
+      )}
       {/* Bottom spacer: lets last word scroll up to the playhead (33% mark) */}
       <div style={{ height: "calc(67% + 1rem)" }} />
     </div>
