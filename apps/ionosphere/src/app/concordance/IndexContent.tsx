@@ -323,7 +323,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
         {/* Pretext-balanced columns */}
         <div className="flex gap-6 items-start">
           {columns.map((column, colIdx) => (
-            <div key={colIdx} style={{ width: columnWidth }} className="min-w-0">
+            <div key={colIdx} className="min-w-0 flex-1">
               {column.map((group) => (
                   <div key={group.letter} className="mb-4">
                     <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
