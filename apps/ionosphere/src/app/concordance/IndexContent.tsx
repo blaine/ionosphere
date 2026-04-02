@@ -110,97 +110,46 @@ interface IndexEntry {
   totalCount: number;
 }
 
-interface LetterGroup {
-  letter: string;
-  entries: IndexEntry[];
-}
+// --- Flow items: letter headings and entries in one flat list ---
 
-// --- Pretext measurement ---
+type FlowItem =
+  | { type: "heading"; letter: string }
+  | { type: "entry"; entry: IndexEntry };
 
 const FONT = "13px/1.6 ui-sans-serif, system-ui, sans-serif";
 const LINE_HEIGHT = 21;
 const HEADING_HEIGHT = 32;
-const GROUP_MARGIN = 16;
 
-/**
- * Measure a letter group's height using Pretext.
- * With the 20-per-group cap, this is fast (~500 entries total).
- */
-function measureGroupHeight(
-  group: LetterGroup,
-  visibleCount: number,
-  columnWidth: number,
-  usePretext: boolean
-): number {
-  let height = HEADING_HEIGHT;
-  const visible = group.entries.slice(0, visibleCount);
+function measureEntryHeight(entry: IndexEntry, columnWidth: number, usePretext: boolean): number {
+  let height = 0;
 
-  for (const entry of visible) {
-    if (usePretext && columnWidth > 0) {
-      // Measure the term line with Pretext
-      const termText = entry.term;
-      const prepared = prepare(termText, FONT);
-      const measured = layout(prepared, columnWidth, LINE_HEIGHT);
-      height += measured.height;
-    } else {
-      height += LINE_HEIGHT;
-    }
-
-    // See-only entries are compact
-    if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
-      height += 4;
-      continue;
-    }
-    // Talk refs (max 5 shown)
-    height += Math.min(entry.talks.length, 5) * LINE_HEIGHT;
-    if (entry.talks.length > 5) height += LINE_HEIGHT;
-    // Subentries
-    for (const sub of entry.subentries || []) {
-      height += LINE_HEIGHT; // label
-      height += sub.talks.length * LINE_HEIGHT;
-    }
-    // See/seeAlso
-    if (entry.see?.length > 0) height += LINE_HEIGHT;
-    if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
-    height += 4; // entry margin
+  if (usePretext && columnWidth > 0) {
+    const prepared = prepare(entry.term, FONT);
+    const measured = layout(prepared, columnWidth, LINE_HEIGHT);
+    height += measured.height;
+  } else {
+    height += LINE_HEIGHT;
   }
 
-  // "+N more" button
-  if (group.entries.length > visibleCount) height += LINE_HEIGHT;
+  if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
+    return height + 4;
+  }
 
-  height += GROUP_MARGIN;
+  height += Math.min(entry.talks.length, 5) * LINE_HEIGHT;
+  if (entry.talks.length > 5) height += LINE_HEIGHT;
+  for (const sub of entry.subentries || []) {
+    height += LINE_HEIGHT;
+    height += sub.talks.length * LINE_HEIGHT;
+  }
+  if (entry.see?.length > 0) height += LINE_HEIGHT;
+  if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
+  height += 4;
   return height;
 }
 
-/**
- * Newspaper-style column distribution: fill down then right,
- * balanced by measured height.
- */
-function distributeColumns(
-  groups: LetterGroup[],
-  heights: number[],
-  numColumns: number
-): LetterGroup[][] {
-  const totalHeight = heights.reduce((sum, h) => sum + h, 0);
-  const targetHeight = totalHeight / numColumns;
-
-  const columns: LetterGroup[][] = [];
-  let currentColumn: LetterGroup[] = [];
-  let currentHeight = 0;
-
-  for (let i = 0; i < groups.length; i++) {
-    currentColumn.push(groups[i]);
-    currentHeight += heights[i];
-
-    if (currentHeight >= targetHeight && columns.length < numColumns - 1) {
-      columns.push(currentColumn);
-      currentColumn = [];
-      currentHeight = 0;
-    }
-  }
-  columns.push(currentColumn);
-
-  return columns;
+function measureItemHeight(item: FlowItem, columnWidth: number, usePretext: boolean): number {
+  if (item.type === "heading") return HEADING_HEIGHT;
+  return measureEntryHeight(item.entry, columnWidth, usePretext);
 }
 
 // --- Component ---
@@ -229,23 +178,27 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   const [isRegex, setIsRegex] = useState(false);
   const [widePlayer, setWidePlayer] = useState(false);
   const [showMobilePlayer, setShowMobilePlayer] = useState(false);
-  const [expandedLetters] = useState<Set<string>>(new Set()); // kept for API compat
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnWidth, setColumnWidth] = useState(280);
+  const [columnHeight, setColumnHeight] = useState(600);
+  const [numCols, setNumCols] = useState(4);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Measure available width
+  // Measure container
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
       const padding = 32;
       const available = el.clientWidth - padding;
-      const cols = Math.max(1, Math.floor(available / 300));
+      const cols = Math.max(1, Math.floor(available / 280));
       const gap = (cols - 1) * 24;
       setColumnWidth(Math.max(200, Math.floor((available - gap) / cols)));
+      setNumCols(cols);
+      // Column height = container height minus search bar (~52px)
+      setColumnHeight(el.clientHeight - 52);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -267,7 +220,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     }
   }, [entries, filter, isRegex]);
 
-  // All letters for nav
+  // All letters for nav (from unfiltered entries)
   const allLetters = useMemo(() => {
     const set = new Set<string>();
     for (const e of entries || []) {
@@ -277,79 +230,104 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return [...set].sort();
   }, [entries]);
 
-  // Group by letter
-  const groups = useMemo(() => {
-    const map = new Map<string, IndexEntry[]>();
+  // Flatten into flow items: heading + entries for each letter
+  const flowItems = useMemo(() => {
+    const items: FlowItem[] = [];
+    let currentLetter = "";
     for (const entry of filteredEntries) {
       const letter = entry.term[0]?.toUpperCase() || "#";
-      if (!map.has(letter)) map.set(letter, []);
-      map.get(letter)!.push(entry);
+      if (letter !== currentLetter) {
+        currentLetter = letter;
+        items.push({ type: "heading", letter });
+      }
+      items.push({ type: "entry", entry });
     }
-    return [...map.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
+    return items;
   }, [filteredEntries]);
 
-  // Pretext-measured heights for ALL groups (cheap — no DOM)
-  const groupHeights = useMemo(() => {
-    return groups.map((g) => measureGroupHeight(g, g.entries.length, columnWidth, mounted));
-  }, [groups, columnWidth, mounted]);
+  // Pre-compute cumulative heights
+  const itemHeights = useMemo(() => {
+    return flowItems.map((item) => measureItemHeight(item, columnWidth, mounted));
+  }, [flowItems, columnWidth, mounted]);
 
-  const numCols = useMemo(() => {
-    return Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
-  }, [columnWidth]);
-
-  // Centroid: which letter group index is "centered" in the viewport
-  const [centroidLetter, setCentroidLetter] = useState("A");
-  const RENDER_WINDOW = 5;
-
-  // Visible groups: window around centroid (or all when filtering)
-  const visibleGroups = useMemo(() => {
-    if (filter) return groups;
-    const centroidIdx = groups.findIndex((g) => g.letter === centroidLetter);
-    const center = centroidIdx >= 0 ? centroidIdx : 0;
-    const start = Math.max(0, center - RENDER_WINDOW);
-    const end = Math.min(groups.length, center + RENDER_WINDOW + 1);
-    return groups.slice(start, end);
-  }, [groups, centroidLetter, filter]);
-
-  // Distribute only visible groups into columns — they flow naturally
-  const columns = useMemo(() => {
-    const heights = visibleGroups.map((g) => {
-      const idx = groups.indexOf(g);
-      return idx >= 0 ? groupHeights[idx] : 0;
-    });
-    return distributeColumns(visibleGroups, heights, numCols);
-  }, [visibleGroups, groups, groupHeights, numCols]);
-
-  // Update centroid from scroll — track the topmost visible group
-  const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollCentroidRef = useRef(false); // true when scrollToLetter initiated the scroll
-  useEffect(() => {
-    if (filter) return;
-    const visibleSet = new Set<string>();
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (scrollCentroidRef.current) return; // ignore during programmatic scroll
-        for (const entry of entries) {
-          const letter = entry.target.getAttribute("data-letter");
-          if (!letter) continue;
-          if (entry.isIntersecting) visibleSet.add(letter);
-          else visibleSet.delete(letter);
-        }
-        // Pick the earliest letter alphabetically from the visible set
-        if (visibleSet.size > 0) {
-          const sorted = [...visibleSet].sort();
-          setCentroidLetter(sorted[0]);
-        }
-      },
-      { rootMargin: "0px 0px -70% 0px" } // top 30% of viewport
-    );
-    for (const el of groupRefs.current.values()) {
-      observer.observe(el);
+  const cumulativeHeights = useMemo(() => {
+    const cumulative: number[] = [0];
+    for (let i = 0; i < itemHeights.length; i++) {
+      cumulative.push(cumulative[i] + itemHeights[i]);
     }
-    return () => observer.disconnect();
-  }, [visibleGroups, filter]);
+    return cumulative;
+  }, [itemHeights]);
+
+  const totalHeight = cumulativeHeights[cumulativeHeights.length - 1] || 0;
+  const totalColumns = Math.max(1, Math.ceil(totalHeight / Math.max(1, columnHeight)));
+
+  // Scroll position: which column is at the left edge
+  const [scrollColumn, setScrollColumn] = useState(0);
+  const maxScroll = Math.max(0, totalColumns - numCols);
+
+  // Letter-to-column mapping
+  const letterToColumn = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < flowItems.length; i++) {
+      const item = flowItems[i];
+      if (item.type === "heading" && !map.has(item.letter)) {
+        const offset = cumulativeHeights[i];
+        map.set(item.letter, Math.floor(offset / Math.max(1, columnHeight)));
+      }
+    }
+    return map;
+  }, [flowItems, cumulativeHeights, columnHeight]);
+
+  // Current letter (for nav highlighting)
+  const currentLetter = useMemo(() => {
+    const startOffset = scrollColumn * columnHeight;
+    let letter = "A";
+    for (let i = 0; i < flowItems.length; i++) {
+      if (cumulativeHeights[i] > startOffset) break;
+      if (flowItems[i].type === "heading") letter = (flowItems[i] as { type: "heading"; letter: string }).letter;
+    }
+    return letter;
+  }, [scrollColumn, columnHeight, flowItems, cumulativeHeights]);
+
+  // Compute which items go in each visible column
+  const visibleColumns = useMemo(() => {
+    const cols: FlowItem[][] = [];
+    for (let c = 0; c < numCols; c++) {
+      const colIndex = scrollColumn + c;
+      const colStart = colIndex * columnHeight;
+      const colEnd = colStart + columnHeight;
+      const items: FlowItem[] = [];
+
+      // Find first item that overlaps this column
+      let i = 0;
+      while (i < flowItems.length && cumulativeHeights[i + 1] <= colStart) i++;
+
+      // Fill column
+      let filled = cumulativeHeights[i] - colStart; // partial item overlap from top
+      while (i < flowItems.length && filled < columnHeight) {
+        items.push(flowItems[i]);
+        filled += itemHeights[i];
+        i++;
+      }
+      cols.push(items);
+    }
+    return cols;
+  }, [scrollColumn, numCols, columnHeight, flowItems, itemHeights, cumulativeHeights]);
+
+  // Scroll handler: wheel scrolls columns
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // Map vertical scroll to column advancement
+      // deltaY ~100 per scroll tick, advance 1 column per tick
+      const delta = Math.sign(e.deltaY);
+      setScrollColumn((prev) => Math.max(0, Math.min(maxScroll, prev + delta)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [maxScroll]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -373,21 +351,24 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   );
 
   const scrollToLetter = useCallback((letter: string) => {
-    scrollCentroidRef.current = true; // suppress observer during scroll
-    setCentroidLetter(letter);
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`letter-${letter}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      // Re-enable observer after scroll settles
-      setTimeout(() => { scrollCentroidRef.current = false; }, 500);
-    });
-  }, []);
+    const col = letterToColumn.get(letter);
+    if (col !== undefined) {
+      setScrollColumn(Math.min(col, maxScroll));
+    }
+  }, [letterToColumn, maxScroll]);
 
   const scrollToTerm = useCallback((term: string) => {
-    const id = `term-${term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+    // Find the term in flowItems, compute its column
+    for (let i = 0; i < flowItems.length; i++) {
+      const item = flowItems[i];
+      if (item.type === "entry" && item.entry.term.toLowerCase() === term.toLowerCase()) {
+        const offset = cumulativeHeights[i];
+        const col = Math.floor(offset / Math.max(1, columnHeight));
+        setScrollColumn(Math.min(col, maxScroll));
+        return;
+      }
+    }
+  }, [flowItems, cumulativeHeights, columnHeight, maxScroll]);
 
   if (loading) {
     return (
@@ -401,6 +382,70 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     );
   }
 
+  // Render a flow item
+  const renderItem = (item: FlowItem) => {
+    if (item.type === "heading") {
+      return (
+        <h2 key={`h-${item.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1 mt-3 first:mt-0">
+          {item.letter}
+        </h2>
+      );
+    }
+    const entry = item.entry;
+    const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
+    if (isSeeOnly) {
+      return (
+        <div key={entry.term} className="text-[13px] leading-[1.6] mb-1">
+          <span className="text-neutral-400">{entry.term}</span>
+          <span className="text-neutral-600 italic"> — see{" "}
+            {entry.see.map((ref, i) => (
+              <span key={ref}>{i > 0 && ", "}
+                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+              </span>
+            ))}
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div key={entry.term} className="text-[13px] leading-[1.6] mb-2">
+        <div className="font-medium text-neutral-200">{entry.term}</div>
+        {entry.talks.slice(0, 5).map((talk) => (
+          <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
+        ))}
+        {entry.talks.length > 5 && (
+          <div className="text-neutral-600 pl-3">+{entry.talks.length - 5} more</div>
+        )}
+        {entry.subentries?.map((sub) => (
+          <div key={sub.label} className="pl-3">
+            <span className="text-neutral-400 italic text-xs">{sub.label}</span>
+            {sub.talks.map((talk) => (
+              <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
+            ))}
+          </div>
+        ))}
+        {entry.see?.length > 0 && (
+          <div className="text-neutral-600 italic pl-3">
+            see{" "}{entry.see.map((ref, i) => (
+              <span key={ref}>{i > 0 && ", "}
+                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {entry.seeAlso?.length > 0 && (
+          <div className="text-neutral-600 text-xs pl-3">
+            see also:{" "}{entry.seeAlso.map((ref, i) => (
+              <span key={ref}>{i > 0 && ", "}
+                <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="h-full flex">
       {/* Letter nav */}
@@ -410,7 +455,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
             key={letter}
             onClick={() => scrollToLetter(letter)}
             className={`text-[11px] leading-none transition-colors w-6 h-6 flex items-center justify-center ${
-              letter === centroidLetter ? "text-neutral-100 font-bold" : "text-neutral-500 hover:text-neutral-100"
+              letter === currentLetter ? "text-neutral-100 font-bold" : "text-neutral-500 hover:text-neutral-100"
             }`}
           >
             {letter}
@@ -418,15 +463,15 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
         ))}
       </nav>
 
-      {/* Main: search + Pretext-balanced columns */}
-      <div ref={containerRef} className={`flex-1 min-w-0 overflow-y-auto p-4 ${showMobilePlayer ? "hidden md:block" : ""}`}>
-        {/* Sticky search */}
-        <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-neutral-950 py-2 -mt-2">
+      {/* Main area */}
+      <div ref={containerRef} className={`flex-1 min-w-0 flex flex-col overflow-hidden p-4 ${showMobilePlayer ? "hidden md:flex" : ""}`}>
+        {/* Search bar */}
+        <div className="flex items-center gap-3 mb-3 shrink-0">
           <div className="flex-1 max-w-sm relative">
             <input
               type="text"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => { setFilter(e.target.value); setScrollColumn(0); }}
               placeholder={isRegex ? "Filter (regex)..." : "Filter..."}
               className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-neutral-500"
             />
@@ -441,78 +486,18 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           <span className="text-sm text-neutral-500 shrink-0">
             {filteredEntries.length.toLocaleString()} terms
           </span>
+          {totalColumns > numCols && (
+            <span className="text-xs text-neutral-600 shrink-0">
+              {scrollColumn + 1}–{Math.min(scrollColumn + numCols, totalColumns)} of {totalColumns}
+            </span>
+          )}
         </div>
 
-        {/* Pretext-balanced columns — only visible groups rendered */}
-        <div className="flex gap-6 items-start">
-          {columns.map((column, colIdx) => (
-            <div key={colIdx} className="min-w-0 flex-1">
-              {column.map((group) => (
-                  <div
-                    key={group.letter}
-                    ref={(el) => { if (el) groupRefs.current.set(group.letter, el); else groupRefs.current.delete(group.letter); }}
-                    data-letter={group.letter}
-                    className="mb-4"
-                  >
-                    <h2 id={`letter-${group.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1">
-                      {group.letter}
-                    </h2>
-                    {group.entries.map((entry) => {
-                      const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
-                      if (isSeeOnly) {
-                        return (
-                          <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-1">
-                            <span className="text-neutral-400">{entry.term}</span>
-                            <span className="text-neutral-600 italic"> — see{" "}
-                              {entry.see.map((ref, i) => (
-                                <span key={ref}>{i > 0 && ", "}
-                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                                </span>
-                              ))}
-                            </span>
-                          </div>
-                        );
-                      }
-                      return (
-                        <div key={entry.term} id={`term-${entry.term.toLowerCase().replace(/[^a-z0-9]/g, "-")}`} className="text-[13px] leading-[1.6] mb-2">
-                          <div className="font-medium text-neutral-200">{entry.term}</div>
-                          {entry.talks.slice(0, 5).map((talk) => (
-                            <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
-                          ))}
-                          {entry.talks.length > 5 && (
-                            <div className="text-neutral-600 pl-3">+{entry.talks.length - 5} more</div>
-                          )}
-                          {entry.subentries?.map((sub) => (
-                            <div key={sub.label} className="pl-3">
-                              <span className="text-neutral-400 italic text-xs">{sub.label}</span>
-                              {sub.talks.map((talk) => (
-                                <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
-                              ))}
-                            </div>
-                          ))}
-                          {entry.see?.length > 0 && (
-                            <div className="text-neutral-600 italic pl-3">
-                              see{" "}{entry.see.map((ref, i) => (
-                                <span key={ref}>{i > 0 && ", "}
-                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {entry.seeAlso?.length > 0 && (
-                            <div className="text-neutral-600 text-xs pl-3">
-                              see also:{" "}{entry.seeAlso.map((ref, i) => (
-                                <span key={ref}>{i > 0 && ", "}
-                                  <button onClick={() => scrollToTerm(ref)} className="hover:text-neutral-300 underline underline-offset-2">{ref}</button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-              ))}
+        {/* Columns — fixed height, no vertical scroll */}
+        <div className="flex gap-6 flex-1 min-h-0">
+          {visibleColumns.map((items, colIdx) => (
+            <div key={`${scrollColumn}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden" style={{ maxHeight: columnHeight > 0 ? columnHeight : undefined }}>
+              {items.map(renderItem)}
             </div>
           ))}
         </div>
@@ -540,22 +525,6 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
                 title={widePlayer ? "Collapse player" : "Expand player"}
               >{widePlayer ? "\u2192" : "\u2190"}</button>
               <span className="truncate">{selectedTalk.title}</span>
-              {/* Whole-talk reactions */}
-              {(() => {
-                const wholeTalk = comments.filter(c => c.byte_start === null && c.text.length <= 2 && !/[a-zA-Z]/.test(c.text));
-                if (wholeTalk.length === 0) return null;
-                const counts = new Map<string, number>();
-                for (const c of wholeTalk) counts.set(c.text, (counts.get(c.text) || 0) + 1);
-                return (
-                  <span className="ml-auto shrink-0 flex gap-1 text-xs">
-                    {[...counts.entries()].map(([emoji, count]) => (
-                      <span key={emoji} className="bg-neutral-800 rounded-full px-1.5 py-0.5">
-                        {emoji}{count > 1 && <span className="text-neutral-500 ml-0.5">{count}</span>}
-                      </span>
-                    ))}
-                  </span>
-                );
-              })()}
             </div>
             <div className="shrink-0 bg-black overflow-hidden">
               <VideoPlayer videoUri={selectedTalk.videoUri} offsetNs={selectedTalk.offsetNs} />
