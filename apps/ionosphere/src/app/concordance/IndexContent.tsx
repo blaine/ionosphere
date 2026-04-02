@@ -290,14 +290,38 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       .map(([letter, letterEntries]) => ({ letter, entries: letterEntries }));
   }, [filteredEntries]);
 
-  // Pretext-measured column distribution
+  // Progressive rendering — start with a subset of groups, expand on scroll
+  const [visibleGroupCount, setVisibleGroupCount] = useState(8);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Reset visible count when filter changes
+  useEffect(() => { setVisibleGroupCount(8); }, [filter]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisibleGroupCount((prev) => Math.min(prev + 6, groups.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [groups.length]);
+
+  const visibleGroups = useMemo(() => filter ? groups : groups.slice(0, visibleGroupCount), [groups, visibleGroupCount, filter]);
+
+  // Pretext-measured column distribution (only for visible groups)
   const columns = useMemo(() => {
     const numCols = Math.max(1, Math.floor((columnWidth > 0 ? (containerRef.current?.clientWidth || 1200) : 1200) / 300));
-    const heights = groups.map((g) => {
+    const heights = visibleGroups.map((g) => {
       return measureGroupHeight(g, g.entries.length, columnWidth, mounted);
     });
-    return distributeColumns(groups, heights, numCols);
-  }, [groups, columnWidth, mounted, expandedLetters, filter]);
+    return distributeColumns(visibleGroups, heights, numCols);
+  }, [visibleGroups, columnWidth, mounted, expandedLetters, filter]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -450,6 +474,11 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
               ))}
             </div>
           ))}
+        {visibleGroupCount < groups.length && (
+          <div ref={sentinelRef} className="text-center text-neutral-600 text-xs py-4">
+            Loading more...
+          </div>
+        )}
         </div>
       </div>
 
