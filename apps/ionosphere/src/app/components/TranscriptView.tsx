@@ -379,24 +379,50 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     return set;
   }, [words, allComments]);
 
-  // Group comments by byte range for margin indicators
-  // Key: "byteStart-byteEnd", Value: { emoji counts, text comments }
+  // Group comments by overlapping byte ranges into clusters.
+  // Comments whose byte ranges overlap are merged into the same group.
   const reactionGroups = useMemo(() => {
-    if (allComments.length === 0) return new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
-    const groups = new Map<string, { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number }>();
-    for (const c of allComments) {
-      if (c.byte_start === null || c.byte_end === null) continue;
-      const key = `${c.byte_start}-${c.byte_end}`;
-      if (!groups.has(key)) {
-        groups.set(key, { emojis: new Map(), texts: [], byteStart: c.byte_start, byteEnd: c.byte_end });
-      }
-      const group = groups.get(key)!;
-      const isEmoji = c.text.length <= 2 && !/[a-zA-Z]/.test(c.text);
-      if (isEmoji) {
-        group.emojis.set(c.text, (group.emojis.get(c.text) || 0) + 1);
+    type Group = { emojis: Map<string, number>; texts: CommentData[]; byteStart: number; byteEnd: number };
+    if (allComments.length === 0) return new Map<string, Group>();
+
+    // Collect anchored comments
+    const anchored = allComments.filter(
+      (c) => c.byte_start !== null && c.byte_end !== null
+    ) as (CommentData & { byte_start: number; byte_end: number })[];
+
+    if (anchored.length === 0) return new Map<string, Group>();
+
+    // Sort by byte_start
+    anchored.sort((a, b) => a.byte_start - b.byte_start);
+
+    // Merge overlapping ranges into clusters
+    const clusters: { byteStart: number; byteEnd: number; comments: typeof anchored }[] = [];
+    for (const c of anchored) {
+      const last = clusters[clusters.length - 1];
+      if (last && c.byte_start <= last.byteEnd) {
+        // Overlaps — extend the cluster
+        last.byteEnd = Math.max(last.byteEnd, c.byte_end);
+        last.comments.push(c);
       } else {
-        group.texts.push(c);
+        clusters.push({ byteStart: c.byte_start, byteEnd: c.byte_end, comments: [c] });
       }
+    }
+
+    // Build groups from clusters
+    const groups = new Map<string, Group>();
+    for (const cluster of clusters) {
+      const key = `${cluster.byteStart}-${cluster.byteEnd}`;
+      const emojis = new Map<string, number>();
+      const texts: CommentData[] = [];
+      for (const c of cluster.comments) {
+        const isEmoji = c.text.length <= 2 && !/[a-zA-Z]/.test(c.text);
+        if (isEmoji) {
+          emojis.set(c.text, (emojis.get(c.text) || 0) + 1);
+        } else {
+          texts.push(c);
+        }
+      }
+      groups.set(key, { emojis, texts, byteStart: cluster.byteStart, byteEnd: cluster.byteEnd });
     }
     return groups;
   }, [allComments]);
