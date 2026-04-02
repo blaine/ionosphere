@@ -184,6 +184,35 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ concepts });
   });
 
+  app.get("/talks/:rkey/comments", (c) => {
+    const { rkey } = c.req.param();
+    const talk = db.prepare("SELECT uri FROM talks WHERE rkey = ?").get(rkey) as any;
+    if (!talk) return c.json({ comments: [] });
+
+    const transcript = db.prepare("SELECT uri FROM transcripts WHERE talk_uri = ?").get(talk.uri) as any;
+
+    const subjectUris = [talk.uri];
+    if (transcript) subjectUris.push(transcript.uri);
+
+    const placeholders = subjectUris.map(() => "?").join(",");
+    const comments = db.prepare(
+      `SELECT * FROM comments WHERE subject_uri IN (${placeholders}) ORDER BY created_at ASC`
+    ).all(...subjectUris);
+
+    return c.json({ comments });
+  });
+
+  app.get("/comments", (c) => {
+    const subject = c.req.query("subject");
+    if (!subject) return c.json({ comments: [] });
+
+    const comments = db.prepare(
+      "SELECT * FROM comments WHERE subject_uri = ? ORDER BY created_at ASC"
+    ).all(subject);
+
+    return c.json({ comments });
+  });
+
   app.get("/concepts/clusters", (c) => {
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
