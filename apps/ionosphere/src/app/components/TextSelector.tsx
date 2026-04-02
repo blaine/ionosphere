@@ -44,11 +44,13 @@ export default function TextSelector({ containerRef, onComment, wordSpans }: Tex
   }, [containerRef]);
 
   useEffect(() => {
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      // Don't dismiss if clicking inside the toolbar
+      if (toolbarRef.current?.contains(e.target as Node)) return;
+
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
-        // Don't clear immediately — let click handlers fire first
-        setTimeout(() => setSelection(null), 200);
+        setSelection(null);
         return;
       }
 
@@ -70,8 +72,19 @@ export default function TextSelector({ containerRef, onComment, wordSpans }: Tex
       setCommentText("");
     };
 
+    // Dismiss on mousedown outside toolbar and container
+    const handleMouseDown = (e: MouseEvent) => {
+      if (toolbarRef.current?.contains(e.target as Node)) return;
+      if (containerRef.current?.contains(e.target as Node)) return;
+      setSelection(null);
+    };
+
     document.addEventListener("mouseup", handleMouseUp);
-    return () => document.removeEventListener("mouseup", handleMouseUp);
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
   }, [containerRef, getByteRange]);
 
   const handleEmoji = useCallback((emoji: string) => {
