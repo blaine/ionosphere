@@ -105,22 +105,14 @@ export default function TextSelector({ containerRef, onComment, wordSpans }: Tex
 
   if (!selection || !did) return null;
 
-  const container = containerRef.current;
-  const containerRect = container?.getBoundingClientRect();
-  if (!containerRect || !container) return null;
-
-  // Account for scroll offset — getBoundingClientRect is viewport-relative
-  // but we're positioned inside the scrollable container
-  const top = selection.rect.top - containerRect.top + container.scrollTop - 44;
-  const left = Math.min(
-    Math.max(selection.rect.left - containerRect.left + selection.rect.width / 2, 80),
-    containerRect.width - 80
-  );
+  // Use fixed positioning (viewport coordinates) — immune to scroll
+  const top = selection.rect.top - 44;
+  const left = selection.rect.left + selection.rect.width / 2;
 
   return (
     <div
       ref={toolbarRef}
-      className="absolute z-50 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl p-1 flex items-center gap-0.5"
+      className="fixed z-50 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl p-1 flex items-center gap-0.5"
       style={{ top, left, transform: "translateX(-50%)" }}
     >
       {!showCommentInput ? (
