@@ -287,7 +287,12 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
               >
                 {widePlayer ? "\u2192" : "\u2190"}
               </button>
-              <span className="truncate">{selectedTalk.title}</span>
+              <a href={`/talks/${selectedTalk.rkey}`} className="truncate hover:text-neutral-100 transition-colors">{selectedTalk.title}</a>
+              <a
+                href={`/talks/${selectedTalk.rkey}`}
+                className="text-neutral-500 hover:text-neutral-200 transition-colors shrink-0 text-xs"
+                title="Open full talk page"
+              >&#x2197;</a>
             </div>
             <div className="shrink-0 bg-black overflow-hidden">
               <VideoPlayer
