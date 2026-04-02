@@ -7,7 +7,6 @@ import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
 
-/** Aggressively seeks and plays the video once HLS is ready. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
   const { seekTo } = useTimestamp();
   useEffect(() => {
@@ -110,8 +109,6 @@ interface IndexEntry {
   totalCount: number;
 }
 
-// --- Flow items: letter headings and entries in one flat list ---
-
 type FlowItem =
   | { type: "heading"; letter: string }
   | { type: "entry"; entry: IndexEntry };
@@ -120,36 +117,53 @@ const FONT = "13px/1.6 ui-sans-serif, system-ui, sans-serif";
 const LINE_HEIGHT = 21;
 const HEADING_HEIGHT = 32;
 
-function measureEntryHeight(entry: IndexEntry, columnWidth: number, usePretext: boolean): number {
-  let height = 0;
-
-  if (usePretext && columnWidth > 0) {
-    const prepared = prepare(entry.term, FONT);
-    const measured = layout(prepared, columnWidth, LINE_HEIGHT);
-    height += measured.height;
-  } else {
-    height += LINE_HEIGHT;
-  }
+function estimateItemHeight(item: FlowItem, columnWidth: number): number {
+  if (item.type === "heading") return HEADING_HEIGHT;
+  const entry = item.entry;
+  let h = LINE_HEIGHT; // term line
 
   if (entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length) {
-    return height + 4;
+    return h + 4;
   }
 
-  height += Math.min(entry.talks.length, 5) * LINE_HEIGHT;
-  if (entry.talks.length > 5) height += LINE_HEIGHT;
+  h += Math.min(entry.talks.length, 5) * LINE_HEIGHT;
+  if (entry.talks.length > 5) h += LINE_HEIGHT;
   for (const sub of entry.subentries || []) {
-    height += LINE_HEIGHT;
-    height += sub.talks.length * LINE_HEIGHT;
+    h += LINE_HEIGHT + sub.talks.length * LINE_HEIGHT;
   }
-  if (entry.see?.length > 0) height += LINE_HEIGHT;
-  if (entry.seeAlso?.length > 0) height += LINE_HEIGHT;
-  height += 4;
-  return height;
+  if (entry.see?.length > 0) h += LINE_HEIGHT;
+  if (entry.seeAlso?.length > 0) h += LINE_HEIGHT;
+  h += 4;
+  return h;
 }
 
-function measureItemHeight(item: FlowItem, columnWidth: number, usePretext: boolean): number {
-  if (item.type === "heading") return HEADING_HEIGHT;
-  return measureEntryHeight(item.entry, columnWidth, usePretext);
+// --- Greedy column fill ---
+
+interface FilledColumn {
+  items: FlowItem[];
+  endIndex: number; // index in flowItems after last item in this column
+  usedHeight: number;
+  extraSpacing: number; // per-item extra margin for vertical justification
+}
+
+function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: number, columnWidth: number): FilledColumn {
+  const items: FlowItem[] = [];
+  let used = 0;
+  let i = startIndex;
+
+  while (i < flowItems.length) {
+    const h = estimateItemHeight(flowItems[i], columnWidth);
+    if (used + h > columnHeight && items.length > 0) break; // column full (but always take at least one)
+    items.push(flowItems[i]);
+    used += h;
+    i++;
+  }
+
+  // Vertical justification: distribute remaining space
+  const remaining = Math.max(0, columnHeight - used);
+  const extraSpacing = items.length > 1 ? remaining / (items.length - 1) : 0;
+
+  return { items, endIndex: i, usedHeight: used, extraSpacing };
 }
 
 // --- Component ---
@@ -180,25 +194,22 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   const [showMobilePlayer, setShowMobilePlayer] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const columnsRef = useRef<HTMLDivElement>(null);
   const [columnWidth, setColumnWidth] = useState(280);
   const [columnHeight, setColumnHeight] = useState(600);
   const [numCols, setNumCols] = useState(4);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
-  // Measure container — use a dedicated ref for the column area
-  const columnsRef = useRef<HTMLDivElement>(null);
+  // Measure container
   useEffect(() => {
     const el = containerRef.current;
     const colEl = columnsRef.current;
     if (!el || !colEl) return;
     const observer = new ResizeObserver(() => {
       const available = el.clientWidth;
-      // On narrow screens (< 640px), single column with vertical scroll
       if (available < 640) {
         setNumCols(1);
         setColumnWidth(available - 32);
-        setColumnHeight(0); // not used in single-column mode
+        setColumnHeight(0);
         return;
       }
       const padding = 32;
@@ -207,7 +218,6 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       const gap = (cols - 1) * 24;
       setColumnWidth(Math.max(200, Math.floor((usable - gap) / cols)));
       setNumCols(cols);
-      // Column height = actual rendered height of the columns flex container
       setColumnHeight(colEl.clientHeight);
     });
     observer.observe(el);
@@ -215,7 +225,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return () => observer.disconnect();
   }, []);
 
-  // Filter entries
+  // Filter
   const filteredEntries = useMemo(() => {
     if (!entries) return [];
     if (!filter) return entries;
@@ -231,7 +241,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     }
   }, [entries, filter, isRegex]);
 
-  // All letters for nav (from unfiltered entries)
+  // All letters for nav
   const allLetters = useMemo(() => {
     const set = new Set<string>();
     for (const e of entries || []) {
@@ -241,7 +251,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return [...set].sort();
   }, [entries]);
 
-  // Flatten into flow items: heading + entries for each letter
+  // Flatten into flow items
   const flowItems = useMemo(() => {
     const items: FlowItem[] = [];
     let currentLetter = "";
@@ -256,88 +266,94 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     return items;
   }, [filteredEntries]);
 
-  // Pre-compute cumulative heights
-  const itemHeights = useMemo(() => {
-    return flowItems.map((item) => measureItemHeight(item, columnWidth, mounted));
-  }, [flowItems, columnWidth, mounted]);
-
-  const cumulativeHeights = useMemo(() => {
-    const cumulative: number[] = [0];
-    for (let i = 0; i < itemHeights.length; i++) {
-      cumulative.push(cumulative[i] + itemHeights[i]);
-    }
-    return cumulative;
-  }, [itemHeights]);
-
-  const totalHeight = cumulativeHeights[cumulativeHeights.length - 1] || 0;
-  const totalColumns = Math.max(1, Math.ceil(totalHeight / Math.max(1, columnHeight)));
-
-  // Scroll position: which column is at the left edge
-  const [scrollColumn, setScrollColumn] = useState(0);
-  const maxScroll = Math.max(0, totalColumns - numCols);
-
-  // Letter-to-column mapping
-  const letterToColumn = useMemo(() => {
+  // Letter-to-index mapping (index in flowItems where each letter heading is)
+  const letterToIndex = useMemo(() => {
     const map = new Map<string, number>();
     for (let i = 0; i < flowItems.length; i++) {
       const item = flowItems[i];
       if (item.type === "heading" && !map.has(item.letter)) {
-        const offset = cumulativeHeights[i];
-        map.set(item.letter, Math.floor(offset / Math.max(1, columnHeight)));
+        map.set(item.letter, i);
       }
     }
     return map;
-  }, [flowItems, cumulativeHeights, columnHeight]);
+  }, [flowItems]);
 
-  // Current letter (for nav highlighting)
+  // Start index: which item in flowItems is at the top of the leftmost column
+  const [startIndex, setStartIndex] = useState(0);
+
+  // Reset on filter change
+  useEffect(() => { setStartIndex(0); }, [filter]);
+
+  // Greedy-fill visible columns + 1 buffer column on each side
+  const filled = useMemo(() => {
+    if (numCols <= 1 || columnHeight <= 0) return [];
+
+    // Fill one buffer column before the visible ones to know what "scrolling back" looks like
+    // But we start from startIndex for the visible columns
+    const cols: FilledColumn[] = [];
+    let idx = startIndex;
+    for (let c = 0; c < numCols + 1; c++) { // +1 buffer after
+      if (idx >= flowItems.length) {
+        cols.push({ items: [], endIndex: idx, usedHeight: 0, extraSpacing: 0 });
+      } else {
+        const col = fillColumn(flowItems, idx, columnHeight, columnWidth);
+        cols.push(col);
+        idx = col.endIndex;
+      }
+    }
+    return cols;
+  }, [startIndex, numCols, columnHeight, columnWidth, flowItems]);
+
+  // The visible columns (exclude the buffer)
+  const visibleFilled = filled.slice(0, numCols);
+
+  // Current letter for nav highlighting
   const currentLetter = useMemo(() => {
-    const startOffset = scrollColumn * columnHeight;
     let letter = "A";
-    for (let i = 0; i < flowItems.length; i++) {
-      if (cumulativeHeights[i] > startOffset) break;
+    for (let i = 0; i <= startIndex && i < flowItems.length; i++) {
       if (flowItems[i].type === "heading") letter = (flowItems[i] as { type: "heading"; letter: string }).letter;
     }
     return letter;
-  }, [scrollColumn, columnHeight, flowItems, cumulativeHeights]);
+  }, [startIndex, flowItems]);
 
-  // Compute which items go in each visible column
-  const visibleColumns = useMemo(() => {
-    const cols: FlowItem[][] = [];
-    for (let c = 0; c < numCols; c++) {
-      const colIndex = scrollColumn + c;
-      const colStart = colIndex * columnHeight;
-      const colEnd = colStart + columnHeight;
-      const items: FlowItem[] = [];
+  // Can scroll forward/back?
+  const canScrollForward = filled.length > 0 && filled[filled.length - 1].endIndex < flowItems.length;
+  const canScrollBack = startIndex > 0;
 
-      // Find first item that overlaps this column
-      let i = 0;
-      while (i < flowItems.length && cumulativeHeights[i + 1] <= colStart) i++;
-
-      // Fill column
-      let filled = cumulativeHeights[i] - colStart; // partial item overlap from top
-      while (i < flowItems.length && filled < columnHeight) {
-        items.push(flowItems[i]);
-        filled += itemHeights[i];
-        i++;
-      }
-      cols.push(items);
+  // Scroll: advance by one column's worth of items
+  const scrollForward = useCallback(() => {
+    if (visibleFilled.length > 0 && visibleFilled[0].endIndex < flowItems.length) {
+      setStartIndex(visibleFilled[0].endIndex);
     }
-    return cols;
-  }, [scrollColumn, numCols, columnHeight, flowItems, itemHeights, cumulativeHeights]);
+  }, [visibleFilled, flowItems.length]);
 
-  // Scroll handler: wheel scrolls columns (multi-column only)
+  const scrollBack = useCallback(() => {
+    if (startIndex <= 0) return;
+    // Fill one column backwards from startIndex to find where the previous column started
+    let idx = startIndex - 1;
+    let used = 0;
+    while (idx >= 0) {
+      const h = estimateItemHeight(flowItems[idx], columnWidth);
+      if (used + h > columnHeight && used > 0) break;
+      used += h;
+      idx--;
+    }
+    setStartIndex(Math.max(0, idx + 1));
+  }, [startIndex, flowItems, columnWidth, columnHeight]);
+
+  // Wheel handler
   useEffect(() => {
     if (numCols <= 1) return;
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      setScrollColumn((prev) => Math.max(0, Math.min(maxScroll, prev + delta)));
+      if (e.deltaY > 0) scrollForward();
+      else if (e.deltaY < 0) scrollBack();
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [maxScroll, numCols]);
+  }, [numCols, scrollForward, scrollBack]);
 
   const handleSelect = useCallback(
     async (rkey: string, _word: string, timestampNs: number) => {
@@ -361,24 +377,19 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   );
 
   const scrollToLetter = useCallback((letter: string) => {
-    const col = letterToColumn.get(letter);
-    if (col !== undefined) {
-      setScrollColumn(Math.min(col, maxScroll));
-    }
-  }, [letterToColumn, maxScroll]);
+    const idx = letterToIndex.get(letter);
+    if (idx !== undefined) setStartIndex(idx);
+  }, [letterToIndex]);
 
   const scrollToTerm = useCallback((term: string) => {
-    // Find the term in flowItems, compute its column
     for (let i = 0; i < flowItems.length; i++) {
       const item = flowItems[i];
       if (item.type === "entry" && item.entry.term.toLowerCase() === term.toLowerCase()) {
-        const offset = cumulativeHeights[i];
-        const col = Math.floor(offset / Math.max(1, columnHeight));
-        setScrollColumn(Math.min(col, maxScroll));
+        setStartIndex(i);
         return;
       }
     }
-  }, [flowItems, cumulativeHeights, columnHeight, maxScroll]);
+  }, [flowItems]);
 
   if (loading) {
     return (
@@ -392,11 +403,12 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     );
   }
 
-  // Render a flow item
-  const renderItem = (item: FlowItem) => {
+  // Render a flow item with optional extra bottom margin for justification
+  const renderItem = (item: FlowItem, extraMargin: number) => {
+    const style = extraMargin > 0 ? { marginBottom: extraMargin } : undefined;
     if (item.type === "heading") {
       return (
-        <h2 key={`h-${item.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1 mt-3 first:mt-0">
+        <h2 key={`h-${item.letter}`} className="text-base font-bold text-neutral-500 border-b border-neutral-800 pb-0.5 mb-1 mt-3 first:mt-0" style={style}>
           {item.letter}
         </h2>
       );
@@ -405,7 +417,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
     const isSeeOnly = entry.see?.length > 0 && entry.talks.length === 0 && !entry.subentries?.length;
     if (isSeeOnly) {
       return (
-        <div key={entry.term} className="text-[13px] leading-[1.6] mb-1">
+        <div key={entry.term} className="text-[13px] leading-[1.6] mb-1" style={style}>
           <span className="text-neutral-400">{entry.term}</span>
           <span className="text-neutral-600 italic"> — see{" "}
             {entry.see.map((ref, i) => (
@@ -418,7 +430,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       );
     }
     return (
-      <div key={entry.term} className="text-[13px] leading-[1.6] mb-2">
+      <div key={entry.term} className="text-[13px] leading-[1.6] mb-2" style={style}>
         <div className="font-medium text-neutral-200">{entry.term}</div>
         {entry.talks.slice(0, 5).map((talk) => (
           <TalkEntry key={talk.rkey} talk={talk} term={entry.term} onSelect={handleSelect} />
@@ -481,7 +493,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
             <input
               type="text"
               value={filter}
-              onChange={(e) => { setFilter(e.target.value); setScrollColumn(0); }}
+              onChange={(e) => { setFilter(e.target.value); setStartIndex(0); }}
               placeholder={isRegex ? "Filter (regex)..." : "Filter..."}
               className="w-full bg-neutral-900 border border-neutral-700 rounded px-3 py-1.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-neutral-500"
             />
@@ -496,23 +508,18 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
           <span className="text-sm text-neutral-500 shrink-0">
             {filteredEntries.length.toLocaleString()} terms
           </span>
-          {totalColumns > numCols && (
-            <span className="text-xs text-neutral-600 shrink-0">
-              {scrollColumn + 1}–{Math.min(scrollColumn + numCols, totalColumns)} of {totalColumns}
-            </span>
-          )}
         </div>
 
-        {/* Columns — multi-column: fixed height, paged. Single column: vertical scroll */}
+        {/* Columns */}
         {numCols <= 1 ? (
           <div ref={columnsRef} className="flex-1 min-h-0 overflow-y-auto">
-            {flowItems.map(renderItem)}
+            {flowItems.map((item) => renderItem(item, 0))}
           </div>
         ) : (
           <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
-            {visibleColumns.map((items, colIdx) => (
-              <div key={`${scrollColumn}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
-                {items.map(renderItem)}
+            {visibleFilled.map((col, colIdx) => (
+              <div key={`${startIndex}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
+                {col.items.map((item) => renderItem(item, col.extraSpacing))}
               </div>
             ))}
           </div>
