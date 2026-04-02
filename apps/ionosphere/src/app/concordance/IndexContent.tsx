@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { prepare, layout } from "@chenglou/pretext";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
@@ -167,6 +167,43 @@ function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: num
   return { items, endIndex: i, usedHeight: used, extraSpacing };
 }
 
+// --- Mobile single-column with progressive rendering ---
+
+const MobileConcordance = React.forwardRef<HTMLDivElement, {
+  flowItems: FlowItem[];
+  renderItem: (item: FlowItem, extraMargin: number) => React.ReactNode;
+}>(function MobileConcordance({ flowItems, renderItem }, ref) {
+  const BATCH = 200;
+  const [visibleCount, setVisibleCount] = useState(BATCH);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + BATCH, flowItems.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [flowItems.length]);
+
+  return (
+    <div ref={ref} className="flex-1 min-h-0 overflow-y-auto">
+      {flowItems.slice(0, visibleCount).map((item) => renderItem(item, 0))}
+      {visibleCount < flowItems.length && (
+        <div ref={sentinelRef} className="text-center text-neutral-600 text-xs py-4">
+          Loading more...
+        </div>
+      )}
+    </div>
+  );
+});
+
 // --- Component ---
 
 export default function IndexContent({ entries: initialEntries }: { entries: IndexEntry[] | null }) {
@@ -205,7 +242,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => {
+    const measure = () => {
       const available = el.clientWidth;
       if (available < 640) {
         setNumCols(1);
@@ -221,13 +258,14 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
       setNumCols(cols);
       // Column height = container height minus search bar and padding
       const searchH = searchBarRef.current?.offsetHeight || 0;
-      const h = el.clientHeight - searchH - 20;
-      console.log("[concordance] container:", el.clientHeight, "search:", searchH, "columnHeight:", h);
-      setColumnHeight(h);
-    });
+      setColumnHeight(el.clientHeight - searchH - 20);
+    };
+    // Measure immediately and on resize
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [loading]);
 
   // Filter
   const filteredEntries = useMemo(() => {
@@ -516,9 +554,7 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
 
         {/* Columns */}
         {numCols <= 1 ? (
-          <div ref={columnsRef} className="flex-1 min-h-0 overflow-y-auto">
-            {flowItems.map((item) => renderItem(item, 0))}
-          </div>
+          <MobileConcordance ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
         ) : (
           <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
             {visibleFilled.map((col, colIdx) => (
