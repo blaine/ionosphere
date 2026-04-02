@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
 
@@ -19,12 +19,15 @@ export default function ReactionBar({ subjectUri, comments, onCommentPublished }
   const [posting, setPosting] = useState(false);
 
   // Whole-talk reactions (unanchored emojis)
-  const reactionCounts = new Map<string, number>();
-  for (const c of comments) {
-    if (c.byte_start === null && isEmojiReaction(c.text)) {
-      reactionCounts.set(c.text, (reactionCounts.get(c.text) || 0) + 1);
+  const reactionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of comments) {
+      if (c.byte_start === null && isEmojiReaction(c.text)) {
+        counts.set(c.text, (counts.get(c.text) || 0) + 1);
+      }
     }
-  }
+    return counts;
+  }, [comments]);
 
   const handleEmoji = useCallback(async (emoji: string) => {
     if (!agent) return;
