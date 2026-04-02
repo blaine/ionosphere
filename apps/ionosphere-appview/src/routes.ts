@@ -81,8 +81,52 @@ export function createRoutes(db: Database.Database): Hono {
          GROUP BY t.uri
          ORDER BY t.starts_at ASC`
       )
-      .all();
-    return c.json({ talks });
+      .all() as any[];
+
+    // Batch-fetch comment stats for all talks
+    const commentRows = db.prepare(
+      `SELECT
+         COALESCE(t.uri, c.subject_uri) as talk_uri,
+         c.text
+       FROM comments c
+       LEFT JOIN transcripts tr ON c.subject_uri = tr.uri
+       LEFT JOIN talks t ON t.uri = c.subject_uri OR t.uri = tr.talk_uri`
+    ).all() as any[];
+
+    // Aggregate per talk: classify emoji vs text comments
+    const statsMap = new Map<string, { emojis: Map<string, number>; textCount: number }>();
+    for (const row of commentRows) {
+      if (!row.talk_uri) continue;
+      let stats = statsMap.get(row.talk_uri);
+      if (!stats) {
+        stats = { emojis: new Map(), textCount: 0 };
+        statsMap.set(row.talk_uri, stats);
+      }
+      const text = (row.text as string).trim();
+      if (text.length <= 2 && !/[a-zA-Z]/.test(text)) {
+        stats.emojis.set(text, (stats.emojis.get(text) || 0) + 1);
+      } else {
+        stats.textCount++;
+      }
+    }
+
+    // Enrich talks with reaction_summary and comment_count
+    const enriched = talks.map((talk) => {
+      const stats = statsMap.get(talk.uri);
+      if (!stats) {
+        return { ...talk, reaction_summary: [], comment_count: 0 };
+      }
+      const topEmojis = [...stats.emojis.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+      return {
+        ...talk,
+        reaction_summary: topEmojis,
+        comment_count: stats.textCount,
+      };
+    });
+
+    return c.json({ talks: enriched });
   });
 
   app.get("/talks/:rkey", (c) => {
@@ -196,7 +240,11 @@ export function createRoutes(db: Database.Database): Hono {
 
     const placeholders = subjectUris.map(() => "?").join(",");
     const comments = db.prepare(
-      `SELECT * FROM comments WHERE subject_uri IN (${placeholders}) ORDER BY created_at ASC`
+      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM comments c
+       LEFT JOIN profiles p ON c.author_did = p.did
+       WHERE c.subject_uri IN (${placeholders})
+       ORDER BY c.created_at ASC`
     ).all(...subjectUris);
 
     return c.json({ comments });
@@ -207,7 +255,11 @@ export function createRoutes(db: Database.Database): Hono {
     if (!subject) return c.json({ comments: [] });
 
     const comments = db.prepare(
-      "SELECT * FROM comments WHERE subject_uri = ? ORDER BY created_at ASC"
+      `SELECT c.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM comments c
+       LEFT JOIN profiles p ON c.author_did = p.did
+       WHERE c.subject_uri = ?
+       ORDER BY c.created_at ASC`
     ).all(subject);
 
     return c.json({ comments });

@@ -165,6 +165,14 @@ export function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_comments_subject ON comments(subject_uri);
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_did);
 
+    CREATE TABLE IF NOT EXISTS profiles (
+      did TEXT PRIMARY KEY,
+      handle TEXT,
+      display_name TEXT,
+      avatar_url TEXT,
+      fetched_at TEXT
+    );
+
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),

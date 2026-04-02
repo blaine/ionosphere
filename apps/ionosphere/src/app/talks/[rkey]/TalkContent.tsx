@@ -5,6 +5,7 @@ import { TimestampProvider } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
+import ReactionBar from "@/app/components/ReactionBar";
 
 interface TalkContentProps {
   talk: any;
@@ -124,8 +125,15 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
             </div>
           )}
 
-          {/* Transcript — bottom half, width pinned to video */}
-          <div className="h-1/2 px-4 pb-4 pt-1 flex justify-center">
+          {/* Whole-talk reaction bar */}
+          <ReactionBar
+            subjectUri={talk.uri}
+            comments={comments}
+            onCommentPublished={handleCommentPublished}
+          />
+
+          {/* Transcript — fills remaining space, width pinned to video */}
+          <div className="flex-1 min-h-0 px-4 pb-4 pt-1 flex justify-center">
             <div style={videoWidth ? { width: videoWidth } : undefined} className={`h-full ${videoWidth ? "" : "w-full"}`}>
               {document ? (
                 <TranscriptView document={document} transcriptUri={talk.uri} comments={comments} onCommentPublished={handleCommentPublished} />

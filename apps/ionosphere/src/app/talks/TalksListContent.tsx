@@ -5,6 +5,7 @@ import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvi
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
+import ReactionBar from "@/app/components/ReactionBar";
 
 /** Aggressively seeks and plays the video once HLS is ready. */
 function InitialSeek({ timestampNs }: { timestampNs: number }) {
@@ -52,6 +53,8 @@ interface Talk {
   video_uri?: string;
   video_offset_ns?: number;
   document?: string;
+  reaction_summary?: [string, number][]; // [[emoji, count], ...]
+  comment_count?: number;
 }
 
 interface DayGroup {
@@ -236,6 +239,20 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
                         {talk.speaker_names}
                         {talk.room && <> &middot; {talk.room}</>}
                         {talk.starts_at && <> &middot; {formatTime(talk.starts_at)}</>}
+                        {(() => {
+                          const emojis: [string, number][] = talk.reaction_summary || [];
+                          const count = talk.comment_count || 0;
+                          if (emojis.length === 0 && count === 0) return null;
+                          return (
+                            <>
+                              {" \u00b7 "}
+                              {emojis.map(([emoji, n]) => (
+                                <span key={emoji}>{emoji}{n > 1 ? n : ""}</span>
+                              ))}
+                              {count > 0 && <span>{emojis.length > 0 ? " " : ""}{"\uD83D\uDCAC"}{count}</span>}
+                            </>
+                          );
+                        })()}
                       </div>
                     </button>
                   ))}
@@ -271,22 +288,6 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
                 {widePlayer ? "\u2192" : "\u2190"}
               </button>
               <span className="truncate">{selectedTalk.title}</span>
-              {/* Whole-talk reactions */}
-              {(() => {
-                const wholeTalk = comments.filter(c => c.byte_start === null && c.text.length <= 2 && !/[a-zA-Z]/.test(c.text));
-                if (wholeTalk.length === 0) return null;
-                const counts = new Map<string, number>();
-                for (const c of wholeTalk) counts.set(c.text, (counts.get(c.text) || 0) + 1);
-                return (
-                  <span className="ml-auto shrink-0 flex gap-1 text-xs">
-                    {[...counts.entries()].map(([emoji, count]) => (
-                      <span key={emoji} className="bg-neutral-800 rounded-full px-1.5 py-0.5">
-                        {emoji}{count > 1 && <span className="text-neutral-500 ml-0.5">{count}</span>}
-                      </span>
-                    ))}
-                  </span>
-                );
-              })()}
             </div>
             <div className="shrink-0 bg-black overflow-hidden">
               <VideoPlayer
@@ -294,6 +295,11 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
                 offsetNs={selectedTalk.offsetNs}
               />
             </div>
+            <ReactionBar
+              subjectUri={selectedTalk.talkUri}
+              comments={comments}
+              onCommentPublished={() => fetchComments(selectedTalk.rkey).then(setComments)}
+            />
             {selectedTalk.document && (
               <div className="flex-1 min-h-0">
                 <TranscriptView document={selectedTalk.document} transcriptUri={selectedTalk.talkUri} comments={comments} onCommentPublished={() => fetchComments(selectedTalk.rkey).then(setComments)} />
