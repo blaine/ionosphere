@@ -29,12 +29,13 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
         hls.loadSource(playlistUrl);
         hls.attachMedia(video!);
 
-        // When manifest loads, try to select the AAC audio track
-        // (Streamplace serves both original + AAC renditions)
+        // Select AAC audio track before playback starts to avoid mid-play rebuffer.
+        // Streamplace serves both original + AAC renditions — switching after
+        // playback begins causes a visible stall.
+        let audioSettled = false;
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
           const tracks = hls!.audioTracks;
           if (tracks.length > 1) {
-            // Prefer the newer AAC track (usually the last one added)
             const aacTrack = tracks.findIndex((t: any) =>
               t.name?.includes("bafk") || t.url?.includes("bafk")
             );
@@ -42,15 +43,22 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
               hls!.audioTrack = aacTrack;
             }
           }
+          audioSettled = true;
         });
 
-        // Auto-play once the first fragment is buffered (not on every fragment)
+        // Auto-play once audio track is settled and first fragment is buffered
         let hasAutoPlayed = false;
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          if (!hasAutoPlayed && video!.paused) {
+          if (!hasAutoPlayed && video!.paused && audioSettled) {
             hasAutoPlayed = true;
             video!.play().catch(() => {});
           }
+        });
+
+        // Fallback: if audio tracks never fire (single track), play after manifest
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Give AUDIO_TRACKS_UPDATED a chance to fire first
+          setTimeout(() => { audioSettled = true; }, 100);
         });
 
         // Error recovery with logging
