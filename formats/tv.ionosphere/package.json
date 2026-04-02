@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
-    "@panproto/core": "^0.22.0",
+    "@panproto/core": "^0.25.1",
     "relational-text": "^0.1.1"
   },
   "devDependencies": {

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createPipeline as _createPipeline } from "./panproto.js";
+import type { PipelineBuilder, ProtolensChainHandle, Panproto } from "./panproto.js";
 
 export interface LensSpec {
   $type: string;
@@ -25,8 +27,60 @@ export function loadLens(filename: string): LensSpec {
 }
 
 /**
+ * Build a panproto PipelineBuilder from a lens spec JSON file.
+ *
+ * Translates LensSpec rules into native panproto combinators:
+ * - Simple field renames use renameField()
+ * - Dotted paths (e.g. "additionalData.room") use hoistField()
+ *
+ * Returns a ProtolensChainHandle that can be applied via WASM.
+ *
+ * @since @panproto/core@0.23.0
+ */
+export function buildPipelineFromSpec(
+  pp: Panproto,
+  lens: LensSpec
+): ProtolensChainHandle {
+  const builder: PipelineBuilder = _createPipeline(pp);
+
+  // The parent vertex for ATProto record fields is typically "nsid:body"
+  const parent = `${lens.source}:body`;
+
+  for (const rule of lens.rules) {
+    const sourceName = rule.match.name;
+    const targetName = rule.replace.name;
+
+    if (sourceName === targetName) {
+      // Identity mapping — no transform needed
+      continue;
+    }
+
+    const parts = sourceName.split(".");
+    if (parts.length === 2) {
+      // Dotted path like "additionalData.room" -> hoist from intermediate
+      const [intermediate, child] = parts;
+      builder.hoistField(parent, `${parent}.${intermediate}`, child);
+      // Then rename if the target name differs from the child
+      if (child !== targetName) {
+        builder.renameField(parent, child, targetName);
+      }
+    } else {
+      // Simple rename
+      builder.renameField(parent, sourceName, targetName);
+    }
+  }
+
+  return builder.build();
+}
+
+/**
  * Apply a lens to transform a source record's fields to target field names.
- * Returns a new object with renamed keys per the lens rules.
+ *
+ * This is the JS-only fallback that works without WASM. It handles field
+ * renames and dotted-path hoisting per the lens spec rules. When panproto
+ * WASM is available, prefer buildPipelineFromSpec() for full bidirectional
+ * lens semantics with complement tracking.
+ *
  * Fields not matched by any rule are kept or dropped per `passthrough`.
  */
 export function applyLens(
@@ -69,6 +123,17 @@ function getNestedValue(obj: any, path: string): any {
 }
 
 // Panproto wrapper re-exports for new code
-export { init, loadSchema, createLens, buildMigration, migrateRecord, serializeChain } from "./panproto.js";
+export {
+  init,
+  loadSchema,
+  createLens,
+  createPipeline,
+  autoGenerateWithHints,
+  buildMigration,
+  migrateRecord,
+  serializeChain,
+  PipelineBuilder,
+  ProtolensChainHandle,
+} from "./panproto.js";
 
 export type { BuiltSchema, Panproto } from "./panproto.js";

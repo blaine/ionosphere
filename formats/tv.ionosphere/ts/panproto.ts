@@ -1,4 +1,10 @@
-import { Panproto, BuiltSchema, type LensHandle } from "@panproto/core";
+import {
+  Panproto,
+  BuiltSchema,
+  PipelineBuilder,
+  ProtolensChainHandle,
+  type LensHandle,
+} from "@panproto/core";
 import type { WasmGlueModule, MigrationSpec } from "@panproto/core";
 import { CompiledMigration } from "@panproto/core";
 import { readFileSync } from "node:fs";
@@ -46,65 +52,15 @@ export async function init(): Promise<Panproto> {
 /**
  * Parse an ATProto lexicon JSON into a panproto schema.
  *
- * Works around a format mismatch in @panproto/core@0.22.0 where
- * the WASM returns positional arrays from schema_metadata but the
- * SDK expects named object keys.
+ * In @panproto/core@0.25.1, parseLexicon is a stable, direct method
+ * on the Panproto instance. The v0.22.0 workaround for positional
+ * arrays from schema_metadata is no longer needed.
  */
 export async function loadSchema(
   lexiconJson: object | string
 ): Promise<BuiltSchema> {
   const pp = await init();
-  try {
-    return pp.parseLexicon(lexiconJson);
-  } catch {
-    return parseLexiconDirect(pp, lexiconJson);
-  }
-}
-
-async function parseLexiconDirect(
-  pp: Panproto,
-  lexiconJson: object | string
-): Promise<BuiltSchema> {
-  const { decode } = await import("@msgpack/msgpack");
-  const wasm = (pp as any)._wasm;
-
-  const jsonStr =
-    typeof lexiconJson === "string" ? lexiconJson : JSON.stringify(lexiconJson);
-  const jsonBytes = new TextEncoder().encode(jsonStr);
-
-  const rawHandle = wasm.exports.parse_atproto_lexicon(jsonBytes);
-  const metaBytes = wasm.exports.schema_metadata(rawHandle);
-  const meta = decode(metaBytes) as any;
-
-  const [protocol, rawVertices, rawEdges] = Array.isArray(meta)
-    ? meta
-    : [meta.protocol, meta.vertices, meta.edges];
-
-  const vertices = Object.fromEntries(
-    (rawVertices || []).map((v: any) => {
-      const id = Array.isArray(v) ? v[0] : v.id;
-      const kind = Array.isArray(v) ? v[1] : v.kind;
-      const nsid = Array.isArray(v) ? v[2] : v.nsid;
-      return [id, { id, kind, nsid: nsid ?? undefined }];
-    })
-  );
-
-  const edges = (rawEdges || []).map((e: any) => {
-    if (Array.isArray(e)) {
-      return { src: e[0], tgt: e[1], kind: e[2], name: e[3] ?? undefined };
-    }
-    return { src: e.src, tgt: e.tgt, kind: e.kind, name: e.name };
-  });
-
-  const data = {
-    protocol: protocol as string,
-    vertices,
-    edges,
-    hyperEdges: {},
-    constraints: {},
-  };
-
-  return (BuiltSchema as any)._fromHandle(rawHandle, data, protocol, wasm);
+  return pp.parseLexicon(lexiconJson);
 }
 
 /**
@@ -177,6 +133,40 @@ export async function createLens(
 }
 
 /**
+ * Auto-generate a protolens chain with morphism hints.
+ *
+ * Hints are vertex correspondences that seed the morphism search,
+ * enabling alignment across schemas with different NSID namespaces
+ * (e.g. community.lexicon.calendar.event -> tv.ionosphere.talk).
+ *
+ * @since @panproto/core@0.23.0
+ */
+export async function autoGenerateWithHints(
+  from: BuiltSchema,
+  to: BuiltSchema,
+  hints: Record<string, string>
+): Promise<ProtolensChainHandle> {
+  const pp = await init();
+  return ProtolensChainHandle.autoGenerateWithHints(from, to, hints, pp._wasm);
+}
+
+/**
+ * Create a PipelineBuilder for constructing lens transforms from combinators.
+ *
+ * Usage:
+ *   const pp = await init();
+ *   const chain = createPipeline(pp)
+ *     .renameField('body', 'name', 'title')
+ *     .hoistField('body', 'additionalData', 'room')
+ *     .build();
+ *
+ * @since @panproto/core@0.23.0
+ */
+export function createPipeline(pp: Panproto): PipelineBuilder {
+  return new PipelineBuilder(pp._wasm);
+}
+
+/**
  * Generate and serialize a protolens chain between two schemas.
  * Used by publish.ts to create lens records for the PDS.
  */
@@ -200,3 +190,4 @@ export function serializeMigrationSpec(
 
 // Re-export types that pipeline scripts need
 export type { LensHandle, BuiltSchema, Panproto, CompiledMigration, MigrationSpec };
+export { PipelineBuilder, ProtolensChainHandle };

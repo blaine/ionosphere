@@ -6,7 +6,10 @@ import {
   loadSchema,
   buildMigration,
   migrateRecord,
+  createPipeline,
+  autoGenerateWithHints,
 } from "./panproto.js";
+import { applyLens, loadLens, buildPipelineFromSpec } from "./lenses.js";
 
 const LEXICON_DIR = path.resolve(import.meta.dirname, "../../../lexicons");
 
@@ -51,9 +54,6 @@ describeWasm("panproto wrapper", () => {
   });
 
   it("renames fields via migration on structurally similar schemas", async () => {
-    // Cross-schema migration works when the schemas are structurally similar.
-    // For complex cross-schema transforms (calendar→talk with many unmapped fields),
-    // compose panproto with a mechanical pre-processor.
     const pp = await initPanproto();
     const atproto = pp.protocol("atproto");
 
@@ -146,6 +146,171 @@ describeWasm("panproto wrapper", () => {
   });
 });
 
+describeWasm("pipeline combinator API (v0.23+)", () => {
+  it("builds a pipeline with renameField", async () => {
+    const pp = await initPanproto();
+    const pipeline = createPipeline(pp);
+    const chain = pipeline
+      .renameField("test.source:body", "name", "title")
+      .build();
+    expect(chain).toBeDefined();
+    const json = chain.toJson();
+    expect(json).toContain("rename_field");
+  });
+
+  it("builds a pipeline with hoistField", async () => {
+    const pp = await initPanproto();
+    const pipeline = createPipeline(pp);
+    const chain = pipeline
+      .hoistField(
+        "community.lexicon.calendar.event:body",
+        "community.lexicon.calendar.event:body.additionalData",
+        "room"
+      )
+      .build();
+    expect(chain).toBeDefined();
+    const json = chain.toJson();
+    expect(json).toContain("hoist_field");
+  });
+
+  it("builds the schedule-to-talk pipeline", async () => {
+    const pp = await initPanproto();
+    const pipeline = createPipeline(pp);
+    const parent = "community.lexicon.calendar.event:body";
+    const ad = `${parent}.additionalData`;
+
+    const chain = pipeline
+      .renameField(parent, "name", "title")
+      .hoistField(parent, ad, "room")
+      .hoistField(parent, ad, "category")
+      .hoistField(parent, ad, "type")
+      .renameField(parent, "type", "talkType")
+      .hoistField(parent, ad, "speakers")
+      .build();
+
+    expect(chain).toBeDefined();
+    const json = chain.toJson();
+    expect(json).toContain("rename_field");
+    expect(json).toContain("hoist_field");
+  });
+});
+
+describeWasm("autoGenerateWithHints (v0.23+)", () => {
+  it("generates a cross-schema lens with hints for calendar->talk", async () => {
+    const calSchema = await loadSchema(
+      readLexicon("community/lexicon/calendar/event.json")
+    );
+    const talkSchema = await loadSchema(readLexicon("tv/ionosphere/talk.json"));
+
+    // Seed the morphism search with vertex correspondences
+    const chain = await autoGenerateWithHints(calSchema, talkSchema, {
+      "community.lexicon.calendar.event": "tv.ionosphere.talk",
+      "community.lexicon.calendar.event:body": "tv.ionosphere.talk:body",
+      "community.lexicon.calendar.event:body.name":
+        "tv.ionosphere.talk:body.title",
+      "community.lexicon.calendar.event:body.description":
+        "tv.ionosphere.talk:body.description",
+      "community.lexicon.calendar.event:body.startsAt":
+        "tv.ionosphere.talk:body.startsAt",
+      "community.lexicon.calendar.event:body.endsAt":
+        "tv.ionosphere.talk:body.endsAt",
+    });
+
+    expect(chain).toBeDefined();
+    const json = chain.toJson();
+    expect(json.length).toBeGreaterThan(0);
+  });
+});
+
+describeWasm("mapItems combinator (v0.23+)", () => {
+  it("builds a pipeline with mapItems for array transforms", async () => {
+    const pp = await initPanproto();
+    const pipeline = createPipeline(pp);
+
+    // Whisper words[] — each element has { word, start, end } and we could
+    // add a confidence field via an inner addField step
+    const chain = pipeline
+      .mapItems("openai.whisper.verbose_json:body.words", {
+        step_type: "add_field",
+        parent: "openai.whisper.verbose_json:word",
+        name: "confidence",
+        kind: "number",
+      })
+      .build();
+
+    expect(chain).toBeDefined();
+    const json = chain.toJson();
+    expect(json).toContain("map_items");
+  });
+});
+
+describeWasm("ATProto array fix (v0.25.1)", () => {
+  it("parses lexicons with array items edges correctly", async () => {
+    // The Whisper verbose_json lexicon has array fields with "items" refs.
+    // v0.25.1 fixes the "items" edge kind handling for ATProto arrays.
+    const whisperSchema = await loadSchema(
+      readLexicon("openai/whisper/verbose_json.json")
+    );
+    expect(whisperSchema).toBeDefined();
+
+    // The words array should be parsed with proper items edges
+    const vertexNames = Object.keys(whisperSchema.vertices);
+    expect(vertexNames).toContain("openai.whisper.verbose_json:body.words");
+
+    // Check edges for "items" kind
+    const itemsEdges = whisperSchema.edges.filter(
+      (e: any) => e.kind === "items"
+    );
+    expect(itemsEdges.length).toBeGreaterThan(0);
+  });
+
+  it("parses talk lexicon with speakerUris array", async () => {
+    const talkSchema = await loadSchema(readLexicon("tv/ionosphere/talk.json"));
+    expect(talkSchema).toBeDefined();
+
+    const vertexNames = Object.keys(talkSchema.vertices);
+    expect(vertexNames).toContain("tv.ionosphere.talk:body.speakerUris");
+
+    // speakerUris is an array of strings — should have items edge
+    const itemsEdges = talkSchema.edges.filter(
+      (e: any) => e.kind === "items"
+    );
+    expect(itemsEdges.length).toBeGreaterThan(0);
+  });
+});
+
+describe("applyLens (JS fallback)", () => {
+  it("renames simple fields", () => {
+    const lens = loadLens("schedule-to-talk.lens.json");
+    const source = {
+      name: "Building on AT Protocol",
+      description: "A great talk",
+      startsAt: "2026-03-27T10:00:00Z",
+      endsAt: "2026-03-27T11:00:00Z",
+      additionalData: {
+        room: "Great Hall South",
+        category: "Development",
+        type: "presentation",
+        speakers: [{ name: "Alice", id: "alice.bsky.social" }],
+      },
+    };
+
+    const result = applyLens(lens, source);
+
+    expect(result.title).toBe("Building on AT Protocol");
+    expect(result.description).toBe("A great talk");
+    expect(result.startsAt).toBe("2026-03-27T10:00:00Z");
+    expect(result.room).toBe("Great Hall South");
+    expect(result.category).toBe("Development");
+    expect(result.talkType).toBe("presentation");
+    expect(result.speakers).toEqual([
+      { name: "Alice", id: "alice.bsky.social" },
+    ]);
+    // Original field name should not be present
+    expect(result.name).toBeUndefined();
+  });
+});
+
 describe("panproto wrapper (static checks)", () => {
   it("exports expected functions", async () => {
     const mod = await import("./panproto.js");
@@ -155,6 +320,11 @@ describe("panproto wrapper (static checks)", () => {
     expect(typeof mod.migrateRecord).toBe("function");
     expect(typeof mod.createLens).toBe("function");
     expect(typeof mod.serializeChain).toBe("function");
+    // New v0.23+ exports
+    expect(typeof mod.createPipeline).toBe("function");
+    expect(typeof mod.autoGenerateWithHints).toBe("function");
+    expect(mod.PipelineBuilder).toBeDefined();
+    expect(mod.ProtolensChainHandle).toBeDefined();
   });
 
   it("reports WASM availability", () => {
