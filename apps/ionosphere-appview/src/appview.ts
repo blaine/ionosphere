@@ -4,6 +4,7 @@ import { createRoutes } from "./routes.js";
 import { processEvent } from "./indexer.js";
 import { JetstreamClient } from "./jetstream.js";
 import { backfill } from "./backfill.js";
+import { startPublicJetstream } from "./public-jetstream.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JETSTREAM_URL = process.env.JETSTREAM_URL ?? "ws://localhost:2580";
@@ -52,6 +53,10 @@ async function init() {
   });
 
   jetstream.start();
+
+  const publicJetstream = startPublicJetstream(db);
+  publicJetstream.start();
+  console.log("Public Jetstream: listening for tv.ionosphere.comment");
 }
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
