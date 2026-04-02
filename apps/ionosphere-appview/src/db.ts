@@ -149,6 +149,22 @@ export function migrate(db: Database.Database): void {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS comments (
+      uri TEXT PRIMARY KEY,
+      author_did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      subject_uri TEXT NOT NULL,
+      text TEXT NOT NULL,
+      facets TEXT,
+      byte_start INTEGER,
+      byte_end INTEGER,
+      created_at TEXT NOT NULL,
+      indexed_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_comments_subject ON comments(subject_uri);
+    CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_did);
+
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),

@@ -25,6 +25,7 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.concept",
   "tv.ionosphere.transcript",
   "tv.ionosphere.annotation",
+  "tv.ionosphere.comment",
   "org.relationaltext.lens",
 ];
 
@@ -69,6 +70,9 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
         // Recompute talk_concepts for affected talk
         rebuildTalkConcepts(db, uri);
         break;
+      case "tv.ionosphere.comment":
+        db.prepare("DELETE FROM comments WHERE uri = ?").run(uri);
+        break;
       case "org.relationaltext.lens":
         db.prepare("DELETE FROM lenses WHERE uri = ?").run(uri);
         break;
@@ -98,6 +102,9 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "tv.ionosphere.annotation":
       indexAnnotation(db, event.did, rkey, uri, record);
+      break;
+    case "tv.ionosphere.comment":
+      indexUserComment(db, event.did, rkey, uri, record);
       break;
     case "org.relationaltext.lens":
       indexLens(db, event.did, rkey, uri, record);
@@ -307,6 +314,31 @@ function indexLens(
     (record.target as string) || null,
     (record.version as number) || 1,
     (record.specJson as string) ?? (record.chainJson ? JSON.stringify(record.chainJson) : null)
+  );
+}
+
+function indexUserComment(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  const anchor = record.anchor as { byteStart: number; byteEnd: number } | undefined;
+  db.prepare(
+    `INSERT OR REPLACE INTO comments
+     (uri, author_did, rkey, subject_uri, text, facets, byte_start, byte_end, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri,
+    did,
+    rkey,
+    record.subject as string,
+    record.text as string,
+    record.facets ? JSON.stringify(record.facets) : null,
+    anchor?.byteStart ?? null,
+    anchor?.byteEnd ?? null,
+    record.createdAt as string
   );
 }
 
