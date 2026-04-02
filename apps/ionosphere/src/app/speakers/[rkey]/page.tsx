@@ -1,4 +1,5 @@
-import { getSpeaker, getSpeakers } from "@/lib/api";
+import { getSpeaker, getSpeakers, getTalks } from "@/lib/api";
+import TalksListContent from "@/app/talks/TalksListContent";
 
 export async function generateStaticParams() {
   const { speakers } = await getSpeakers();
@@ -7,22 +8,26 @@ export async function generateStaticParams() {
 
 export default async function SpeakerPage({ params }: { params: Promise<{ rkey: string }> }) {
   const { rkey } = await params;
-  const { speaker, talks } = await getSpeaker(rkey);
+  const [{ speaker, talks: speakerTalks }, { talks: allTalks }] = await Promise.all([
+    getSpeaker(rkey),
+    getTalks(),
+  ]);
+
+  const speakerRkeys = new Set(speakerTalks.map((t: any) => t.rkey));
+  const talks = allTalks.filter((t: any) => speakerRkeys.has(t.rkey));
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <h1 className="text-3xl font-bold">{speaker.name}</h1>
-      {speaker.handle && <div className="text-neutral-400 mt-1">@{speaker.handle}</div>}
-      {speaker.bio && <p className="text-neutral-300 mt-4">{speaker.bio}</p>}
-      <h2 className="text-xl font-semibold mt-8 mb-4">Talks</h2>
-      <div className="grid gap-3">
-        {talks.map((t: any) => (
-          <a key={t.rkey} href={`/talks/${t.rkey}`}
-            className="block p-4 rounded-lg border border-neutral-800 hover:border-neutral-600 transition-colors">
-            <div className="font-semibold">{t.title}</div>
-            <div className="text-sm text-neutral-400 mt-1">{t.room} &middot; {t.talk_type}</div>
-          </a>
-        ))}
+    <div className="h-full flex flex-col">
+      <div className="shrink-0 px-6 pt-5 pb-3 border-b border-neutral-800">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-xl font-bold">{speaker.name}</h1>
+          {speaker.handle && <span className="text-sm text-neutral-500">@{speaker.handle}</span>}
+        </div>
+        {speaker.bio && <p className="text-sm text-neutral-400 mt-1">{speaker.bio}</p>}
+        <span className="text-sm text-neutral-500">{talks.length} talk{talks.length !== 1 ? "s" : ""}</span>
+      </div>
+      <div className="flex-1 min-h-0">
+        <TalksListContent talks={talks} />
       </div>
     </div>
   );
