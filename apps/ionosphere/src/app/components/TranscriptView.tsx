@@ -11,7 +11,7 @@ import {
   type ConceptSpan,
 } from "@/lib/transcript";
 import { useAuth } from "@/lib/auth";
-import { publishComment, type CommentData } from "@/lib/comments";
+import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
 import TextSelector from "./TextSelector";
 
 interface TranscriptViewProps {
@@ -415,7 +415,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       const emojis = new Map<string, number>();
       const texts: CommentData[] = [];
       for (const c of cluster.comments) {
-        const isEmoji = c.text.length <= 2 && !/[a-zA-Z]/.test(c.text);
+        const isEmoji = isEmojiReaction(c.text);
         if (isEmoji) {
           emojis.set(c.text, (emojis.get(c.text) || 0) + 1);
         } else {
@@ -549,7 +549,12 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
                 )}
                 {group.texts.map((c) => (
                   <div key={c.uri} className="text-[12px] text-neutral-300 border-t border-neutral-700 pt-1 mt-1">
-                    <span className="text-neutral-500">{c.author_did.slice(8, 24)}...</span>
+                    <span className="text-neutral-500 flex items-center gap-1">
+                      {c.author_avatar_url && (
+                        <img src={c.author_avatar_url} alt="" className="w-3.5 h-3.5 rounded-full" />
+                      )}
+                      {c.author_display_name || c.author_handle || c.author_did.slice(8, 24) + "..."}
+                    </span>
                     <p>{c.text}</p>
                   </div>
                 ))}
