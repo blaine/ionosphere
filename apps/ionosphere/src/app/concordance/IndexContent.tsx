@@ -186,21 +186,32 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // Measure container
+  // Measure container — use a dedicated ref for the column area
+  const columnsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    const colEl = columnsRef.current;
+    if (!el || !colEl) return;
     const observer = new ResizeObserver(() => {
+      const available = el.clientWidth;
+      // On narrow screens (< 640px), single column with vertical scroll
+      if (available < 640) {
+        setNumCols(1);
+        setColumnWidth(available - 32);
+        setColumnHeight(0); // not used in single-column mode
+        return;
+      }
       const padding = 32;
-      const available = el.clientWidth - padding;
-      const cols = Math.max(1, Math.floor(available / 280));
+      const usable = available - padding;
+      const cols = Math.max(2, Math.floor(usable / 280));
       const gap = (cols - 1) * 24;
-      setColumnWidth(Math.max(200, Math.floor((available - gap) / cols)));
+      setColumnWidth(Math.max(200, Math.floor((usable - gap) / cols)));
       setNumCols(cols);
-      // Column height = container height minus search bar + padding (~44px)
-      setColumnHeight(el.clientHeight - 44);
+      // Column height = actual rendered height of the columns flex container
+      setColumnHeight(colEl.clientHeight);
     });
     observer.observe(el);
+    observer.observe(colEl);
     return () => observer.disconnect();
   }, []);
 
@@ -494,11 +505,11 @@ export default function IndexContent({ entries: initialEntries }: { entries: Ind
 
         {/* Columns — multi-column: fixed height, paged. Single column: vertical scroll */}
         {numCols <= 1 ? (
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={columnsRef} className="flex-1 min-h-0 overflow-y-auto">
             {flowItems.map(renderItem)}
           </div>
         ) : (
-          <div className="flex gap-6 flex-1 min-h-0">
+          <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
             {visibleColumns.map((items, colIdx) => (
               <div key={`${scrollColumn}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
                 {items.map(renderItem)}
