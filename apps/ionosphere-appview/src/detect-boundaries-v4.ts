@@ -185,7 +185,7 @@ async function main() {
     "(stream setup / dead air)",
     talks[0].title,
     talks[0].speaker_names || "unknown",
-    1500, // wide search: first 25 min
+    1800, // wide search: first 30 min
   );
 
   const firstTalkStart = firstTransition?.timestamp ?? 0;
@@ -213,7 +213,7 @@ async function main() {
       currentTalk.title,
       nextTalk.title,
       nextTalk.speaker_names || "unknown",
-      420, // ±7 minutes — talks often run over
+      900, // ±15 minutes — talks can run short or long
     );
 
     if (result) {
