@@ -169,14 +169,14 @@ async function processStream(stream: typeof FULLDAY_STREAMS[0]): Promise<void> {
 
       allWords.push(...offsetWords);
       fullText += (fullText ? " " : "") + result.text;
+
+      console.log(`    Chunk ${i + 1}/${numChunks}: ${result.words.length} words`);
     } catch (err) {
       console.log(`    Chunk ${i + 1}/${numChunks}: SKIPPED (transcription failed: ${(err as Error).message?.slice(0, 80)})`);
       // Cache empty chunk so we don't retry
       writeFileSync(chunkTranscriptPath, JSON.stringify({ text: "", words: [] }));
       continue;
     }
-
-    console.log(`    Chunk ${i + 1}/${numChunks}: ${result.words.length} words`);
   }
 
   // Save stitched transcript
