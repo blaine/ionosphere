@@ -234,7 +234,7 @@ async function main() {
        LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
        LEFT JOIN speakers s ON ts.speaker_uri = s.uri
        WHERE t.room IN (${placeholders})
-       ${dates.length > 0 ? `AND substr(t.starts_at, 1, 10) IN (${datePlaceholders})` : ""}
+       ${dates.length > 0 ? `AND substr(datetime(t.starts_at, '-7 hours'), 1, 10) IN (${datePlaceholders})` : ""}
        GROUP BY t.uri
        ORDER BY t.starts_at ASC`
     )

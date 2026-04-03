@@ -125,7 +125,7 @@ async function main() {
 
   const rp = config.rooms.map(() => "?").join(",");
   const dp = config.dates.map(() => "?").join(",");
-  const dateFilter = config.dates.length > 0 ? `AND substr(t.starts_at, 1, 10) IN (${dp})` : "";
+  const dateFilter = config.dates.length > 0 ? `AND substr(datetime(t.starts_at, '-7 hours'), 1, 10) IN (${dp})` : "";
 
   const talks = db.prepare(
     `SELECT t.rkey, t.title, t.starts_at,
