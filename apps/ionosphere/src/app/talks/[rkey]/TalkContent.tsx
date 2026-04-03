@@ -13,8 +13,35 @@ interface TalkContentProps {
   concepts: any[];
 }
 
+interface VideoSource {
+  uri: string;
+  offsetNs: number;
+  type: string;
+  stream?: string;
+  confidence?: string;
+}
+
 export default function TalkContent({ talk, speakers, concepts }: TalkContentProps) {
   const [comments, setComments] = useState<CommentData[]>([]);
+
+  // Parse video sources
+  const videoSources: VideoSource[] = useMemo(() => {
+    const sources: VideoSource[] = [];
+    if (talk.video_segments) {
+      try {
+        const parsed = JSON.parse(talk.video_segments);
+        if (Array.isArray(parsed)) sources.push(...parsed);
+      } catch {}
+    }
+    // If no sources from segments, use the primary video_uri
+    if (sources.length === 0 && talk.video_uri) {
+      sources.push({ uri: talk.video_uri, offsetNs: talk.video_offset_ns || 0, type: "individual" });
+    }
+    return sources;
+  }, [talk.video_segments, talk.video_uri, talk.video_offset_ns]);
+
+  const [activeSourceIdx, setActiveSourceIdx] = useState(0);
+  const activeSource = videoSources[activeSourceIdx] || (talk.video_uri ? { uri: talk.video_uri, offsetNs: talk.video_offset_ns || 0, type: "primary" } : null);
 
   useEffect(() => {
     fetchComments(talk.rkey).then(setComments);
@@ -119,9 +146,26 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
           </div>
 
           {/* Video — top half */}
-          {talk.video_uri && (
-            <div ref={videoContainerRef} className="h-1/2 px-4 pt-2 lg:pt-4 pb-1 overflow-hidden flex items-center justify-center">
-              <VideoPlayer videoUri={talk.video_uri} offsetNs={talk.video_offset_ns || 0} />
+          {activeSource && (
+            <div ref={videoContainerRef} className="h-1/2 px-4 pt-2 lg:pt-4 pb-1 overflow-hidden flex flex-col items-center justify-center">
+              <VideoPlayer key={`${activeSource.uri}-${activeSource.offsetNs}`} videoUri={activeSource.uri} offsetNs={activeSource.offsetNs} />
+              {videoSources.length > 1 && (
+                <div className="flex gap-1 mt-1 shrink-0">
+                  {videoSources.map((src, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setActiveSourceIdx(i)}
+                      className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                        i === activeSourceIdx
+                          ? "bg-neutral-700 text-neutral-200"
+                          : "text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800"
+                      }`}
+                    >
+                      {src.type === "individual" ? "Talk" : src.stream?.replace(/ - Day \d/, "") || "Full stream"}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -139,7 +183,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
                 <TranscriptView document={document} transcriptUri={talk.uri} comments={comments} onCommentPublished={handleCommentPublished} />
               ) : (
                 <div className="h-full flex items-center justify-center text-neutral-500 text-sm border border-neutral-800 rounded-lg">
-                  {talk.video_uri ? "Transcript not yet available." : "No recording available for this talk."}
+                  {activeSource ? "Transcript not yet available." : "No recording available for this talk."}
                 </div>
               )}
             </div>
