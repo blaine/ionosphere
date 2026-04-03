@@ -145,10 +145,12 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
             </div>
           </div>
 
-          {/* Video — top half */}
+          {/* Video — shrink to fit, max 45% of viewport */}
           {activeSource && (
-            <div ref={videoContainerRef} className="h-1/2 px-4 pt-2 lg:pt-4 pb-1 overflow-hidden flex flex-col items-center justify-center">
-              <VideoPlayer key={`${activeSource.uri}-${activeSource.offsetNs}`} videoUri={activeSource.uri} offsetNs={activeSource.offsetNs} />
+            <div ref={videoContainerRef} className="shrink-0 px-4 pt-2 lg:pt-4 pb-1 flex flex-col items-center" style={{ maxHeight: "45vh" }}>
+              <div className="w-full max-h-full flex items-center justify-center overflow-hidden">
+                <VideoPlayer key={`${activeSource.uri}-${activeSource.offsetNs}`} videoUri={activeSource.uri} offsetNs={activeSource.offsetNs} />
+              </div>
               {videoSources.length > 1 && (
                 <div className="flex gap-1 mt-1 shrink-0">
                   {videoSources.map((src, i) => (
