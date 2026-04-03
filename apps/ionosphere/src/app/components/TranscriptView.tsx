@@ -355,10 +355,10 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   );
 
   // Discoverability hint for first-time users
-  const [showHint, setShowHint] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return !localStorage.getItem("has_commented");
-  });
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    if (!localStorage.getItem("has_commented")) setShowHint(true);
+  }, []);
 
   // Optimistic comments — rendered immediately before the round-trip completes
   const [pendingComments, setPendingComments] = useState<CommentData[]>([]);
