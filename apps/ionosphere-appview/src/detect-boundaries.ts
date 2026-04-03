@@ -124,7 +124,7 @@ async function detectBoundariesWithLlm(
   const context = buildLlmContext(gaps, talks, streamName, durationSec);
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5-mini",
     messages: [
       {
         role: "system",
@@ -218,9 +218,9 @@ async function main() {
   const gaps = findGaps(transcript.words, 8);
   console.log(`Significant gaps (>8s): ${gaps.length}`);
 
-  // Filter to major gaps (>20s) for LLM analysis to keep context manageable
-  const majorGaps = gaps.filter((g) => g.duration >= 20);
-  console.log(`Major gaps (>20s): ${majorGaps.length}`);
+  // Filter to significant gaps for LLM analysis
+  const majorGaps = gaps.filter((g) => g.duration >= 10);
+  console.log(`Significant gaps (>10s): ${majorGaps.length}`);
 
   // Use LLM to match gaps to talks
   console.log("\nAsking LLM to match gaps to talks...");
