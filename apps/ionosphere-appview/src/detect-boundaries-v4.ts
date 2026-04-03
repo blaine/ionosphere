@@ -104,7 +104,7 @@ Output ONLY the JSON object.`,
         content: `Transcript (${fmt(windowStart)} - ${fmt(windowEnd)}):\n${segmentText}`,
       },
     ],
-    max_tokens: 200,
+    max_completion_tokens: 200,
   });
 
   const content = response.choices[0]?.message?.content?.trim() || "{}";
