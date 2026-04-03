@@ -159,17 +159,22 @@ Output ONLY the JSON array, no markdown fences or explanation.`,
         content: context,
       },
     ],
-    temperature: 0.1,
-    max_tokens: 4000,
+    max_completion_tokens: 16000,
   });
 
   const content = response.choices[0]?.message?.content?.trim() || "[]";
+  const finishReason = response.choices[0]?.finish_reason;
+  console.log(`  LLM finish_reason: ${finishReason}, response length: ${content.length}`);
+  if (content.length < 10) {
+    console.error("  LLM response too short:", content);
+    return [];
+  }
   try {
     // Strip markdown fences if present
     const cleaned = content.replace(/^```json?\n?/, "").replace(/\n?```$/, "");
     return JSON.parse(cleaned);
   } catch (err) {
-    console.error("Failed to parse LLM response:", content.slice(0, 200));
+    console.error("Failed to parse LLM response:", content.slice(0, 500));
     return [];
   }
 }
@@ -218,9 +223,9 @@ async function main() {
   const gaps = findGaps(transcript.words, 8);
   console.log(`Significant gaps (>8s): ${gaps.length}`);
 
-  // Filter to significant gaps for LLM analysis
-  const majorGaps = gaps.filter((g) => g.duration >= 10);
-  console.log(`Significant gaps (>10s): ${majorGaps.length}`);
+  // Filter to major gaps — talk transitions are typically >25s silence
+  const majorGaps = gaps.filter((g) => g.duration >= 25);
+  console.log(`Major gaps (>25s): ${majorGaps.length}`);
 
   // Use LLM to match gaps to talks
   console.log("\nAsking LLM to match gaps to talks...");
