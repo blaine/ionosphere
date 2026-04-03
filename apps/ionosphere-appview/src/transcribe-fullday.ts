@@ -145,24 +145,36 @@ async function processStream(stream: typeof FULLDAY_STREAMS[0]): Promise<void> {
     }
 
     // Extract audio chunk
-    extractChunk(playlistUrl, startSec, chunkDuration, chunkPath);
+    try {
+      extractChunk(playlistUrl, startSec, chunkDuration, chunkPath);
+    } catch (err) {
+      console.log(`    Chunk ${i + 1}/${numChunks}: SKIPPED (ffmpeg extraction failed)`);
+      continue;
+    }
 
     // Transcribe
     console.log(`    Chunk ${i + 1}/${numChunks}: transcribing...`);
-    const result = await transcribeChunk(chunkPath);
+    try {
+      const result = await transcribeChunk(chunkPath);
 
-    // Offset timestamps to absolute position in the stream
-    const offsetWords = result.words.map((w) => ({
-      ...w,
-      start: w.start + startSec,
-      end: w.end + startSec,
-    }));
+      // Offset timestamps to absolute position in the stream
+      const offsetWords = result.words.map((w) => ({
+        ...w,
+        start: w.start + startSec,
+        end: w.end + startSec,
+      }));
 
-    // Cache chunk transcript
-    writeFileSync(chunkTranscriptPath, JSON.stringify({ text: result.text, words: offsetWords }));
+      // Cache chunk transcript
+      writeFileSync(chunkTranscriptPath, JSON.stringify({ text: result.text, words: offsetWords }));
 
-    allWords.push(...offsetWords);
-    fullText += (fullText ? " " : "") + result.text;
+      allWords.push(...offsetWords);
+      fullText += (fullText ? " " : "") + result.text;
+    } catch (err) {
+      console.log(`    Chunk ${i + 1}/${numChunks}: SKIPPED (transcription failed: ${(err as Error).message?.slice(0, 80)})`);
+      // Cache empty chunk so we don't retry
+      writeFileSync(chunkTranscriptPath, JSON.stringify({ text: "", words: [] }));
+      continue;
+    }
 
     console.log(`    Chunk ${i + 1}/${numChunks}: ${result.words.length} words`);
   }
