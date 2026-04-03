@@ -50,7 +50,7 @@ async function findTransitions(
   if (!segmentText.trim()) return [];
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-5.4-mini",
     messages: [
       {
         role: "system",
@@ -172,7 +172,7 @@ async function main() {
     process.stdout.write(`  Batch ${Math.floor(batchStart / BATCH_SIZE) + 1}/${Math.ceil(gaps.length / BATCH_SIZE)} (gaps ${batchStart + 1}-${batchStart + batch.length})...`);
 
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5.4-mini",
       messages: [
         {
           role: "system",

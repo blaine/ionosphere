@@ -75,7 +75,7 @@ async function findTalksInSegment(
     .join("\n");
 
   const response = await client.chat.completions.create({
-    model: "gpt-5-mini",
+    model: "gpt-5.4-mini",
     messages: [
       {
         role: "system",
@@ -121,7 +121,7 @@ async function findPreciseStart(
   endSec: number
 ): Promise<number | null> {
   const response = await client.chat.completions.create({
-    model: "gpt-5-mini",
+    model: "gpt-5.4-mini",
     messages: [
       {
         role: "system",

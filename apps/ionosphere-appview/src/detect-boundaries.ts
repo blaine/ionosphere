@@ -124,7 +124,7 @@ async function detectBoundariesWithLlm(
   const context = buildLlmContext(gaps, talks, streamName, durationSec);
 
   const response = await client.chat.completions.create({
-    model: "gpt-5-mini",
+    model: "gpt-5.4-mini",
     messages: [
       {
         role: "system",

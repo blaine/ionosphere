@@ -73,7 +73,7 @@ async function findTransitionNear(
   const gapList = gaps.map((g) => `  ${fmt(g.timestamp)} = ${Math.round(g.timestamp)}s (${g.duration.toFixed(0)}s silence)`).join("\n");
 
   const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-5.4-mini",
     messages: [
       {
         role: "system",
