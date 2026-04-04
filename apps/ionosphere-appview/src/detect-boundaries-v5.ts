@@ -78,16 +78,18 @@ const TRANSITION_AFTER = [
   { pattern: /come\s*on\s*(down|up)/i, weight: 4, label: "mc-come" },
 ];
 
-function scoreGap(gap: CandidateGap, talks: Talk[]): void {
+/**
+ * Score a gap generically (transition signals only, no speaker/title matching).
+ * Speaker/title matching happens during DP when we know which talk comes next.
+ */
+function scoreGapGeneric(gap: CandidateGap): void {
   const beforeText = gap.wordsBefore.join(" ");
   const afterText = gap.wordsAfter.join(" ");
-  const afterLower = afterText.toLowerCase();
 
   gap.score = 0;
   gap.signals = [];
 
-  // Gap duration score (longer = more likely transition)
-  // Scale: 3s = 1pt, 10s = 5pt, 30s = 10pt, 60s = 12pt (diminishing returns)
+  // Gap duration score
   gap.score += Math.min(12, Math.log2(gap.gapDuration + 1) * 3);
   if (gap.gapDuration >= 8) gap.signals.push(`gap-${gap.gapDuration.toFixed(0)}s`);
 
@@ -106,38 +108,54 @@ function scoreGap(gap: CandidateGap, talks: Talk[]): void {
       gap.signals.push(`after:${label}`);
     }
   }
+}
 
-  // Speaker name match (very strong signal)
-  for (const talk of talks) {
-    if (!talk.speaker_names) continue;
+/**
+ * Score a gap specifically for a given talk (the talk that STARTS after this gap).
+ * Checks for speaker name and title keywords in the surrounding text.
+ */
+function scoreGapForTalk(gap: CandidateGap, talk: Talk): number {
+  const beforeText = gap.wordsBefore.join(" ").toLowerCase();
+  const afterText = gap.wordsAfter.join(" ").toLowerCase();
+  const surroundingText = beforeText + " " + afterText;
+  let bonus = 0;
+  const signals: string[] = [];
+
+  // Speaker name in surrounding text (MC introduces before gap, speaker greets after)
+  if (talk.speaker_names) {
     const names = talk.speaker_names.split(",").map((n) => n.trim().toLowerCase());
     for (const name of names) {
-      // Check last name (more distinctive)
       const parts = name.split(" ");
       const lastName = parts[parts.length - 1];
-      if (lastName.length >= 3 && afterLower.includes(lastName)) {
-        gap.score += 8;
-        gap.signals.push(`speaker:${lastName}`);
+      const firstName = parts[0];
+      if (lastName.length >= 3 && surroundingText.includes(lastName)) {
+        bonus += 10;
+        signals.push(`speaker:${lastName}`);
+        break;
+      }
+      if (firstName.length >= 4 && surroundingText.includes(firstName)) {
+        bonus += 6;
+        signals.push(`speaker:${firstName}`);
         break;
       }
     }
   }
 
-  // Title keyword match
-  for (const talk of talks) {
-    const titleWords = talk.title
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 4 && !["about", "their", "these", "those", "where", "which", "would", "could", "should"].includes(w));
-    let matches = 0;
-    for (const tw of titleWords) {
-      if (afterLower.includes(tw)) matches++;
-    }
-    if (matches >= 2) {
-      gap.score += matches * 2;
-      gap.signals.push(`title-kw:${matches}`);
-    }
+  // Title keywords in surrounding text
+  const titleWords = talk.title
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 4 && !["about", "their", "these", "those", "where", "which", "would", "could", "should"].includes(w));
+  let titleMatches = 0;
+  for (const tw of titleWords) {
+    if (surroundingText.includes(tw)) titleMatches++;
   }
+  if (titleMatches >= 2) {
+    bonus += titleMatches * 3;
+    signals.push(`title-kw:${titleMatches}`);
+  }
+
+  return bonus;
 }
 
 // --- Pass 3: Dynamic programming to select optimal transitions ---
@@ -164,7 +182,8 @@ function selectTransitionsDP(
   for (let i = 1; i < N; i++) {
     // Expected start of talk i = previous talk start + previous talk duration + ~5min buffer
     const prevDur = talks[i - 1].scheduledDuration;
-    const buffer = 180; // 3 min average inter-talk time (Q&A + intro)
+    // Short talks (lightning) have minimal buffer, longer talks have Q&A + intro
+    const buffer = prevDur <= 600 ? 60 : 180;
     expectedStarts.push(expectedStarts[i - 1] + prevDur + buffer);
   }
 
@@ -184,13 +203,16 @@ function selectTransitionsDP(
     let bestGap = -1;
     let bestScore = -1;
 
+    const nextTalk = talks[t]; // the talk that STARTS after this transition
     for (let g = 0; g < gaps.length; g++) {
       const gap = gaps[g];
       if (gap.timestamp < windowStart || gap.timestamp > windowEnd) continue;
 
       // Proximity bonus: prefer gaps closer to expected time
       const proximity = 1 - Math.abs(gap.timestamp - expected) / tolerance;
-      const totalScore = gap.score + proximity * 5;
+      // Talk-specific bonus: speaker name / title keywords for the NEXT talk
+      const talkBonus = scoreGapForTalk(gap, nextTalk);
+      const totalScore = gap.score + proximity * 5 + talkBonus;
 
       if (totalScore > bestScore) {
         bestScore = totalScore;
@@ -304,7 +326,7 @@ async function main() {
   // Pass 2: Score each gap
   console.log(`\n=== Pass 2: Scoring gaps ===\n`);
   for (const gap of gaps) {
-    scoreGap(gap, talks);
+    scoreGapGeneric(gap);
   }
 
   // Show top 30 scored gaps
