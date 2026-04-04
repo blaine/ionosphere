@@ -286,16 +286,27 @@ function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[], words: Word[]):
     }
   }
 
-  // If no good gap found, the first talk probably starts at or slightly before
-  // the usable transcript start (preamble was in the garbled zone)
-  if (bestScore < 10) {
-    // Estimate: the first talk likely started a few minutes before the
-    // transcript becomes usable (Whisper caught up mid-talk)
+  // Also look for the first talk's speaker name — the MC introduces them
+  // before the talk starts, and that's the real transition
+  if (talks.length > 0 && talks[0].speaker_names) {
+    const firstTalkWords = words.filter((w) => w.start < 1800); // first 30 min
+    const wordStrings = firstTalkWords.map((w) => w.word);
+
+    // Find gaps where the first talk's speaker is mentioned nearby
+    for (const g of candidates) {
+      const speakerBonus = scoreGapForTalk(g, talks[0]);
+      if (speakerBonus > 0 && g.score + speakerBonus > bestScore) {
+        bestScore = g.score + speakerBonus;
+        best = g.timestamp;
+      }
+    }
+  }
+
+  if (bestScore < 5) {
+    // No transition found — garbled zone
     console.log(`  Garbled zone ends at: ${fmt(usableStart)}`);
     console.log(`  No strong transition found — estimating first talk start`);
-    // Check the first talk's scheduled duration to work backward from the
-    // first detected transition
-    return Math.max(0, usableStart - 180); // ~3 min before usable audio
+    return Math.max(0, usableStart - 180);
   }
 
   return best;
