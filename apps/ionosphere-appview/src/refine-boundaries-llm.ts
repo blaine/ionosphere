@@ -78,9 +78,12 @@ Timestamps appear as [t=XXXs H:MM:SS SPEAKER_XX]. The t=XXXs value is seconds fr
 TRANSCRIPT:
 ${windowText}
 
-FIRST: Assess the transcript quality. Is this real intelligible speech, or is it garbled/hallucinated text (e.g. the same word repeated over and over like "Thanks Thanks Thanks", or nonsensical phrases)?
+FIRST: Assess the transcript quality. This is from an English-language conference, transcribed by Whisper. Whisper hallucinates on non-speech audio (music, ambient noise, applause). Common hallucination patterns:
+- Same word or phrase repeated many times ("Thanks Thanks Thanks", "This is a test This is a test")
+- Text in a non-English language (Welsh, German, etc.) appearing in an English conference
+- Generic filler on loop ("Thank you for watching", "Please subscribe")
 
-IF THE TEXT IS GARBLED: set "garbled": true. Do not attempt to find a talk start in garbled text.
+If the transcript is mostly hallucinated/garbled, set "garbled": true and do not attempt to find a talk start.
 
 IF THE TEXT IS INTELLIGIBLE: Find the exact timestamp where this talk BEGINS. Look for:
 - The speaker's first words (greeting, self-introduction, "thank you for the intro")
