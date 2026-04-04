@@ -1,0 +1,150 @@
+{
+  "stream": "Great Hall - Day 1",
+  "notes": "Manually verified timestamps (seconds from stream start). Verified by scrubbing the full-day stream recording. Two talks (ODxNLMM, 7Rrv0E0) lack manual ground truth.",
+  "talks": [
+    {
+      "rkey": "gDELD0M",
+      "title": "Landslide",
+      "speaker": "Erin Kissane",
+      "ground_truth_start": 990,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "0:16:30 from stream start. Stream opens with garbled zone."
+    },
+    {
+      "rkey": "QK9Ae6Y",
+      "title": "Groundings with my Siblings: Lessons Learned Building for Community",
+      "speaker": "Rudy Fraser",
+      "ground_truth_start": 4254,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "1:10:54 from stream start"
+    },
+    {
+      "rkey": "obaP26x",
+      "title": "Who owns the group chat? Building collaborative spaces on ATProto",
+      "speaker": "Brittany Ellich",
+      "ground_truth_start": 6260,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "1:44:20 from stream start"
+    },
+    {
+      "rkey": "ODxNLMM",
+      "title": "This isn't over until we all listen to kpop",
+      "speaker": "Laurens Hof",
+      "ground_truth_start": 7766,
+      "tolerance_seconds": 120,
+      "verified": false,
+      "notes": "v5 detected 2:09:26. No manual verification."
+    },
+    {
+      "rkey": "7Rrv0E0",
+      "title": "Beyond Bluesky: Community infrastructure",
+      "speaker": "fig",
+      "ground_truth_start": 8942,
+      "tolerance_seconds": 120,
+      "verified": false,
+      "notes": "v5 detected 2:29:02. No manual verification."
+    },
+    {
+      "rkey": "000Syverson",
+      "title": "Sattestations",
+      "speaker": "Paul Syverson",
+      "ground_truth_start": 11760,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "3:16:00 — after lunch break. Garbled zone before this. v5 was 811s off."
+    },
+    {
+      "rkey": "81Xovjr",
+      "title": "Feeds Are The New Websites",
+      "speaker": "Mike McCue",
+      "ground_truth_start": 12594,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "3:29:54 — lightning talk"
+    },
+    {
+      "rkey": "LZxV6dv",
+      "title": "Consent Before Cryptography",
+      "speaker": "Tessa Brown",
+      "ground_truth_start": 13531,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "3:45:31"
+    },
+    {
+      "rkey": "Y561Qv6",
+      "title": "From protocol to product: How Expo powers the next wave of social apps",
+      "speaker": "Eliot Hertenstein",
+      "ground_truth_start": 15368,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "4:16:08"
+    },
+    {
+      "rkey": "aQ1J9GE",
+      "title": "2026 Atmosphere Report",
+      "speaker": "Paul Frazee",
+      "ground_truth_start": 17475,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "4:51:15"
+    },
+    {
+      "rkey": "OD6Gd0A",
+      "title": "Semble: Rediscovering the Magic of Trails",
+      "speaker": "Ronen Tamari",
+      "ground_truth_start": null,
+      "tolerance_seconds": 120,
+      "verified": false,
+      "notes": "Lightning talk. No manual ground truth."
+    },
+    {
+      "rkey": "2EG4YMj",
+      "title": "What 350,000 users taught me about growing on Open Social",
+      "speaker": "Victoria White",
+      "ground_truth_start": 21451,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "5:57:31 — lightning talk"
+    },
+    {
+      "rkey": "000Jer",
+      "title": "The Future of Open Source is Social",
+      "speaker": "Jer Miller",
+      "ground_truth_start": 22062,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "6:07:42 — lightning talk"
+    },
+    {
+      "rkey": "2EGLPML",
+      "title": "Burning down data walls in the US Fire Service and beyond",
+      "speaker": "Stephan Noel",
+      "ground_truth_start": 22514,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "6:15:14 — lightning talk"
+    },
+    {
+      "rkey": "OD2G9j8",
+      "title": "The Phoenix Architecture",
+      "speaker": "Chad Fowler",
+      "ground_truth_start": 23426,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "6:30:26 — v5 was 119s off"
+    },
+    {
+      "rkey": "rj8Xv62",
+      "title": "This Title Left Intentionally Blank",
+      "speaker": "Blaine Cook",
+      "ground_truth_start": 25228,
+      "tolerance_seconds": 120,
+      "verified": true,
+      "notes": "7:00:28"
+    }
+  ]
+}
