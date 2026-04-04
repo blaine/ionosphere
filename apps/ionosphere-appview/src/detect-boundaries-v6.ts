@@ -132,8 +132,11 @@ export function scoreSpeakerChange(
 // --- Confidence scoring (exported for testing) ---
 
 /**
- * Score confidence drop near a gap timestamp.
+ * Score confidence near a gap timestamp.
  * Low avg_logprob or high no_speech_prob indicates garbled/music/applause.
+ * Returns NEGATIVE score — gaps in garbled zones are less reliable as
+ * talk transitions. The garbled audio produces fake gaps and fake
+ * transition phrases, so we penalize rather than reward.
  */
 export function scoreConfidenceDrop(
   segments: Segment[],
@@ -145,25 +148,25 @@ export function scoreConfidenceDrop(
   );
   if (nearby.length === 0) return { score: 0, signal: "" };
 
-  let score = 0;
+  let penalty = 0;
   const signals: string[] = [];
 
-  // Low confidence segments near the gap
+  // Low confidence segments near the gap — penalize
   const lowConf = nearby.filter((s) => s.avg_logprob !== undefined && s.avg_logprob < -1.0);
   if (lowConf.length > 0) {
     const avgLogprob = lowConf.reduce((s, seg) => s + (seg.avg_logprob || 0), 0) / lowConf.length;
-    score += Math.min(6, lowConf.length * 2);
-    signals.push(`confidence_drop(${avgLogprob.toFixed(1)})`);
+    penalty += Math.min(10, lowConf.length * 3);
+    signals.push(`garbled(${avgLogprob.toFixed(1)})`);
   }
 
-  // High no-speech segments
+  // High no-speech segments — penalize
   const noSpeech = nearby.filter((s) => s.no_speech_prob !== undefined && s.no_speech_prob > 0.5);
   if (noSpeech.length > 0) {
-    score += Math.min(4, noSpeech.length);
+    penalty += Math.min(8, noSpeech.length * 2);
     signals.push(`no_speech(${noSpeech.length})`);
   }
 
-  return { score, signal: signals.join("+") };
+  return { score: penalty > 0 ? -penalty : 0, signal: signals.join("+") };
 }
 
 /**
@@ -291,10 +294,10 @@ function scoreGapGeneric(gap: CandidateGap, segments: Segment[]): void {
     gap.signals.push(speakerResult.signal);
   }
 
-  // NEW: Confidence scoring
+  // NEW: Confidence scoring (negative = penalty for garbled zones)
   if (segments.length > 0) {
     const confResult = scoreConfidenceDrop(segments, gap.timestamp);
-    if (confResult.score > 0) {
+    if (confResult.score !== 0) {
       gap.score += confResult.score;
       gap.signals.push(confResult.signal);
     }

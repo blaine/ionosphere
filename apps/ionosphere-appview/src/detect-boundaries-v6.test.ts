@@ -56,15 +56,15 @@ describe("scoreSpeakerChange", () => {
 });
 
 describe("scoreConfidenceDrop", () => {
-  it("scores high for low avg_logprob near gap", () => {
+  it("penalizes gaps near low avg_logprob (garbled audio)", () => {
     const segments = [
       { start: 0, end: 10, avg_logprob: -0.3, no_speech_prob: 0.1 },
       { start: 10, end: 20, avg_logprob: -1.5, no_speech_prob: 0.8 },
       { start: 20, end: 30, avg_logprob: -0.2, no_speech_prob: 0.05 },
     ];
     const result = scoreConfidenceDrop(segments, 15, 30);
-    expect(result.score).toBeGreaterThan(0);
-    expect(result.signal).toContain("confidence_drop");
+    expect(result.score).toBeLessThan(0);
+    expect(result.signal).toContain("garbled");
   });
 
   it("returns zero for high confidence segments", () => {
@@ -76,12 +76,13 @@ describe("scoreConfidenceDrop", () => {
     expect(result.score).toBe(0);
   });
 
-  it("detects no_speech zones", () => {
+  it("penalizes gaps near no_speech zones", () => {
     const segments = [
       { start: 0, end: 10, avg_logprob: -0.3, no_speech_prob: 0.9 },
       { start: 10, end: 20, avg_logprob: -0.3, no_speech_prob: 0.8 },
     ];
     const result = scoreConfidenceDrop(segments, 10, 15);
+    expect(result.score).toBeLessThan(0);
     expect(result.signal).toContain("no_speech");
   });
 });
