@@ -312,6 +312,178 @@ function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[], words: Word[]):
   return best;
 }
 
+// --- Pass 5: Forward-scan refinement ---
+// After DP selects a gap, scan forward to find where the actual talk begins.
+// The gap marks "previous talk ended" but there may be MC intro, Q&A, setup
+// before the new speaker starts.
+
+const TALK_START_PATTERNS = [
+  { pattern: /^(hello|hi)\s+(everyone|there|folks)/i, weight: 8, label: "greeting" },
+  { pattern: /my\s+name\s+is/i, weight: 10, label: "self-intro" },
+  { pattern: /i'?m\s+(going\s+to|gonna)\s+(talk|present|show|discuss)/i, weight: 8, label: "talk-about" },
+  { pattern: /so\s+(today|this\s+talk|i\s+want\s+to)/i, weight: 5, label: "so-today" },
+  { pattern: /thank\s+you.*\s+(so|for)\s+(having|inviting|the\s+intro)/i, weight: 6, label: "thanks-for-intro" },
+];
+
+/**
+ * Detect if there's a garbled zone (Whisper hallucination) starting near a timestamp.
+ * Returns the timestamp where real speech resumes, or the input timestamp if no garble.
+ */
+function findGarbledZoneEnd(words: Word[], startSec: number, endSec: number): number {
+  // Look for runs of repeated identical words/phrases
+  const windowSize = 10;
+  let garbleEnd = startSec;
+
+  for (let i = 0; i < words.length - windowSize; i++) {
+    if (words[i].start < startSec || words[i].start > endSec) continue;
+
+    const window = words.slice(i, i + windowSize);
+    const unique = new Set(window.map((w) => w.word.toLowerCase()));
+    // Must be very repetitive (2 or fewer unique words) AND most words identical
+    const mostCommon = [...unique].reduce((best, u) => {
+      const count = window.filter((w) => w.word.toLowerCase() === u).length;
+      return count > best.count ? { word: u, count } : best;
+    }, { word: "", count: 0 });
+
+    if (unique.size <= 2 || (unique.size <= 3 && mostCommon.count >= 8)) {
+      // This is garbled — mostly the same word repeated
+      garbleEnd = Math.max(garbleEnd, words[Math.min(words.length - 1, i + windowSize)].start);
+    } else if (garbleEnd > startSec + 60) {
+      // We were in a garbled zone and now we're out
+      return words[i].start;
+    }
+  }
+
+  return garbleEnd > startSec + 60 ? garbleEnd : startSec;
+}
+
+/** Inner helper for refineTalkStart — searches a window for talk-start signals */
+function refineTalkStartInner(
+  words: Word[],
+  startSec: number,
+  talk: Talk,
+  endSec: number,
+): { timestamp: number; score: number; signal: string } {
+  let bestTimestamp = startSec;
+  let bestScore = 0;
+  let bestSignal = "";
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.start < startSec || w.start > endSec) continue;
+
+    if (i > 0) {
+      const gap = w.start - words[i - 1].end;
+      if (gap >= 3) {
+        const afterWords = words.slice(i, Math.min(words.length, i + 15));
+        const afterText = afterWords.map((ww) => ww.word).join(" ");
+        let score = 0;
+        let signal = "";
+
+        if (talk.speaker_names && phoneticSearch(talk.speaker_names, afterWords.map((ww) => ww.word))) {
+          score += 12;
+          signal = "speaker";
+        }
+        for (const { pattern, weight, label } of TALK_START_PATTERNS) {
+          if (pattern.test(afterText)) {
+            score += weight;
+            signal = signal ? `${signal}+${label}` : label;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestTimestamp = w.start;
+          bestSignal = signal;
+        }
+      }
+    }
+  }
+
+  return { timestamp: bestTimestamp, score: bestScore, signal: bestSignal };
+}
+
+function refineTalkStart(
+  words: Word[],
+  gapTimestamp: number,
+  talk: Talk,
+  maxForwardSec: number = 900, // scan up to 15 min forward
+): { timestamp: number; signal: string } {
+  // Collect candidates: gaps and text signals within the forward window
+  let bestTimestamp = gapTimestamp;
+  let bestScore = 0;
+  let bestSignal = "";
+
+  const endWindow = gapTimestamp + maxForwardSec;
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.start < gapTimestamp || w.start > endWindow) continue;
+
+    // Check for gaps (sub-gaps within the transition zone)
+    if (i > 0) {
+      const gap = w.start - words[i - 1].end;
+      if (gap >= 5) {
+        // After a sub-gap, check for talk-start signals
+        const afterText = words.slice(i, Math.min(words.length, i + 15)).map((ww) => ww.word).join(" ");
+
+        // Speaker name after this sub-gap (phonetic)
+        let score = 0;
+        let signal = "";
+
+        if (talk.speaker_names) {
+          const afterWords = words.slice(i, Math.min(words.length, i + 20)).map((ww) => ww.word);
+          if (phoneticSearch(talk.speaker_names, afterWords)) {
+            score += 12;
+            signal = "speaker-after-gap";
+          }
+        }
+
+        // Talk-start phrases
+        for (const { pattern, weight, label } of TALK_START_PATTERNS) {
+          if (pattern.test(afterText)) {
+            score += weight;
+            signal = signal ? `${signal}+${label}` : label;
+          }
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestTimestamp = w.start;
+          bestSignal = signal;
+        }
+      }
+    }
+
+    // Also check for speaker name at any point (not just after gaps)
+    // but with lower weight — the MC might mention them during intro
+    if (talk.speaker_names && i % 5 === 0) {
+      const window = words.slice(i, Math.min(words.length, i + 10)).map((ww) => ww.word);
+      const windowText = window.join(" ");
+
+      for (const { pattern, weight, label } of TALK_START_PATTERNS) {
+        if (pattern.test(windowText)) {
+          // Check if speaker name is also near
+          if (phoneticSearch(talk.speaker_names, window)) {
+            const score = weight + 8;
+            if (score > bestScore) {
+              bestScore = score;
+              bestTimestamp = w.start;
+              bestSignal = `${label}+speaker`;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Only refine if we found a strong signal; otherwise keep the original gap
+  if (bestScore >= 8 && bestTimestamp > gapTimestamp) {
+    return { timestamp: bestTimestamp, signal: bestSignal };
+  }
+
+  return { timestamp: gapTimestamp, signal: "" };
+}
+
 // --- Main ---
 
 async function main() {
@@ -393,6 +565,19 @@ async function main() {
   console.log(`  First talk starts at: ${fmt(firstStart)}`);
 
   const dpResult = selectTransitionsDP(gaps, talks, firstStart);
+
+  // Pass 5: Refine each transition by scanning forward for actual talk start
+  console.log(`\n=== Pass 5: Refining transitions ===\n`);
+  for (let i = 1; i < dpResult.assignments.length; i++) {
+    const a = dpResult.assignments[i];
+    const talk = talks[a.talkIndex];
+    const refined = refineTalkStart(words, a.timestamp, talk);
+    if (refined.timestamp !== a.timestamp) {
+      const delta = ((refined.timestamp - a.timestamp) / 60).toFixed(1);
+      console.log(`  ${talk.title.slice(0, 40).padEnd(42)} ${fmt(a.timestamp)} → ${fmt(refined.timestamp)} (+${delta}m) [${refined.signal}]`);
+      a.timestamp = refined.timestamp;
+    }
+  }
 
   // Build results
   console.log(`\n=== Results (total score: ${dpResult.totalScore.toFixed(1)}) ===\n`);
