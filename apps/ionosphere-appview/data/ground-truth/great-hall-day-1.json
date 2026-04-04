@@ -15,10 +15,10 @@
       "rkey": "QK9Ae6Y",
       "title": "Groundings with my Siblings: Lessons Learned Building for Community",
       "speaker": "Rudy Fraser",
-      "ground_truth_start": 4254,
+      "ground_truth_start": 4286,
       "tolerance_seconds": 120,
       "verified": true,
-      "notes": "1:10:54 from stream start"
+      "notes": "1:11:26 from stream start. Previous estimate 1:10:54 was MC handoff, not speaker start."
     },
     {
       "rkey": "obaP26x",
