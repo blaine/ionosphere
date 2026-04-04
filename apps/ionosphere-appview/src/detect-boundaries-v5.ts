@@ -9,6 +9,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { openDb } from "./db.js";
+import { phoneticSearch } from "./phonetic.js";
 
 interface Word { word: string; start: number; end: number; }
 interface Talk {
@@ -89,9 +90,16 @@ function scoreGapGeneric(gap: CandidateGap): void {
   gap.score = 0;
   gap.signals = [];
 
-  // Gap duration score
-  gap.score += Math.min(12, Math.log2(gap.gapDuration + 1) * 3);
-  if (gap.gapDuration >= 8) gap.signals.push(`gap-${gap.gapDuration.toFixed(0)}s`);
+  // Gap duration score — long gaps are very strong signals
+  // 3s = 2pt, 10s = 7pt, 30s = 15pt, 60s = 20pt, 120s+ = 25pt
+  if (gap.gapDuration >= 60) {
+    gap.score += 25;
+  } else if (gap.gapDuration >= 30) {
+    gap.score += 15 + (gap.gapDuration - 30) / 3;
+  } else {
+    gap.score += Math.min(15, gap.gapDuration * 0.5);
+  }
+  if (gap.gapDuration >= 5) gap.signals.push(`gap-${gap.gapDuration.toFixed(0)}s`);
 
   // Transition phrases before the gap
   for (const { pattern, weight, label } of TRANSITION_BEFORE) {
@@ -121,21 +129,16 @@ function scoreGapForTalk(gap: CandidateGap, talk: Talk): number {
   let bonus = 0;
   const signals: string[] = [];
 
-  // Speaker name in surrounding text (MC introduces before gap, speaker greets after)
+  // Speaker name in surrounding text — phonetic matching to handle
+  // Whisper transcription errors (e.g. "Aaron Kasane" for "Erin Kissane")
   if (talk.speaker_names) {
-    const names = talk.speaker_names.split(",").map((n) => n.trim().toLowerCase());
+    const surroundingWords = (gap.wordsBefore.concat(gap.wordsAfter)).map((w) => w.toLowerCase());
+    const names = talk.speaker_names.split(",").map((n) => n.trim());
     for (const name of names) {
-      const parts = name.split(" ");
-      const lastName = parts[parts.length - 1];
-      const firstName = parts[0];
-      if (lastName.length >= 3 && surroundingText.includes(lastName)) {
+      if (phoneticSearch(name, surroundingWords)) {
         bonus += 10;
-        signals.push(`speaker:${lastName}`);
-        break;
-      }
-      if (firstName.length >= 4 && surroundingText.includes(firstName)) {
-        bonus += 6;
-        signals.push(`speaker:${firstName}`);
+        const short = name.split(" ").pop()?.toLowerCase() || name;
+        signals.push(`speaker~${short}`);
         break;
       }
     }
@@ -244,23 +247,58 @@ function selectTransitionsDP(
   };
 }
 
+// --- Garbled zone detection ---
+
+/**
+ * Find where the transcript becomes usable by detecting runs of
+ * repeated short words (Whisper artifacts from bad audio).
+ * Returns the timestamp where real speech begins.
+ */
+function findUsableTranscriptStart(words: Word[]): number {
+  // Scan forward looking for the first stretch of varied words
+  const windowSize = 20;
+  for (let i = 0; i < words.length - windowSize; i++) {
+    const window = words.slice(i, i + windowSize);
+    const unique = new Set(window.map((w) => w.word.toLowerCase()));
+    // If we have at least 12 unique words in a 20-word window, it's real speech
+    if (unique.size >= 12) {
+      return words[i].start;
+    }
+  }
+  return 0;
+}
+
 // --- Pass 4: Find first talk start ---
 
-function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[]): number {
-  // The first significant gap with a greeting or introduction after it
-  // Search the first 45 minutes
-  const early = gaps.filter((g) => g.timestamp < 2700 && g.gapDuration >= 5);
+function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[], words: Word[]): number {
+  const usableStart = findUsableTranscriptStart(words);
 
+  // Look for the first high-scoring gap after usable transcript begins
+  const candidates = gaps.filter((g) => g.timestamp >= usableStart && g.timestamp < usableStart + 2700);
+
+  // If there are strong transition signals, use those
   let best = 0;
   let bestScore = 0;
-  for (const g of early) {
+  for (const g of candidates) {
     if (g.score > bestScore) {
       bestScore = g.score;
       best = g.timestamp;
     }
   }
 
-  return best || 300; // default: 5 min in
+  // If no good gap found, the first talk probably starts at or slightly before
+  // the usable transcript start (preamble was in the garbled zone)
+  if (bestScore < 10) {
+    // Estimate: the first talk likely started a few minutes before the
+    // transcript becomes usable (Whisper caught up mid-talk)
+    console.log(`  Garbled zone ends at: ${fmt(usableStart)}`);
+    console.log(`  No strong transition found — estimating first talk start`);
+    // Check the first talk's scheduled duration to work backward from the
+    // first detected transition
+    return Math.max(0, usableStart - 180); // ~3 min before usable audio
+  }
+
+  return best;
 }
 
 // --- Main ---
@@ -340,7 +378,7 @@ async function main() {
 
   // Pass 3: Find first talk and select transitions with DP
   console.log(`\n=== Pass 3: Selecting ${talks.length - 1} transitions ===\n`);
-  const firstStart = findFirstTalkStart(gaps, talks);
+  const firstStart = findFirstTalkStart(gaps, talks, words);
   console.log(`  First talk starts at: ${fmt(firstStart)}`);
 
   const dpResult = selectTransitionsDP(gaps, talks, firstStart);
