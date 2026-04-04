@@ -185,17 +185,25 @@ async function verifyAndCorrectStart(
     }
     const text = lines.join(" ").trim();
 
-    const prompt = `Does this transcript excerpt sound like the OPENING of a conference talk by ${speakerName} titled "${talkTitle}"?
+    const prompt = `Is this speaker presenting to an audience, or is this casual/backstage conversation?
 
-A talk opening typically includes: a greeting ("hello", "hi everyone"), a self-introduction ("my name is", "I'm"), a topic introduction ("today I'm going to talk about", "this talk is about"), or thanking the MC for the introduction.
-
-Casual backstage conversation, tech setup chatter ("is the audio working?", "let me get my slides up"), or MC banter between talks is NOT a talk opening.
+CONTEXT: We're looking for the start of a conference talk titled "${talkTitle}" by ${speakerName}.
 
 TRANSCRIPT:
 ${text}
 
+A speaker PRESENTING to an audience could start in many ways: a formal greeting, diving straight into their topic, telling a story, sharing background, saying "okay here we go" — the key is they're addressing the room, not having a private conversation.
+
+Things that are NOT a talk starting:
+- Backstage chatter ("is the audio working?", "good to see you", "I have to leave in the morning")
+- MC banter between talks
+- Tech setup / sound check
+- Audience milling around
+
+Is the speaker presenting to the audience in this excerpt?
+
 Respond with ONLY a JSON object:
-{"is_talk_opening": <boolean>, "talk_start_seconds": <t= value where the talk actually starts, or null>, "reasoning": "<brief explanation>"}`;
+{"is_talk_opening": <boolean>, "talk_start_seconds": <t= value where presenting begins, or null>, "reasoning": "<brief explanation>"}`;
 
     const response = await client.chat.completions.create({
       model: "gpt-5.4-mini",
