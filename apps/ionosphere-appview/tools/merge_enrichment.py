@@ -95,7 +95,7 @@ def main():
         print("No diarization data — skipping speaker assignment")
 
     output = {
-        "stream": transcript["stream"],
+        "stream": transcript.get("stream", transcript.get("stream_uri", "")),
         "duration_seconds": transcript["duration_seconds"],
         "words": words,
         "segments": segments,
