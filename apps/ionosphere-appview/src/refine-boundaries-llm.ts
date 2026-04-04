@@ -155,6 +155,71 @@ function findSpeakerTransitionFromDiarization(
   return null;
 }
 
+/**
+ * Verify that a detected talk start actually looks like a talk opening.
+ * If not, scan forward in wider windows until we find one.
+ */
+async function verifyAndCorrectStart(
+  client: OpenAI,
+  talkTitle: string,
+  speakerName: string,
+  words: Word[],
+  timestamp: number,
+): Promise<{ timestamp: number; reasoning: string; adjusted: boolean }> {
+  // Try increasingly wider windows forward from the detected point
+  for (const forwardSec of [0, 60, 120, 180]) {
+    const scanStart = timestamp + forwardSec;
+    const windowWords = words.filter(
+      (w) => w.start >= scanStart && w.start <= scanStart + 45,
+    );
+    if (windowWords.length < 5) continue;
+
+    const lines: string[] = [];
+    for (let i = 0; i < windowWords.length; i++) {
+      if (i % 10 === 0) {
+        const ts = windowWords[i].start;
+        const speaker = windowWords[i].speaker ? ` ${windowWords[i].speaker}` : "";
+        lines.push(`\n[t=${Math.round(ts)}s ${fmt(ts)}${speaker}]`);
+      }
+      lines.push(windowWords[i].word);
+    }
+    const text = lines.join(" ").trim();
+
+    const prompt = `Does this transcript excerpt sound like the OPENING of a conference talk by ${speakerName} titled "${talkTitle}"?
+
+A talk opening typically includes: a greeting ("hello", "hi everyone"), a self-introduction ("my name is", "I'm"), a topic introduction ("today I'm going to talk about", "this talk is about"), or thanking the MC for the introduction.
+
+Casual backstage conversation, tech setup chatter ("is the audio working?", "let me get my slides up"), or MC banter between talks is NOT a talk opening.
+
+TRANSCRIPT:
+${text}
+
+Respond with ONLY a JSON object:
+{"is_talk_opening": <boolean>, "talk_start_seconds": <t= value where the talk actually starts, or null>, "reasoning": "<brief explanation>"}`;
+
+    const response = await client.chat.completions.create({
+      model: "gpt-5.4-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      response_format: { type: "json_object" },
+    });
+
+    const parsed = JSON.parse(response.choices[0].message.content || "{}");
+
+    if (parsed.is_talk_opening) {
+      const actualStart = parsed.talk_start_seconds ?? scanStart;
+      return {
+        timestamp: actualStart,
+        reasoning: parsed.reasoning ?? "",
+        adjusted: forwardSec > 0 || actualStart !== timestamp,
+      };
+    }
+  }
+
+  // None of the windows looked like a talk opening — keep original
+  return { timestamp, reasoning: "no clear talk opening found in forward scan", adjusted: false };
+}
+
 async function main() {
   const boundariesPath = process.argv[2];
   const transcriptPath = process.argv[3];
@@ -228,14 +293,25 @@ async function main() {
       console.log(`  ${title.slice(0, 45).padEnd(47)} ${fmt(startTimestamp)} → KEEP (garbled, no diarization data)`);
       refined.push(result);
     } else {
-      const delta = timestamp - startTimestamp;
-      console.log(`  ${title.slice(0, 45).padEnd(47)} ${fmt(startTimestamp)} → ${fmt(timestamp)} (${delta >= 0 ? "+" : ""}${delta.toFixed(0)}s) ${reasoning.slice(0, 50)}`);
+      // LLM found a timestamp — now verify it looks like a talk opening
+      const verified = await verifyAndCorrectStart(client, title, speakerName, words, timestamp);
+      const finalTimestamp = verified.timestamp;
+      const delta = finalTimestamp - startTimestamp;
+
+      if (verified.adjusted) {
+        console.log(`  ${title.slice(0, 45).padEnd(47)} ${fmt(startTimestamp)} → ${fmt(timestamp)} → ${fmt(finalTimestamp)} (${delta >= 0 ? "+" : ""}${delta.toFixed(0)}s) verified: ${verified.reasoning.slice(0, 40)}`);
+      } else {
+        console.log(`  ${title.slice(0, 45).padEnd(47)} ${fmt(startTimestamp)} → ${fmt(finalTimestamp)} (${delta >= 0 ? "+" : ""}${delta.toFixed(0)}s) ${reasoning.slice(0, 50)}`);
+      }
+
       refined.push({
         ...result,
-        startTimestamp: timestamp,
+        startTimestamp: finalTimestamp,
         preRefinementTimestamp: startTimestamp,
-        refinementMethod: "llm",
-        refinementReasoning: reasoning,
+        refinementMethod: verified.adjusted ? "llm+verified" : "llm",
+        refinementReasoning: verified.adjusted
+          ? `Initial: ${reasoning}. Verified: ${verified.reasoning}`
+          : reasoning,
       });
     }
   }
