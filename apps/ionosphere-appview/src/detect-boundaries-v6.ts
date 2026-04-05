@@ -439,9 +439,11 @@ function findUsableTranscriptStart(words: Word[], segments: Segment[]): number {
 function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[], words: Word[], segments: Segment[]): number {
   const usableStart = findUsableTranscriptStart(words, segments);
 
+  // After the garbled zone, look for the best gap or just use usableStart.
+  // The LLM refinement pass will find the exact talk start.
   const candidates = gaps.filter((g) => g.timestamp >= usableStart && g.timestamp < usableStart + 2700);
 
-  let best = 0;
+  let best = usableStart;
   let bestScore = 0;
   for (const g of candidates) {
     if (g.score > bestScore) {
@@ -458,12 +460,6 @@ function findFirstTalkStart(gaps: CandidateGap[], talks: Talk[], words: Word[], 
         best = g.timestamp;
       }
     }
-  }
-
-  if (bestScore < 5) {
-    console.log(`  Garbled zone ends at: ${fmt(usableStart)}`);
-    console.log(`  No strong transition found — estimating first talk start`);
-    return Math.max(0, usableStart - 180);
   }
 
   return best;
