@@ -46,18 +46,42 @@ function loadDiarization(dirName: string): any[] {
   return data.segments || [];
 }
 
-function loadTranscript(dirName: string): { words: any[] } | null {
+const transcriptCache = new Map<string, { text: string; facets: any[] }>();
+
+function loadTranscript(dirName: string): { text: string; facets: any[] } | null {
+  if (transcriptCache.has(dirName)) return transcriptCache.get(dirName)!;
+
   const txPath = path.join(DATA_DIR, dirName, "transcript-enriched.json");
   if (!existsSync(txPath)) return null;
   const data = JSON.parse(readFileSync(txPath, "utf-8"));
-  // Return only the word-level data (word, start, end, speaker) — skip the full text
-  const words = (data.words || []).map((w: any) => ({
-    word: w.word,
-    start: w.start,
-    end: w.end,
-    speaker: w.speaker,
-  }));
-  return { words };
+  const words: any[] = data.words || [];
+  if (words.length === 0) return null;
+
+  // Build text and compute byte offsets in a single pass
+  const facets: any[] = [];
+  let text = "";
+  let byteOffset = 0;
+
+  for (const w of words) {
+    const wordText = w.word + " ";
+    const byteStart = byteOffset;
+    const wordBytes = Buffer.byteLength(wordText, "utf-8");
+    byteOffset += wordBytes;
+
+    text += wordText;
+    facets.push({
+      index: { byteStart, byteEnd: byteOffset },
+      features: [{
+        $type: "tv.ionosphere.facet#timestamp",
+        startTime: Math.round(w.start * 1e9),
+        endTime: Math.round(w.end * 1e9),
+      }],
+    });
+  }
+
+  const result = { text, facets };
+  transcriptCache.set(dirName, result);
+  return result;
 }
 
 export function getTracksIndex(db: Database.Database) {

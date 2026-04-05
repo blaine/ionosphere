@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
+import TranscriptView from "@/app/components/TranscriptView";
 import StreamTimeline from "@/app/components/StreamTimeline";
 import DiarizationBand from "@/app/components/DiarizationBand";
 
@@ -15,13 +16,6 @@ interface Talk {
   confidence: string;
 }
 
-interface WordData {
-  word: string;
-  start: number;
-  end: number;
-  speaker?: string;
-}
-
 interface TrackData {
   slug: string;
   name: string;
@@ -32,7 +26,7 @@ interface TrackData {
   playbackUrl: string;
   talks: Talk[];
   diarization: Array<{ start: number; end: number; speaker: string }>;
-  transcript?: { words: WordData[] };
+  transcript?: { text: string; facets: any[] };
 }
 
 function formatTime(seconds: number): string {
@@ -42,7 +36,7 @@ function formatTime(seconds: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// --- Talk List Tab ---
+// --- Talk List ---
 
 function TalkList({ talks }: { talks: Talk[] }) {
   const { seekTo, currentTimeNs } = useTimestamp();
@@ -51,10 +45,10 @@ function TalkList({ talks }: { talks: Talk[] }) {
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [Math.floor(currentTimeSec / 60)]); // scroll when minute changes
+  }, [Math.floor(currentTimeSec / 60)]);
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1 p-4">
       {talks.map((talk, i) => {
         const isActive =
           currentTimeSec >= talk.startSeconds &&
@@ -85,93 +79,7 @@ function TalkList({ talks }: { talks: Talk[] }) {
   );
 }
 
-// --- Transcript Tab ---
-
-function TrackTranscript({ words, talks }: { words: WordData[]; talks: Talk[] }) {
-  const { seekTo, currentTimeNs } = useTimestamp();
-  const currentTimeSec = currentTimeNs / 1e9;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const activeWordRef = useRef<HTMLSpanElement>(null);
-
-  // Auto-scroll to active word
-  useEffect(() => {
-    activeWordRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [Math.floor(currentTimeSec / 5)]); // every 5 seconds
-
-  // Build talk boundary map for markers
-  const talkStarts = useMemo(() => {
-    const map = new Map<number, Talk>();
-    for (const t of talks) {
-      // Find the word index closest to the talk start
-      const idx = words.findIndex((w) => w.start >= t.startSeconds);
-      if (idx >= 0) map.set(idx, t);
-    }
-    return map;
-  }, [words, talks]);
-
-  // Render a window of words around current time for performance
-  const windowSize = 500;
-  const centerIdx = useMemo(() => {
-    let best = 0;
-    for (let i = 0; i < words.length; i++) {
-      if (words[i].start <= currentTimeSec) best = i;
-      else break;
-    }
-    return best;
-  }, [Math.floor(currentTimeSec / 3), words]);
-
-  const startIdx = Math.max(0, centerIdx - windowSize);
-  const endIdx = Math.min(words.length, centerIdx + windowSize);
-  const visibleWords = words.slice(startIdx, endIdx);
-
-  return (
-    <div ref={containerRef} className="text-sm leading-relaxed text-neutral-400">
-      {startIdx > 0 && (
-        <div className="text-center text-neutral-600 text-xs py-2">
-          ... {startIdx} words above ...
-        </div>
-      )}
-      {visibleWords.map((word, i) => {
-        const globalIdx = startIdx + i;
-        const isActive = currentTimeSec >= word.start && currentTimeSec < word.end + 0.5;
-        const talkBoundary = talkStarts.get(globalIdx);
-
-        return (
-          <span key={globalIdx}>
-            {talkBoundary && (
-              <span className="block mt-4 mb-2 pt-3 border-t border-neutral-800">
-                <span className="text-xs font-semibold text-neutral-300 uppercase tracking-wider">
-                  {formatTime(talkBoundary.startSeconds)} — {talkBoundary.title}
-                </span>
-                {talkBoundary.speakers.length > 0 && (
-                  <span className="text-xs text-neutral-600 ml-2">
-                    {talkBoundary.speakers.join(", ")}
-                  </span>
-                )}
-              </span>
-            )}
-            <span
-              ref={isActive ? activeWordRef : undefined}
-              onClick={() => seekTo(word.start * 1e9)}
-              className={`cursor-pointer hover:text-neutral-200 ${
-                isActive ? "text-white font-medium bg-neutral-800 rounded px-0.5" : ""
-              }`}
-            >
-              {word.word}{" "}
-            </span>
-          </span>
-        );
-      })}
-      {endIdx < words.length && (
-        <div className="text-center text-neutral-600 text-xs py-2">
-          ... {words.length - endIdx} words below ...
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Timeline Zoom ---
+// --- Zoomable Timeline with gesture support ---
 
 function ZoomableTimeline({
   talks,
@@ -183,51 +91,97 @@ function ZoomableTimeline({
   durationSeconds: number;
 }) {
   const { currentTimeNs } = useTimestamp();
-  const [zoomLevel, setZoomLevel] = useState(1); // 1 = full stream, 2 = half, 4 = quarter, etc.
   const currentTimeSec = currentTimeNs / 1e9;
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Zoom window: center on current time
+  // Zoom state: center position (seconds) + zoom level
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panCenter, setPanCenter] = useState<number | null>(null);
+
+  // Center defaults to current playback position when not manually panned
+  const center = panCenter ?? currentTimeSec;
+
   const windowDuration = durationSeconds / zoomLevel;
   const windowStart = Math.max(0, Math.min(
-    currentTimeSec - windowDuration / 2,
-    durationSeconds - windowDuration
+    center - windowDuration / 2,
+    durationSeconds - windowDuration,
   ));
   const windowEnd = windowStart + windowDuration;
 
-  // Filter data to visible window
+  // Gesture handling: wheel to zoom, shift+wheel or horizontal scroll to pan
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        // Vertical scroll or pinch = zoom
+        const zoomDelta = e.deltaY > 0 ? 0.8 : 1.25;
+        setZoomLevel((prev) => Math.max(1, Math.min(64, prev * zoomDelta)));
+      }
+
+      if (Math.abs(e.deltaX) > 0 || e.shiftKey) {
+        // Horizontal scroll or shift+scroll = pan
+        const panDelta = (e.deltaX || e.deltaY) * (windowDuration / 1000);
+        setPanCenter((prev) => {
+          const c = prev ?? currentTimeSec;
+          return Math.max(windowDuration / 2, Math.min(durationSeconds - windowDuration / 2, c + panDelta));
+        });
+      }
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [windowDuration, durationSeconds, currentTimeSec]);
+
+  // Reset pan when zoom returns to 1x
+  useEffect(() => {
+    if (zoomLevel <= 1) setPanCenter(null);
+  }, [zoomLevel]);
+
   const visibleTalks = talks.filter(
-    (t) => t.startSeconds < windowEnd && (t.endSeconds ?? durationSeconds) > windowStart
+    (t) => t.startSeconds < windowEnd && (t.endSeconds ?? durationSeconds) > windowStart,
   );
   const visibleDiarization = diarization.filter(
-    (s) => s.start < windowEnd && s.end > windowStart
+    (s) => s.start < windowEnd && s.end > windowStart,
   );
 
   return (
-    <div>
+    <div ref={containerRef}>
       <div className="flex items-center gap-2 mb-1">
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setZoomLevel(Math.max(1, zoomLevel / 2))}
+            onClick={() => { setZoomLevel((z) => Math.max(1, z / 2)); }}
             disabled={zoomLevel <= 1}
             className="px-2 py-0.5 text-xs rounded bg-neutral-800 text-neutral-400 hover:text-neutral-200 disabled:opacity-30"
           >
             −
           </button>
           <span className="text-xs text-neutral-500 w-10 text-center">
-            {zoomLevel === 1 ? "Full" : `${zoomLevel}x`}
+            {zoomLevel <= 1 ? "Full" : `${zoomLevel.toFixed(zoomLevel < 2 ? 1 : 0)}x`}
           </span>
           <button
-            onClick={() => setZoomLevel(Math.min(32, zoomLevel * 2))}
-            disabled={zoomLevel >= 32}
+            onClick={() => { setZoomLevel((z) => Math.min(64, z * 2)); }}
+            disabled={zoomLevel >= 64}
             className="px-2 py-0.5 text-xs rounded bg-neutral-800 text-neutral-400 hover:text-neutral-200 disabled:opacity-30"
           >
             +
           </button>
         </div>
         {zoomLevel > 1 && (
-          <span className="text-xs text-neutral-600">
-            {formatTime(windowStart)} — {formatTime(windowEnd)}
-          </span>
+          <>
+            <span className="text-xs text-neutral-600">
+              {formatTime(windowStart)} — {formatTime(windowEnd)}
+            </span>
+            <button
+              onClick={() => { setZoomLevel(1); setPanCenter(null); }}
+              className="text-xs text-neutral-600 hover:text-neutral-300 ml-auto"
+            >
+              Reset
+            </button>
+          </>
         )}
       </div>
 
@@ -254,26 +208,26 @@ function ZoomableTimeline({
 
 function TrackViewInner({ track }: { track: TrackData }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
-
-  const hasTranscript = track.transcript && track.transcript.words.length > 0;
+  const hasTranscript = !!(track.transcript?.facets?.length);
 
   return (
     <div className="h-full flex flex-col">
-      {/* Fixed header: title + video + timeline */}
-      <div className="shrink-0 px-4 pt-4">
+      {/* Fixed header: title + video (compact) + timeline + tabs */}
+      <div className="shrink-0 px-4 pt-3 border-b border-neutral-800">
         <div className="max-w-5xl mx-auto">
-          <div className="mb-3">
-            <h1 className="text-xl font-bold">{track.name}</h1>
-            <p className="text-sm text-neutral-500">
+          <div className="mb-2">
+            <h1 className="text-lg font-bold">{track.name}</h1>
+            <p className="text-xs text-neutral-500">
               {track.room} · {track.talks.length} talks · {formatTime(track.durationSeconds)}
             </p>
           </div>
 
-          <div className="mb-3">
+          {/* Video: constrained to ~1/3 viewport height */}
+          <div className="mb-2 max-h-[33vh] overflow-hidden rounded-lg bg-black">
             <VideoPlayer videoUri={track.streamUri} />
           </div>
 
-          <div className="mb-3">
+          <div className="mb-2">
             <ZoomableTimeline
               talks={track.talks}
               diarization={track.diarization}
@@ -282,7 +236,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-4 border-b border-neutral-800">
+          <div className="flex gap-4">
             <button
               onClick={() => setActiveTab("talks")}
               className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
@@ -308,12 +262,16 @@ function TrackViewInner({ track }: { track: TrackData }) {
         </div>
       </div>
 
-      {/* Scrollable content area */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
-        <div className="max-w-5xl mx-auto">
-          {activeTab === "talks" && <TalkList talks={track.talks} />}
+      {/* Scrollable content */}
+      <div className="flex-1 min-h-0">
+        <div className="max-w-5xl mx-auto h-full">
+          {activeTab === "talks" && (
+            <div className="h-full overflow-y-auto">
+              <TalkList talks={track.talks} />
+            </div>
+          )}
           {activeTab === "transcript" && hasTranscript && (
-            <TrackTranscript words={track.transcript!.words} talks={track.talks} />
+            <TranscriptView document={track.transcript!} />
           )}
         </div>
       </div>
