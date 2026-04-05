@@ -9,8 +9,10 @@ const PDS_URL = process.env.PDS_URL || "https://jellybaby.us-east.host.bsky.netw
 const DID = "did:plc:lkeq4oghyhnztbu4dxr3joff";
 
 const db = openDb();
+// Force DELETE journal mode so the DB file is self-contained (no WAL)
+db.pragma("journal_mode = DELETE");
 migrate(db);
-console.log("Tables created");
+console.log("Tables created, DB:", db.name);
 
 await backfill(db, PDS_URL, DID);
 
