@@ -20,7 +20,7 @@ A browsable view for full-day conference streams, showing the video with talk se
    - Click a talk segment to jump to its start
 3. **Speaker diarization band** — thin colored strip below the timeline showing speaker activity. Each speaker gets a consistent color. Hovering shows speaker ID.
 4. **Talk list** — ordered list of talks in the stream with start times, speakers, and jump-to action
-5. **Transcript view** — existing TranscriptView component, showing the transcript for the currently-playing talk segment (switches as playback crosses talk boundaries)
+5. **Transcript view** — the full track transcript (from `transcript-enriched.json`), synced to playback position. Talk boundaries shown as markers within the continuous transcript. No switching between per-talk transcripts — the track transcript IS the transcript, with talk segments as markers on it.
 
 ## API
 
@@ -60,7 +60,7 @@ All data already exists:
 - Stream URIs and playback URLs: hardcoded in `transcribe-fullday.ts`, also derivable from stream records
 - Talk segments with offsets: `video_segments` field on talk records in DB
 - Diarization: `data/fullday/<stream>/diarization.json`
-- Transcripts: existing transcript records in DB
+- Track transcripts: `data/fullday/<stream>/transcript-enriched.json` (full track with timestamps + speaker labels)
 
 ## Stream Slug Mapping
 
@@ -84,7 +84,7 @@ All data already exists:
 
 Reuses existing:
 - Video player component
-- TranscriptView (switches talk based on current playback time)
+- TranscriptView (adapted to use track-level transcript rather than per-talk)
 
 ## Not In Scope
 
