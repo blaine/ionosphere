@@ -11,9 +11,9 @@ interface DiarizationSegment {
 interface DiarizationBandProps {
   segments: DiarizationSegment[];
   durationSeconds: number;
+  offsetSeconds?: number; // start of the visible window (for zoom)
 }
 
-// Deterministic hue from speaker ID
 function speakerHue(speaker: string): number {
   let hash = 0;
   for (let i = 0; i < speaker.length; i++) {
@@ -22,31 +22,45 @@ function speakerHue(speaker: string): number {
   return Math.abs(hash) % 360;
 }
 
-export default function DiarizationBand({ segments, durationSeconds }: DiarizationBandProps) {
-  // Merge adjacent segments from the same speaker for performance
+export default function DiarizationBand({ segments, durationSeconds, offsetSeconds = 0 }: DiarizationBandProps) {
+  const windowEnd = offsetSeconds + durationSeconds;
+
+  // Merge adjacent segments from the same speaker, clipped to visible window
   const merged = useMemo(() => {
-    if (segments.length === 0) return [];
+    const visible = segments.filter((s) => s.end > offsetSeconds && s.start < windowEnd);
+    if (visible.length === 0) return [];
+
     const result: DiarizationSegment[] = [];
-    let current = { ...segments[0] };
-    for (let i = 1; i < segments.length; i++) {
-      const seg = segments[i];
-      if (seg.speaker === current.speaker && seg.start - current.end < 1) {
-        current.end = seg.end;
+    let current = {
+      ...visible[0],
+      start: Math.max(visible[0].start, offsetSeconds),
+      end: Math.min(visible[0].end, windowEnd),
+    };
+
+    for (let i = 1; i < visible.length; i++) {
+      const seg = visible[i];
+      const clipped = {
+        ...seg,
+        start: Math.max(seg.start, offsetSeconds),
+        end: Math.min(seg.end, windowEnd),
+      };
+      if (clipped.speaker === current.speaker && clipped.start - current.end < 1) {
+        current.end = clipped.end;
       } else {
         result.push(current);
-        current = { ...seg };
+        current = clipped;
       }
     }
     result.push(current);
     return result;
-  }, [segments]);
+  }, [segments, offsetSeconds, windowEnd]);
 
   return (
     <div className="relative w-full h-3 bg-neutral-900 rounded overflow-hidden border border-neutral-800">
       {merged.map((seg, i) => {
-        const left = (seg.start / durationSeconds) * 100;
+        const left = ((seg.start - offsetSeconds) / durationSeconds) * 100;
         const width = ((seg.end - seg.start) / durationSeconds) * 100;
-        if (width < 0.05) return null; // skip tiny segments
+        if (width < 0.05) return null;
         const hue = speakerHue(seg.speaker);
         return (
           <div

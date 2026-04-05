@@ -13,9 +13,9 @@ interface Talk {
 interface StreamTimelineProps {
   talks: Talk[];
   durationSeconds: number;
+  offsetSeconds?: number; // start of the visible window (for zoom)
 }
 
-// Deterministic color for each talk index
 const TALK_COLORS = [
   "bg-blue-800/60",
   "bg-emerald-800/60",
@@ -42,7 +42,7 @@ function formatTime(seconds: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export default function StreamTimeline({ talks, durationSeconds }: StreamTimelineProps) {
+export default function StreamTimeline({ talks, durationSeconds, offsetSeconds = 0 }: StreamTimelineProps) {
   const { currentTimeNs, seekTo } = useTimestamp();
   const barRef = useRef<HTMLDivElement>(null);
   const currentTimeSec = currentTimeNs / 1e9;
@@ -52,13 +52,18 @@ export default function StreamTimeline({ talks, durationSeconds }: StreamTimelin
       if (!barRef.current) return;
       const rect = barRef.current.getBoundingClientRect();
       const fraction = (e.clientX - rect.left) / rect.width;
-      const seconds = fraction * durationSeconds;
+      const seconds = offsetSeconds + fraction * durationSeconds;
       seekTo(seconds * 1e9);
     },
-    [durationSeconds, seekTo],
+    [durationSeconds, offsetSeconds, seekTo],
   );
 
-  const scrubberPct = Math.min(100, (currentTimeSec / durationSeconds) * 100);
+  // Scrubber position relative to the visible window
+  const scrubberPct = Math.min(100, Math.max(0,
+    ((currentTimeSec - offsetSeconds) / durationSeconds) * 100
+  ));
+
+  const windowEnd = offsetSeconds + durationSeconds;
 
   return (
     <div
@@ -68,9 +73,12 @@ export default function StreamTimeline({ talks, durationSeconds }: StreamTimelin
     >
       {/* Talk segments */}
       {talks.map((talk, i) => {
-        const left = (talk.startSeconds / durationSeconds) * 100;
-        const end = talk.endSeconds ?? durationSeconds;
-        const width = ((end - talk.startSeconds) / durationSeconds) * 100;
+        const talkStart = Math.max(talk.startSeconds, offsetSeconds);
+        const talkEnd = Math.min(talk.endSeconds ?? windowEnd, windowEnd);
+        if (talkStart >= windowEnd || talkEnd <= offsetSeconds) return null;
+
+        const left = ((talkStart - offsetSeconds) / durationSeconds) * 100;
+        const width = ((talkEnd - talkStart) / durationSeconds) * 100;
         const color = TALK_COLORS[i % TALK_COLORS.length];
 
         return (
@@ -94,9 +102,11 @@ export default function StreamTimeline({ talks, durationSeconds }: StreamTimelin
       />
 
       {/* Time labels */}
-      <div className="absolute bottom-0 left-1 text-[9px] text-neutral-500">0:00</div>
+      <div className="absolute bottom-0 left-1 text-[9px] text-neutral-500">
+        {formatTime(offsetSeconds)}
+      </div>
       <div className="absolute bottom-0 right-1 text-[9px] text-neutral-500">
-        {formatTime(durationSeconds)}
+        {formatTime(windowEnd)}
       </div>
     </div>
   );

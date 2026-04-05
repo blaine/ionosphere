@@ -46,6 +46,20 @@ function loadDiarization(dirName: string): any[] {
   return data.segments || [];
 }
 
+function loadTranscript(dirName: string): { words: any[] } | null {
+  const txPath = path.join(DATA_DIR, dirName, "transcript-enriched.json");
+  if (!existsSync(txPath)) return null;
+  const data = JSON.parse(readFileSync(txPath, "utf-8"));
+  // Return only the word-level data (word, start, end, speaker) — skip the full text
+  const words = (data.words || []).map((w: any) => ({
+    word: w.word,
+    start: w.start,
+    end: w.end,
+    speaker: w.speaker,
+  }));
+  return { words };
+}
+
 export function getTracksIndex(db: Database.Database) {
   return STREAMS.map((s) => {
     // Count talks that have a fullday segment for this stream
@@ -111,6 +125,7 @@ export function getTrackData(db: Database.Database, slug: string) {
   }
 
   const diarization = loadDiarization(stream.dirName);
+  const transcript = loadTranscript(stream.dirName);
 
   return {
     slug: stream.slug,
@@ -122,5 +137,6 @@ export function getTrackData(db: Database.Database, slug: string) {
     playbackUrl: playbackUrl(stream.uri),
     talks,
     diarization,
+    transcript,
   };
 }
