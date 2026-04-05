@@ -1,0 +1,24 @@
+import { getTrack, getTracks } from "@/lib/api";
+import type { Metadata } from "next";
+import TrackViewContent from "./TrackViewContent";
+
+export async function generateStaticParams() {
+  const { tracks } = await getTracks();
+  return tracks.map((t: any) => ({ stream: t.slug }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ stream: string }> }): Promise<Metadata> {
+  const { stream } = await params;
+  const data = await getTrack(stream);
+  return {
+    title: `${data.name} — Ionosphere`,
+    description: `${data.talks.length} talks from ${data.room}, ATmosphereConf 2026`,
+  };
+}
+
+export default async function TrackPage({ params }: { params: Promise<{ stream: string }> }) {
+  const { stream } = await params;
+  const data = await getTrack(stream);
+
+  return <TrackViewContent track={data} />;
+}
