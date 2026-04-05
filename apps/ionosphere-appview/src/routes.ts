@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { buildConcordance } from "./concordance.js";
+import { getTracksIndex, getTrackData } from "./tracks.js";
 import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -511,6 +512,20 @@ export function createRoutes(db: Database.Database): Hono {
     }
 
     return c.json({ ok: true });
+  });
+
+  // --- Tracks (full-day streams) ---
+
+  app.get("/xrpc/tv.ionosphere.getTracks", (c) => {
+    return c.json({ tracks: getTracksIndex(db) });
+  });
+
+  app.get("/xrpc/tv.ionosphere.getTrack", (c) => {
+    const stream = c.req.query("stream");
+    if (!stream) return c.json({ error: "missing stream parameter" }, 400);
+    const data = getTrackData(db, stream);
+    if (!data) return c.json({ error: "stream not found" }, 404);
+    return c.json(data);
   });
 
   return app;
