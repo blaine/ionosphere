@@ -26,7 +26,9 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
     editingEnabled,
     mode,
     selectedTalkRkey,
+    selectedEdge,
     selectTalk,
+    selectEdge,
     activeDrag,
     windowStart,
     windowEnd,
@@ -82,11 +84,17 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
 
   const handleEdgeMouseDown = useCallback(
     (e: React.MouseEvent, talkRkey: string, edge: "start" | "end", seconds: number) => {
-      if (!editingEnabled || mode !== "trim") return;
+      if (!editingEnabled) return;
       e.stopPropagation();
-      startDrag(talkRkey, edge, seconds);
+      // Always select the edge on click
+      selectTalk(talkRkey);
+      selectEdge(edge);
+      // In trim mode, also start a drag
+      if (mode === "trim") {
+        startDrag(talkRkey, edge, seconds);
+      }
     },
-    [editingEnabled, mode, startDrag],
+    [editingEnabled, mode, startDrag, selectTalk, selectEdge],
   );
 
   const scrubberPct = Math.min(100, Math.max(0,
@@ -115,12 +123,14 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
         const left = ((displayStart - windowStart) / windowDuration) * 100;
         const width = ((displayEnd - displayStart) / windowDuration) * 100;
         const isSelected = selectedTalkRkey === talk.rkey;
+        const isStartEdgeSelected = isSelected && selectedEdge === "start";
+        const isEndEdgeSelected = isSelected && selectedEdge === "end";
 
         return (
           <div
             key={`${talk.rkey}-${i}`}
             className={`absolute top-0 h-full flex items-center overflow-hidden ${
-              isSelected ? "ring-2 ring-white/50 z-[5]" : ""
+              isSelected ? "ring-1 ring-white/30 z-[5]" : ""
             }`}
             style={{
               left: `${left}%`,
@@ -129,14 +139,19 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
             }}
             title={`${talk.title} (${formatTime(talk.startSeconds)})`}
           >
-            {editingEnabled && mode === "trim" && (
+            {/* Left (start) edge handle */}
+            {editingEnabled && (
               <div
-                className="absolute left-0 top-0 w-1 h-full cursor-col-resize hover:bg-white/40 z-[6]"
+                className={`absolute left-0 top-0 w-1.5 h-full cursor-col-resize z-[6] transition-colors ${
+                  isStartEdgeSelected
+                    ? "bg-yellow-400/80"
+                    : "hover:bg-white/40"
+                }`}
                 onMouseDown={(e) => handleEdgeMouseDown(e, talk.rkey, "start", talk.startSeconds)}
               />
             )}
 
-            <span className="text-[10px] text-neutral-300 px-1 truncate">
+            <span className="text-[10px] text-neutral-300 px-2 truncate">
               {talk.title}
             </span>
 
@@ -144,9 +159,14 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
               <span className="absolute top-0.5 right-1 text-[8px] text-green-400">&#10003;</span>
             )}
 
-            {editingEnabled && mode === "trim" && (
+            {/* Right (end) edge handle */}
+            {editingEnabled && (
               <div
-                className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-white/40 z-[6]"
+                className={`absolute right-0 top-0 w-1.5 h-full cursor-col-resize z-[6] transition-colors ${
+                  isEndEdgeSelected
+                    ? "bg-yellow-400/80"
+                    : "hover:bg-white/40"
+                }`}
                 onMouseDown={(e) => handleEdgeMouseDown(e, talk.rkey, "end", talk.endSeconds ?? windowEnd)}
               />
             )}

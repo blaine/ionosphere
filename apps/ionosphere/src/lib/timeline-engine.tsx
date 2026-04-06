@@ -38,6 +38,7 @@ interface EngineState {
   editingEnabled: boolean;
   mode: EditMode;
   selectedTalkRkey: string | null;
+  selectedEdge: "start" | "end" | null;
   activeDrag: DragState | null;
   corrections: CorrectionEntry[];
   undoCursor: number;
@@ -51,6 +52,7 @@ type EngineAction =
   | { type: "TOGGLE_EDITING" }
   | { type: "SET_MODE"; mode: EditMode }
   | { type: "SELECT_TALK"; rkey: string | null }
+  | { type: "SELECT_EDGE"; edge: "start" | "end" | null }
   | { type: "START_DRAG"; talkRkey: string; edge: "start" | "end"; seconds: number }
   | { type: "UPDATE_DRAG"; seconds: number }
   | { type: "COMMIT_DRAG" }
@@ -73,6 +75,7 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
         editingEnabled: !state.editingEnabled,
         mode: "select",
         selectedTalkRkey: null,
+        selectedEdge: null,
         activeDrag: null,
       };
 
@@ -80,7 +83,10 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
       return { ...state, mode: action.mode, activeDrag: null };
 
     case "SELECT_TALK":
-      return { ...state, selectedTalkRkey: action.rkey };
+      return { ...state, selectedTalkRkey: action.rkey, selectedEdge: null };
+
+    case "SELECT_EDGE":
+      return { ...state, selectedEdge: action.edge };
 
     case "START_DRAG":
       return {
@@ -173,6 +179,7 @@ interface TimelineEngineContextValue {
   editingEnabled: boolean;
   mode: EditMode;
   selectedTalkRkey: string | null;
+  selectedEdge: "start" | "end" | null;
   activeDrag: DragState | null;
   isDirty: boolean;
   canUndo: boolean;
@@ -189,6 +196,7 @@ interface TimelineEngineContextValue {
   toggleEditing: () => void;
   setMode: (mode: EditMode) => void;
   selectTalk: (rkey: string | null) => void;
+  selectEdge: (edge: "start" | "end" | null) => void;
   startDrag: (talkRkey: string, edge: "start" | "end", seconds: number) => void;
   updateDrag: (seconds: number) => void;
   commitDrag: () => void;
@@ -239,6 +247,7 @@ export function TimelineEngineProvider({
     editingEnabled: false,
     mode: "select",
     selectedTalkRkey: null,
+    selectedEdge: null,
     activeDrag: null,
     corrections: initialCorrections ?? [],
     undoCursor: initialCorrections?.length ?? 0,
@@ -280,6 +289,7 @@ export function TimelineEngineProvider({
     editingEnabled: state.editingEnabled,
     mode: state.mode,
     selectedTalkRkey: state.selectedTalkRkey,
+    selectedEdge: state.selectedEdge,
     activeDrag: state.activeDrag,
     isDirty: state.undoCursor !== state.savedCursor,
     canUndo: state.undoCursor > 0,
@@ -296,6 +306,7 @@ export function TimelineEngineProvider({
     toggleEditing: () => dispatch({ type: "TOGGLE_EDITING" }),
     setMode: (mode: EditMode) => dispatch({ type: "SET_MODE", mode }),
     selectTalk: (rkey: string | null) => dispatch({ type: "SELECT_TALK", rkey }),
+    selectEdge: (edge: "start" | "end" | null) => dispatch({ type: "SELECT_EDGE", edge }),
     startDrag: (talkRkey: string, edge: "start" | "end", seconds: number) =>
       dispatch({ type: "START_DRAG", talkRkey, edge, seconds }),
     updateDrag: (seconds: number) => dispatch({ type: "UPDATE_DRAG", seconds }),

@@ -11,6 +11,7 @@ export function useEditorKeyboard(onSave: () => void) {
     mode,
     setMode,
     selectedTalkRkey,
+    selectedEdge,
     effectiveTalks,
     applyCorrection,
     undo,
@@ -118,32 +119,27 @@ export function useEditorKeyboard(onSave: () => void) {
             applyCorrection({ type: "remove_talk", talkRkey: selectedTalkRkey });
             return;
           case "[":
-            // [ nudges start boundary: plain = later (trim), shift = earlier (extend)
+          case "]": {
+            // Nudge the selected edge: [ = left (earlier), ] = right (later)
+            // Shift = micro-nudge (0.1s), plain = 1s
+            if (!selectedEdge) return;
             e.preventDefault();
+            const delta = (e.key === "[" ? -1 : 1) * (e.shiftKey ? 0.1 : 1);
+            const currentSeconds = selectedEdge === "start" ? talk.startSeconds : (talk.endSeconds ?? 0);
             applyCorrection({
               type: "move_boundary",
               talkRkey: selectedTalkRkey,
-              edge: "start",
-              fromSeconds: talk.startSeconds,
-              toSeconds: talk.startSeconds + (e.shiftKey ? -1 : 1),
+              edge: selectedEdge,
+              fromSeconds: currentSeconds,
+              toSeconds: currentSeconds + delta,
             });
             return;
-          case "]":
-            // ] nudges end boundary: plain = earlier (trim), shift = later (extend)
-            e.preventDefault();
-            applyCorrection({
-              type: "move_boundary",
-              talkRkey: selectedTalkRkey,
-              edge: "end",
-              fromSeconds: talk.endSeconds ?? 0,
-              toSeconds: (talk.endSeconds ?? 0) + (e.shiftKey ? 1 : -1),
-            });
-            return;
+          }
         }
       }
     };
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [editingEnabled, mode, selectedTalkRkey, effectiveTalks, currentTimeSec, paused, activeDrag, canUndo, canRedo, onSave, setMode, selectTalk, applyCorrection, undo, redo, cancelDrag, toggleEditing, seekTo, setPaused]);
+  }, [editingEnabled, mode, selectedTalkRkey, selectedEdge, effectiveTalks, currentTimeSec, paused, activeDrag, canUndo, canRedo, onSave, setMode, selectTalk, applyCorrection, undo, redo, cancelDrag, toggleEditing, seekTo, setPaused]);
 }
