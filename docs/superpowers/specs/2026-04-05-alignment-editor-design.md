@@ -225,12 +225,12 @@ Publish → sidecar entries become AT Protocol records
 
 ## API Surface
 
-The appview needs two new endpoints:
+The appview needs two new XRPC endpoints (matching existing naming convention):
 
-- `GET /api/tracks/:slug/corrections` — load the corrections sidecar
-- `PUT /api/tracks/:slug/corrections` — save the corrections sidecar
+- `GET /xrpc/tv.ionosphere.getCorrections?stream=<slug>` — load the corrections sidecar
+- `PUT /xrpc/tv.ionosphere.putCorrections` (body: `{ stream, corrections }`) — save the corrections sidecar
 
-These read/write the sidecar JSON file. No schema changes to the existing database.
+These read/write the sidecar JSON file. No schema changes to the existing database. The PUT endpoint validates the stream slug against known streams to prevent path traversal.
 
 ## File References
 
