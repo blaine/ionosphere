@@ -98,7 +98,7 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
       ref={barRef}
       onClick={handleBarClick}
       data-timeline-bar
-      className="relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden border border-neutral-800"
+      className={`relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden border border-neutral-800 ${editingEnabled ? "select-none" : ""}`}
     >
       {visibleTalks.map((talk, i) => {
         const talkStart = Math.max(talk.startSeconds, windowStart);

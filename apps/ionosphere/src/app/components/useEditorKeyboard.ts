@@ -118,23 +118,25 @@ export function useEditorKeyboard(onSave: () => void) {
             applyCorrection({ type: "remove_talk", talkRkey: selectedTalkRkey });
             return;
           case "[":
+            // [ nudges start boundary: plain = later (trim), shift = earlier (extend)
             e.preventDefault();
             applyCorrection({
               type: "move_boundary",
               talkRkey: selectedTalkRkey,
               edge: "start",
               fromSeconds: talk.startSeconds,
-              toSeconds: talk.startSeconds - (e.shiftKey ? 0.1 : 1),
+              toSeconds: talk.startSeconds + (e.shiftKey ? -1 : 1),
             });
             return;
           case "]":
+            // ] nudges end boundary: plain = earlier (trim), shift = later (extend)
             e.preventDefault();
             applyCorrection({
               type: "move_boundary",
               talkRkey: selectedTalkRkey,
               edge: "end",
               fromSeconds: talk.endSeconds ?? 0,
-              toSeconds: (talk.endSeconds ?? 0) + (e.shiftKey ? 0.1 : 1),
+              toSeconds: (talk.endSeconds ?? 0) + (e.shiftKey ? 1 : -1),
             });
             return;
         }

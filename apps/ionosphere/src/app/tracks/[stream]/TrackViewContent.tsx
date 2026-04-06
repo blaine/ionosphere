@@ -273,7 +273,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
             </div>
 
             {/* Timeline area */}
-            <div className="mb-2" ref={timelineContainerRef}>
+            <div className="mb-2 select-none" ref={timelineContainerRef}>
               {/* Zoom controls */}
               <div className="flex items-center gap-2 mb-1">
                 <div className="flex items-center gap-1">
