@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
@@ -85,10 +85,12 @@ function ZoomableTimeline({
   talks,
   diarization,
   durationSeconds,
+  allSpeakers,
 }: {
   talks: Talk[];
   diarization: Array<{ start: number; end: number; speaker: string }>;
   durationSeconds: number;
+  allSpeakers: string[];
 }) {
   const { currentTimeNs } = useTimestamp();
   const currentTimeSec = currentTimeNs / 1e9;
@@ -187,6 +189,7 @@ function ZoomableTimeline({
 
       <StreamTimeline
         talks={visibleTalks}
+        allTalks={talks}
         durationSeconds={windowDuration}
         offsetSeconds={windowStart}
       />
@@ -195,6 +198,7 @@ function ZoomableTimeline({
         <div className="mt-1">
           <DiarizationBand
             segments={visibleDiarization}
+            allSpeakers={allSpeakers}
             durationSeconds={windowDuration}
             offsetSeconds={windowStart}
           />
@@ -209,6 +213,19 @@ function ZoomableTimeline({
 function TrackViewInner({ track }: { track: TrackData }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
   const hasTranscript = !!(track.transcript?.facets?.length);
+
+  // Stable speaker list (order of first appearance) for color assignment
+  const allSpeakers = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const s of track.diarization) {
+      if (!seen.has(s.speaker)) {
+        seen.add(s.speaker);
+        ordered.push(s.speaker);
+      }
+    }
+    return ordered;
+  }, [track.diarization]);
 
   return (
     <div className="h-full flex flex-col">
@@ -232,6 +249,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
               talks={track.talks}
               diarization={track.diarization}
               durationSeconds={track.durationSeconds}
+              allSpeakers={allSpeakers}
             />
           </div>
 

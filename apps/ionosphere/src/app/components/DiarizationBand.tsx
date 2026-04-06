@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { speakerColor, buildIndexMap } from "@/lib/track-colors";
 
 interface DiarizationSegment {
   start: number;
@@ -11,21 +12,29 @@ interface DiarizationSegment {
 interface DiarizationBandProps {
   segments: DiarizationSegment[];
   durationSeconds: number;
-  offsetSeconds?: number; // start of the visible window (for zoom)
+  offsetSeconds?: number;
+  /** All unique speaker IDs (for stable color assignment). */
+  allSpeakers?: string[];
 }
 
-function speakerHue(speaker: string): number {
-  let hash = 0;
-  for (let i = 0; i < speaker.length; i++) {
-    hash = ((hash << 5) - hash + speaker.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % 360;
-}
-
-export default function DiarizationBand({ segments, durationSeconds, offsetSeconds = 0 }: DiarizationBandProps) {
+export default function DiarizationBand({ segments, durationSeconds, offsetSeconds = 0, allSpeakers }: DiarizationBandProps) {
   const windowEnd = offsetSeconds + durationSeconds;
 
-  // Merge adjacent segments from the same speaker, clipped to visible window
+  // Build stable color index from ALL speakers
+  const colorIndex = useMemo(() => {
+    if (allSpeakers) return buildIndexMap(allSpeakers);
+    // Fallback: extract unique speakers from segments in order of first appearance
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    for (const s of segments) {
+      if (!seen.has(s.speaker)) {
+        seen.add(s.speaker);
+        ordered.push(s.speaker);
+      }
+    }
+    return buildIndexMap(ordered);
+  }, [allSpeakers, segments]);
+
   const merged = useMemo(() => {
     const visible = segments.filter((s) => s.end > offsetSeconds && s.start < windowEnd);
     if (visible.length === 0) return [];
@@ -61,7 +70,6 @@ export default function DiarizationBand({ segments, durationSeconds, offsetSecon
         const left = ((seg.start - offsetSeconds) / durationSeconds) * 100;
         const width = ((seg.end - seg.start) / durationSeconds) * 100;
         if (width < 0.05) return null;
-        const hue = speakerHue(seg.speaker);
         return (
           <div
             key={i}
@@ -69,7 +77,7 @@ export default function DiarizationBand({ segments, durationSeconds, offsetSecon
             style={{
               left: `${left}%`,
               width: `${width}%`,
-              backgroundColor: `hsl(${hue}, 50%, 40%)`,
+              backgroundColor: speakerColor(seg.speaker, colorIndex),
             }}
             title={seg.speaker}
           />
