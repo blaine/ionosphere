@@ -11,3 +11,4 @@ apps/*/data/
 .env
 .env.local
 next-env.d.ts
+.worktrees/
