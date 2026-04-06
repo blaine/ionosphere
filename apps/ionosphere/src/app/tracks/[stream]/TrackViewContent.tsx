@@ -5,7 +5,8 @@ import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvi
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import StreamTimeline from "@/app/components/StreamTimeline";
-import DiarizationBand from "@/app/components/DiarizationBand";
+import WaveformBand from "@/app/components/WaveformBand";
+import SpeakerPopover from "@/app/components/SpeakerPopover";
 import { TimelineEngineProvider, useTimelineEngine } from "@/lib/timeline-engine";
 import TimelineToolbar from "@/app/components/TimelineToolbar";
 import InteractionOverlay from "@/app/components/InteractionOverlay";
@@ -120,6 +121,7 @@ function SaveHandler({ saveRef, streamSlug }: { saveRef: React.MutableRefObject<
 function TrackViewInner({ track }: { track: TrackData }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
   const hasTranscript = !!(track.transcript?.facets?.length);
+  const [speakerPopover, setSpeakerPopover] = useState<{ speakerId: string; position: { x: number; y: number } } | null>(null);
 
   // Zoom state
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -197,10 +199,6 @@ function TrackViewInner({ track }: { track: TrackData }) {
     }
     return ordered;
   }, [track.diarization]);
-
-  const visibleDiarization = track.diarization.filter(
-    (s) => s.start < windowEnd && s.end > windowStart,
-  );
 
   // Load corrections on mount
   const [initialCorrections, setInitialCorrections] = useState<CorrectionEntry[] | undefined>(undefined);
@@ -318,18 +316,27 @@ function TrackViewInner({ track }: { track: TrackData }) {
                 <InteractionOverlay />
               </div>
 
-              {/* Diarization band */}
+              {/* Waveform/diarization band */}
               {track.diarization.length > 0 && (
                 <div className="mt-1">
-                  <DiarizationBand
-                    segments={visibleDiarization}
+                  <WaveformBand
+                    words={track.words ?? []}
+                    diarization={track.diarization}
                     allSpeakers={allSpeakers}
-                    durationSeconds={windowDuration}
-                    offsetSeconds={windowStart}
+                    zoomLevel={zoomLevel}
+                    onSpeakerClick={(speakerId, position) => setSpeakerPopover({ speakerId, position })}
                   />
                 </div>
               )}
             </div>
+
+            {speakerPopover && (
+              <SpeakerPopover
+                speakerId={speakerPopover.speakerId}
+                position={speakerPopover.position}
+                onClose={() => setSpeakerPopover(null)}
+              />
+            )}
 
             {/* Tabs */}
             <div className="flex gap-4">

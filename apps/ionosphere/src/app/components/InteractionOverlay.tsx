@@ -13,9 +13,12 @@ export default function InteractionOverlay() {
     pixelToTime,
     timeToPixel,
     findSnap,
+    applyCorrection,
+    mode,
   } = useTimelineEngine();
 
   const [snapGuide, setSnapGuide] = useState<{ px: number; label: string } | null>(null);
+  const [addDrag, setAddDrag] = useState<{ startTime: number; currentTime: number } | null>(null);
 
   useEffect(() => {
     if (!activeDrag) {
@@ -69,6 +72,61 @@ export default function InteractionOverlay() {
     };
   }, [activeDrag, pixelToTime, timeToPixel, findSnap, updateDrag, commitDrag, cancelDrag]);
 
+  // Add mode: drag-to-create
+  useEffect(() => {
+    if (!editingEnabled || mode !== "add") {
+      setAddDrag(null);
+      return;
+    }
+
+    const timeline = document.querySelector("[data-timeline-bar]") as HTMLElement;
+    if (!timeline) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      const rect = timeline.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const time = pixelToTime(px);
+      setAddDrag({ startTime: time, currentTime: time });
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      setAddDrag((prev) => {
+        if (!prev) return null;
+        const rect = timeline.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        return { ...prev, currentTime: pixelToTime(px) };
+      });
+    };
+
+    const onMouseUp = () => {
+      setAddDrag((prev) => {
+        if (!prev) return null;
+        const startTime = Math.min(prev.startTime, prev.currentTime);
+        const endTime = Math.max(prev.startTime, prev.currentTime);
+        if (endTime - startTime > 5) {
+          applyCorrection({
+            type: "add_talk",
+            rkey: crypto.randomUUID().slice(0, 8),
+            title: "New Talk",
+            startSeconds: startTime,
+            endSeconds: endTime,
+          });
+        }
+        return null;
+      });
+    };
+
+    timeline.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+
+    return () => {
+      timeline.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [editingEnabled, mode, pixelToTime, applyCorrection]);
+
   if (!editingEnabled) return null;
 
   return (
@@ -83,6 +141,16 @@ export default function InteractionOverlay() {
           </span>
         </div>
       )}
+      {addDrag && (() => {
+        const leftPx = timeToPixel(Math.min(addDrag.startTime, addDrag.currentTime));
+        const rightPx = timeToPixel(Math.max(addDrag.startTime, addDrag.currentTime));
+        return (
+          <div
+            className="absolute top-0 h-full bg-blue-500/30 border border-blue-400/60 z-20 pointer-events-none rounded-sm"
+            style={{ left: `${leftPx}px`, width: `${rightPx - leftPx}px` }}
+          />
+        );
+      })()}
     </>
   );
 }
