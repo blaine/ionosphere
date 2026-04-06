@@ -132,16 +132,15 @@ function TrackViewInner({ track }: { track: TrackData }) {
   const currentTimeSec = currentTimeNs / 1e9;
 
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const timelineBarRef = useRef<HTMLDivElement>(null);
   const saveRef = useRef<(() => void) | null>(null);
 
-  // Measure container width with ResizeObserver
+  // Measure timeline bar width (must match the element used for coordinate conversion)
   useEffect(() => {
-    const el = timelineContainerRef.current;
+    const el = timelineBarRef.current;
     if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
+    const observer = new ResizeObserver(() => {
+      setContainerWidth(el.clientWidth);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -311,7 +310,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
               </div>
 
               {/* Timeline bar with interaction overlay */}
-              <div className="relative" data-timeline-bar>
+              <div className="relative border border-neutral-800 rounded" data-timeline-bar ref={timelineBarRef}>
                 <StreamTimeline allTalkRkeys={track.talks.map((t) => t.rkey)} />
                 <InteractionOverlay />
               </div>

@@ -3,7 +3,6 @@
 import { useTimelineEngine, type EditMode } from "@/lib/timeline-engine";
 
 const MODE_BUTTONS: { mode: EditMode; label: string; shortcut: string }[] = [
-  { mode: "select", label: "Select", shortcut: "V" },
   { mode: "trim", label: "Trim", shortcut: "T" },
   { mode: "split", label: "Split", shortcut: "S" },
   { mode: "add", label: "Add", shortcut: "A" },

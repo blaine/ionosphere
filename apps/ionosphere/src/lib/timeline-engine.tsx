@@ -25,7 +25,7 @@ import {
 
 // --- Types ---
 
-export type EditMode = "select" | "trim" | "split" | "add";
+export type EditMode = "trim" | "split" | "add";
 
 interface DragState {
   talkRkey: string;
@@ -67,13 +67,48 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
+/** Clamp a boundary move so it doesn't overlap adjacent talks or invert the segment. */
+function clampBoundary(
+  state: EngineState,
+  talkRkey: string,
+  edge: "start" | "end",
+  toSeconds: number,
+): number {
+  const { talks } = replayCorrections(state.baseTalks, state.corrections, state.undoCursor);
+  const sorted = [...talks].sort((a, b) => a.startSeconds - b.startSeconds);
+  const idx = sorted.findIndex((t) => t.rkey === talkRkey);
+  if (idx === -1) return toSeconds;
+
+  const talk = sorted[idx];
+  const prev = idx > 0 ? sorted[idx - 1] : null;
+  const next = idx < sorted.length - 1 ? sorted[idx + 1] : null;
+
+  if (edge === "start") {
+    let clamped = toSeconds;
+    // Don't go past own end (min 1s segment)
+    if (talk.endSeconds != null) clamped = Math.min(clamped, talk.endSeconds - 1);
+    // Don't overlap previous talk
+    if (prev?.endSeconds != null) clamped = Math.max(clamped, prev.endSeconds);
+    // Don't go below 0
+    clamped = Math.max(clamped, 0);
+    return clamped;
+  } else {
+    let clamped = toSeconds;
+    // Don't go before own start (min 1s segment)
+    clamped = Math.max(clamped, talk.startSeconds + 1);
+    // Don't overlap next talk
+    if (next) clamped = Math.min(clamped, next.startSeconds);
+    return clamped;
+  }
+}
+
 function engineReducer(state: EngineState, action: EngineAction): EngineState {
   switch (action.type) {
     case "TOGGLE_EDITING":
       return {
         ...state,
         editingEnabled: !state.editingEnabled,
-        mode: "select",
+        mode: "trim",
         selectedTalkRkey: null,
         selectedEdge: null,
         activeDrag: null,
@@ -109,7 +144,8 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
     case "COMMIT_DRAG": {
       if (!state.activeDrag) return state;
       const { talkRkey, edge, originalSeconds, currentSeconds } = state.activeDrag;
-      if (Math.abs(originalSeconds - currentSeconds) < 0.05) {
+      const clampedSeconds = clampBoundary(state, talkRkey, edge, currentSeconds);
+      if (Math.abs(originalSeconds - clampedSeconds) < 0.05) {
         return { ...state, activeDrag: null };
       }
       const correction: CorrectionEntry = {
@@ -122,7 +158,7 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
           talkRkey,
           edge,
           fromSeconds: originalSeconds,
-          toSeconds: currentSeconds,
+          toSeconds: clampedSeconds,
         },
       };
       const corrections = [...state.corrections.slice(0, state.undoCursor), correction];
@@ -138,12 +174,18 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
       return { ...state, activeDrag: null };
 
     case "APPLY_CORRECTION": {
+      let correctionAction = action.action;
+      // Clamp move_boundary to prevent overlaps
+      if (correctionAction.type === "move_boundary") {
+        const clamped = clampBoundary(state, correctionAction.talkRkey, correctionAction.edge, correctionAction.toSeconds);
+        correctionAction = { ...correctionAction, toSeconds: clamped };
+      }
       const correction: CorrectionEntry = {
         id: generateId(),
         timestamp: new Date().toISOString(),
         authorDid: state.authorDid,
         streamSlug: state.streamSlug,
-        action: action.action,
+        action: correctionAction,
       };
       const corrections = [...state.corrections.slice(0, state.undoCursor), correction];
       return { ...state, corrections, undoCursor: corrections.length };
@@ -245,7 +287,7 @@ export function TimelineEngineProvider({
 }: TimelineEngineProviderProps) {
   const [state, dispatch] = useReducer(engineReducer, {
     editingEnabled: false,
-    mode: "select",
+    mode: "trim",
     selectedTalkRkey: null,
     selectedEdge: null,
     activeDrag: null,

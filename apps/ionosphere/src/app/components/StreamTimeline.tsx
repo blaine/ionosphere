@@ -57,16 +57,18 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
       const fraction = (e.clientX - rect.left) / rect.width;
       const seconds = windowStart + fraction * windowDuration;
 
-      if (editingEnabled && mode === "split" && selectedTalkRkey) {
-        const talk = effectiveTalks.find((t) => t.rkey === selectedTalkRkey);
-        if (talk && seconds > talk.startSeconds && seconds < (talk.endSeconds ?? windowEnd)) {
-          const newRkey = crypto.randomUUID().slice(0, 8);
-          applyCorrection({ type: "split_talk", talkRkey: selectedTalkRkey, atSeconds: seconds, newRkey });
-          return;
+      if (editingEnabled) {
+        // Split mode: click on selected talk to split at position
+        if (mode === "split" && selectedTalkRkey) {
+          const talk = effectiveTalks.find((t) => t.rkey === selectedTalkRkey);
+          if (talk && seconds > talk.startSeconds && seconds < (talk.endSeconds ?? windowEnd)) {
+            const newRkey = crypto.randomUUID().slice(0, 8);
+            applyCorrection({ type: "split_talk", talkRkey: selectedTalkRkey, atSeconds: seconds, newRkey });
+            return;
+          }
         }
-      }
 
-      if (editingEnabled && mode === "select") {
+        // All modes: click on a talk to select it
         const clicked = visibleTalks.find(
           (t) => seconds >= t.startSeconds && seconds < (t.endSeconds ?? windowEnd),
         );
@@ -105,8 +107,7 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
     <div
       ref={barRef}
       onClick={handleBarClick}
-      data-timeline-bar
-      className={`relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden border border-neutral-800 ${editingEnabled ? "select-none" : ""}`}
+      className={`relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden ${editingEnabled ? "select-none" : ""}`}
     >
       {visibleTalks.map((talk, i) => {
         const talkStart = Math.max(talk.startSeconds, windowStart);

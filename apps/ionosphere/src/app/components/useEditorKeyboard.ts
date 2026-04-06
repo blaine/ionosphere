@@ -83,7 +83,6 @@ export function useEditorKeyboard(onSave: () => void) {
 
       if (!ctrl) {
         switch (e.key) {
-          case "v": setMode("select"); return;
           case "t": setMode("trim"); return;
           case "s": setMode("split"); return;
           case "a": setMode("add"); return;
