@@ -188,10 +188,7 @@ function ZoomableTimeline({
       </div>
 
       <StreamTimeline
-        talks={visibleTalks}
-        allTalks={talks}
-        durationSeconds={windowDuration}
-        offsetSeconds={windowStart}
+        allTalkRkeys={talks.map((t) => t.rkey)}
       />
 
       {diarization.length > 0 && (
