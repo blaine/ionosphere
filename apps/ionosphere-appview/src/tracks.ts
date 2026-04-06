@@ -22,7 +22,7 @@ export interface StreamConfig {
   durationSeconds: number;
 }
 
-const STREAMS: StreamConfig[] = [
+export const STREAMS: StreamConfig[] = [
   { slug: "great-hall-day-1", name: "Great Hall - Saturday", room: "Great Hall South", day: 1, dayLabel: "Saturday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miieadw52j22", dirName: "Great_Hall___Day_1", durationSeconds: 28433 },
   { slug: "great-hall-day-2", name: "Great Hall - Sunday", room: "Great Hall South", day: 2, dayLabel: "Sunday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miighlz53o22", dirName: "Great_Hall___Day_2", durationSeconds: 28433 },
   { slug: "room-2301-day-1", name: "Room 2301 - Saturday", room: "Room 2301", day: 1, dayLabel: "Saturday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miieadx2dj22", dirName: "Room_2301___Day_1", durationSeconds: 27400 },
