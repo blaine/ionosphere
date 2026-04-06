@@ -535,6 +535,7 @@ export function createRoutes(db: Database.Database): Hono {
   app.get("/xrpc/tv.ionosphere.getCorrections", (c) => {
     const stream = c.req.query("stream");
     if (!stream) return c.json({ error: "missing stream parameter" }, 400);
+    if (!validSlugs.has(stream)) return c.json({ error: "invalid stream" }, 400);
 
     const correctionsPath = path.resolve(
       import.meta.dirname,
