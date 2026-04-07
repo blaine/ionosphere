@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useEffect, useMemo, useCallback, useState, forwardRef } from "react";
-import { prepareWithSegments, layoutWithLines, type PreparedTextWithSegments, type LayoutLinesResult } from "@chenglou/pretext";
 import { useTimestamp } from "./TimestampProvider";
 import {
   extractData,
@@ -15,16 +14,16 @@ import {
 /**
  * Windowed transcript view for large transcripts (full-day streams).
  *
- * Uses Pretext to compute the full text layout without rendering,
- * giving us accurate scroll-offset ↔ timecode mapping. Only words
- * in the visible viewport + buffer are mounted in the DOM.
+ * Computes full text layout using monospace character counting (no DOM needed),
+ * giving accurate scroll-offset ↔ timecode mapping. Only words in the visible
+ * viewport + buffer are mounted in the DOM.
  */
 
 interface WindowedTranscriptViewProps {
   document: TranscriptDocument;
 }
 
-// --- Word rendering (simplified from TranscriptView, no comments/reactions) ---
+// --- Word rendering ---
 
 const WordSpanComponent = forwardRef<
   HTMLSpanElement,
@@ -60,195 +59,180 @@ const WordSpanComponent = forwardRef<
   );
 });
 
-// --- Line-to-time mapping built from Pretext layout ---
+// --- Layout computation via monospace character counting ---
 
-interface LineTimeEntry {
-  lineIndex: number;
-  yTop: number;      // px from top of text
-  yBottom: number;    // px from top of text
+interface LineEntry {
+  yTop: number;
+  yBottom: number;
   timeStart: number;  // ns
   timeEnd: number;    // ns
   wordStartIdx: number;
   wordEndIdx: number; // exclusive
 }
 
-function buildLineTimeMap(
-  layoutResult: LayoutLinesResult,
+/**
+ * Compute line breaks for a word list rendered in a monospace font.
+ * Each word is followed by a space. Words wrap to the next line when
+ * they would exceed the available width. Returns a line→time mapping.
+ */
+function computeMonospaceLayout(
   words: WordSpan[],
-  fullText: string,
-  lineHeight: number,
-): LineTimeEntry[] {
-  const entries: LineTimeEntry[] = [];
-  if (words.length === 0 || layoutResult.lines.length === 0) return entries;
+  containerWidthPx: number,
+  charWidthPx: number,
+  lineHeightPx: number,
+): LineEntry[] {
+  if (words.length === 0 || containerWidthPx < charWidthPx) return [];
 
-  // Map character offset in fullText to word index.
-  // Each word occupies its text + a trailing space in fullText.
-  // Build a sorted array of { charStart, wordIdx } for binary search.
-  const wordCharStarts: number[] = [];
-  let charPos = 0;
+  const maxCharsPerLine = Math.floor(containerWidthPx / charWidthPx);
+  const lines: LineEntry[] = [];
+
+  let lineIdx = 0;
+  let col = 0; // current column position in characters
+  let lineWordStart = 0;
+
   for (let i = 0; i < words.length; i++) {
-    wordCharStarts.push(charPos);
-    charPos += words[i].text.length + 1; // +1 for trailing space
-  }
+    const wordLen = words[i].text.length;
+    const needed = wordLen + 1; // word + space
 
-  function charOffsetToWordIdx(charOffset: number): number {
-    // Binary search for the word containing this character offset
-    let lo = 0, hi = wordCharStarts.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (wordCharStarts[mid] <= charOffset) lo = mid;
-      else hi = mid - 1;
+    if (col > 0 && col + wordLen > maxCharsPerLine) {
+      // This word doesn't fit — flush current line
+      lines.push({
+        yTop: lineIdx * lineHeightPx,
+        yBottom: (lineIdx + 1) * lineHeightPx,
+        timeStart: words[lineWordStart].startTime,
+        timeEnd: words[i - 1].endTime,
+        wordStartIdx: lineWordStart,
+        wordEndIdx: i,
+      });
+      lineIdx++;
+      col = 0;
+      lineWordStart = i;
     }
-    return lo;
+
+    col += needed;
   }
 
-  for (let i = 0; i < layoutResult.lines.length; i++) {
-    const line = layoutResult.lines[i];
-    // line.start and line.end are LayoutCursors with segmentIndex and graphemeIndex.
-    // Since we prepared with a single segment (the full text), segmentIndex is always 0.
-    const startChar = line.start.graphemeIndex;
-    const endChar = line.end.graphemeIndex;
-
-    const startWordIdx = charOffsetToWordIdx(startChar);
-    const endWordIdx = Math.min(charOffsetToWordIdx(Math.max(0, endChar - 1)) + 1, words.length);
-
-    if (startWordIdx >= words.length) continue;
-
-    const timeStart = words[startWordIdx].startTime;
-    const timeEnd = words[Math.min(endWordIdx - 1, words.length - 1)].endTime;
-
-    entries.push({
-      lineIndex: i,
-      yTop: i * lineHeight,
-      yBottom: (i + 1) * lineHeight,
-      timeStart,
-      timeEnd,
-      wordStartIdx: startWordIdx,
-      wordEndIdx: endWordIdx,
+  // Flush last line
+  if (lineWordStart < words.length) {
+    lines.push({
+      yTop: lineIdx * lineHeightPx,
+      yBottom: (lineIdx + 1) * lineHeightPx,
+      timeStart: words[lineWordStart].startTime,
+      timeEnd: words[words.length - 1].endTime,
+      wordStartIdx: lineWordStart,
+      wordEndIdx: words.length,
     });
   }
 
-  return entries;
+  return lines;
 }
 
 // --- Main component ---
 
 const LINE_HEIGHT = 28; // px — matches leading-relaxed at ~16px font
-const VIEWPORT_BUFFER = 600; // px of buffer above and below viewport
+const CHAR_WIDTH = 9.6; // px — monospace 16px (measured: ch unit ≈ 9.6px)
+const VIEWPORT_BUFFER = 800; // px of buffer above and below viewport
 
 export default function WindowedTranscriptView({ document }: WindowedTranscriptViewProps) {
   const { currentTimeNs, seekTo, paused } = useTimestamp();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(600);
+  const [containerWidth, setContainerWidth] = useState(0);
 
-  // Extract words and concepts
   const { words, wordConcepts } = useMemo(() => extractData(document), [document]);
-
-  // Build the plain text (words joined by spaces) for Pretext
-  const fullText = useMemo(() => words.map((w) => w.text).join(" "), [words]);
 
   // Measure container width
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
-      setContainerWidth(entries[0].contentRect.width - 32); // subtract padding
+      setContainerWidth(entries[0].contentRect.width - 32); // subtract padding (p-4 = 16px each side)
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  // Pretext layout: compute line breaks and positions for the full text.
-  // Runs client-side only (Pretext needs canvas for font measurement).
-  // Recomputes when container width changes.
-  const [layoutState, setLayoutState] = useState<{
-    layoutResult: LayoutLinesResult | null;
-    lineTimeMap: LineTimeEntry[];
-    forWidth: number;
-  }>({ layoutResult: null, lineTimeMap: [], forWidth: 0 });
-
+  // Measure actual char width from DOM once
+  const [charWidth, setCharWidth] = useState(CHAR_WIDTH);
   useEffect(() => {
-    if (words.length === 0 || containerWidth < 100) return;
-    // Skip if we already computed for this width
-    if (layoutState.forWidth === containerWidth && layoutState.layoutResult) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const probe = window.document.createElement("span");
+    probe.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    probe.style.fontSize = "16px";
+    probe.style.position = "absolute";
+    probe.style.visibility = "hidden";
+    probe.textContent = "M"; // reference character
+    el.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    el.removeChild(probe);
+    if (w > 0) setCharWidth(w);
+  }, []);
 
-    try {
-      const font = "16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-      const prepared = prepareWithSegments(fullText, font);
-      const result = layoutWithLines(prepared, containerWidth, LINE_HEIGHT);
-      const map = buildLineTimeMap(result, words, fullText, LINE_HEIGHT);
-      setLayoutState({ layoutResult: result, lineTimeMap: map, forWidth: containerWidth });
-    } catch (err) {
-      console.error("Pretext layout failed:", err);
-    }
-  }, [fullText, words, containerWidth]);
+  // Compute layout — pure computation, no DOM/canvas needed
+  const lines = useMemo(() => {
+    if (containerWidth < 50) return [];
+    return computeMonospaceLayout(words, containerWidth, charWidth, LINE_HEIGHT);
+  }, [words, containerWidth, charWidth]);
 
-  const { layoutResult, lineTimeMap } = layoutState;
-  const totalHeight = layoutResult ? layoutResult.height : 0;
+  const totalHeight = lines.length > 0 ? lines[lines.length - 1].yBottom : 0;
 
-  // --- Time ↔ scroll position mapping ---
+  // --- Time ↔ scroll position ---
 
   const timeToScrollY = useCallback(
     (timeNs: number): number => {
-      if (lineTimeMap.length === 0) return 0;
-      // Binary search for the line containing this time
-      let lo = 0, hi = lineTimeMap.length - 1;
+      if (lines.length === 0) return 0;
+      let lo = 0, hi = lines.length - 1;
       while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;
-        if (lineTimeMap[mid].timeStart <= timeNs) lo = mid;
+        if (lines[mid].timeStart <= timeNs) lo = mid;
         else hi = mid - 1;
       }
-      const entry = lineTimeMap[lo];
-      // Interpolate within the line
+      const entry = lines[lo];
       const frac = entry.timeEnd > entry.timeStart
-        ? (timeNs - entry.timeStart) / (entry.timeEnd - entry.timeStart)
+        ? Math.min(1, Math.max(0, (timeNs - entry.timeStart) / (entry.timeEnd - entry.timeStart)))
         : 0;
       return entry.yTop + frac * (entry.yBottom - entry.yTop);
     },
-    [lineTimeMap],
+    [lines],
   );
 
   const scrollYToTime = useCallback(
     (y: number): number => {
-      if (lineTimeMap.length === 0) return 0;
-      // Binary search for the line at this Y position
-      let lo = 0, hi = lineTimeMap.length - 1;
+      if (lines.length === 0) return 0;
+      let lo = 0, hi = lines.length - 1;
       while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;
-        if (lineTimeMap[mid].yTop <= y) lo = mid;
+        if (lines[mid].yTop <= y) lo = mid;
         else hi = mid - 1;
       }
-      const entry = lineTimeMap[lo];
+      const entry = lines[lo];
       const frac = entry.yBottom > entry.yTop
-        ? (y - entry.yTop) / (entry.yBottom - entry.yTop)
+        ? Math.min(1, Math.max(0, (y - entry.yTop) / (entry.yBottom - entry.yTop)))
         : 0;
       return entry.timeStart + frac * (entry.timeEnd - entry.timeStart);
     },
-    [lineTimeMap],
+    [lines],
   );
 
-  // --- Determine which words to render based on scroll position ---
+  // --- Scroll state ---
 
   const [scrollTop, setScrollTop] = useState(0);
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
-
-  // The playhead is at 33% of the viewport
   const playheadFrac = 0.33;
-
-  // Auto-scroll: position the playhead time at 33% of the container
   const scrollTargetRef = useRef<number | null>(null);
   const animFrameRef = useRef(0);
 
+  // Auto-scroll: position playhead time at 33% of viewport
   useEffect(() => {
-    if (userScrolling.current || !containerRef.current) return;
+    if (userScrolling.current || !containerRef.current || lines.length === 0) return;
     const viewportH = containerRef.current.clientHeight;
     const playheadOffset = viewportH * playheadFrac;
     const textY = timeToScrollY(currentTimeNs);
     scrollTargetRef.current = textY - playheadOffset;
-  }, [currentTimeNs, timeToScrollY]);
+  }, [currentTimeNs, timeToScrollY, lines]);
 
-  // Smooth scroll animation
+  // Smooth scroll animation loop
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -263,12 +247,11 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
       setScrollTop(container.scrollTop);
       animFrameRef.current = requestAnimationFrame(animate);
     };
-
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
-  // Scroll-to-scrub: user scrolling seeks the video
+  // Scroll-to-scrub
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -287,8 +270,7 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
 
       const viewportH = container.clientHeight;
       const playheadY = container.scrollTop + viewportH * playheadFrac;
-      const timeNs = scrollYToTime(playheadY);
-      seekTo(timeNs);
+      seekTo(scrollYToTime(playheadY));
       userInitiated = false;
     };
 
@@ -305,41 +287,45 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
 
   // Compute visible word range from scroll position
   const { visibleStartIdx, visibleEndIdx } = useMemo(() => {
-    if (lineTimeMap.length === 0) return { visibleStartIdx: 0, visibleEndIdx: 0 };
-    const container = containerRef.current;
-    const viewportH = container?.clientHeight ?? 600;
-
+    if (lines.length === 0) return { visibleStartIdx: 0, visibleEndIdx: 0 };
+    const viewportH = containerRef.current?.clientHeight ?? 600;
     const viewTop = scrollTop - VIEWPORT_BUFFER;
     const viewBottom = scrollTop + viewportH + VIEWPORT_BUFFER;
 
-    // Find first visible line
-    let startLine = 0;
-    for (let i = 0; i < lineTimeMap.length; i++) {
-      if (lineTimeMap[i].yBottom >= viewTop) { startLine = i; break; }
+    // Binary search for first visible line
+    let lo = 0, hi = lines.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (lines[mid].yBottom < viewTop) lo = mid + 1;
+      else hi = mid;
     }
-    // Find last visible line
-    let endLine = lineTimeMap.length - 1;
-    for (let i = lineTimeMap.length - 1; i >= 0; i--) {
-      if (lineTimeMap[i].yTop <= viewBottom) { endLine = i; break; }
+    const startLine = lo;
+
+    // Binary search for last visible line
+    lo = startLine; hi = lines.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lines[mid].yTop <= viewBottom) lo = mid;
+      else hi = mid - 1;
     }
+    const endLine = lo;
 
     return {
-      visibleStartIdx: lineTimeMap[startLine]?.wordStartIdx ?? 0,
-      visibleEndIdx: lineTimeMap[endLine]?.wordEndIdx ?? 0,
+      visibleStartIdx: lines[startLine]?.wordStartIdx ?? 0,
+      visibleEndIdx: lines[endLine]?.wordEndIdx ?? 0,
     };
-  }, [scrollTop, lineTimeMap]);
+  }, [scrollTop, lines]);
 
-  // Compute the Y offset for the first visible word
-  const topSpacerHeight = useMemo(() => {
-    if (lineTimeMap.length === 0 || visibleStartIdx === 0) return 0;
-    // Find the line containing visibleStartIdx
-    for (const entry of lineTimeMap) {
-      if (entry.wordStartIdx <= visibleStartIdx && entry.wordEndIdx > visibleStartIdx) {
-        return entry.yTop;
+  // Y offset for the first visible word
+  const topOffset = useMemo(() => {
+    if (lines.length === 0 || visibleStartIdx === 0) return 0;
+    for (const line of lines) {
+      if (line.wordStartIdx <= visibleStartIdx && line.wordEndIdx > visibleStartIdx) {
+        return line.yTop;
       }
     }
     return 0;
-  }, [lineTimeMap, visibleStartIdx]);
+  }, [lines, visibleStartIdx]);
 
   const handleSeek = useCallback((ns: number) => seekTo(ns), [seekTo]);
 
@@ -350,27 +336,15 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
       style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: "16px" }}
     >
       {/* Playhead indicator at 33% */}
-      <div
-        className="pointer-events-none sticky z-10 -mx-4"
-        style={{ top: "33%" }}
-      >
-        <div className="h-[10px] -mt-[5px]" style={{
-          background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.03) 30%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 70%, transparent)"
-        }} />
-        <div className="h-px -mt-[5px]" style={{
+      <div className="pointer-events-none sticky z-10" style={{ top: "33%" }}>
+        <div className="h-px" style={{
           background: "linear-gradient(to right, rgba(255,255,255,0.35), rgba(255,255,255,0.35) 10px, rgba(255,255,255,0.1) 10px, rgba(255,255,255,0.1) calc(100% - 10px), rgba(255,255,255,0.35) calc(100% - 10px), rgba(255,255,255,0.35))"
         }} />
       </div>
 
-      {/* Total scrollable area */}
-      {!layoutResult && (
-        <div className="flex items-center justify-center h-32 text-neutral-500 text-sm">
-          Computing layout...
-        </div>
-      )}
+      {/* Total scrollable area with virtual positioning */}
       <div style={{ height: totalHeight, position: "relative" }}>
-        {/* Rendered words positioned at the right offset */}
-        <div className="p-4" style={{ position: "absolute", top: 0, left: 0, right: 0, paddingTop: topSpacerHeight + 16 }}>
+        <div className="p-4" style={{ position: "absolute", top: topOffset, left: 0, right: 0 }}>
           {words.slice(visibleStartIdx, visibleEndIdx).map((word, i) => {
             const globalIdx = visibleStartIdx + i;
             return (
