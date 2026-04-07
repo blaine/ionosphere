@@ -216,45 +216,48 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
 
   // --- Scroll state ---
   //
-  // After scroll-scrub seeks the video, currentTimeNs still reflects the
-  // old position until the video's timeupdate fires. Without protection,
-  // the auto-scroll effect would see the stale time and scroll back to
-  // the old position, causing a visible bounce.
+  // The scroll position is AUTHORITATIVE after user scrolling. Auto-scroll
+  // must never fight it. The approach:
   //
-  // Fix: track the last seeked time from scroll-scrub. Auto-scroll only
-  // resumes once currentTimeNs is within tolerance of the seek target
-  // (meaning the video has caught up to the seek).
+  // 1. On user scroll: seek video, set scrollTargetRef = current scrollTop
+  //    (anchoring auto-scroll to the user's position).
+  // 2. Auto-scroll only advances scrollTargetRef by the DELTA in currentTimeNs
+  //    since the last update — it never recomputes an absolute position that
+  //    could differ from where the user scrolled.
+  // 3. This means after scroll-scrub, playback smoothly continues FROM the
+  //    user's scroll position with no jump/bounce.
 
   const [scrollTop, setScrollTop] = useState(0);
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
-  const lastScrubSeekNs = useRef<number | null>(null);
   const playheadFrac = 0.33;
   const scrollTargetRef = useRef<number | null>(null);
+  const prevTimeNs = useRef(currentTimeNs);
   const animFrameRef = useRef(0);
 
-  // Auto-scroll: position playhead time at 33% of viewport.
-  // Suppressed while user is scrolling OR while the video hasn't caught
-  // up to the last scroll-scrub seek.
+  // Auto-scroll: advance by time DELTA, not absolute position.
+  // This avoids any mismatch between computed scroll position and actual.
   useEffect(() => {
-    if (userScrolling.current || !containerRef.current || lines.length === 0) return;
+    if (!containerRef.current || lines.length === 0) return;
 
-    // If we recently scroll-scrubbed, wait for the video to catch up
-    if (lastScrubSeekNs.current !== null) {
-      const drift = Math.abs(currentTimeNs - lastScrubSeekNs.current);
-      if (drift > 2e9) {
-        // Video hasn't caught up yet — don't auto-scroll
-        scrollTargetRef.current = null;
-        return;
-      }
-      // Video caught up — clear the lock
-      lastScrubSeekNs.current = null;
+    const deltaTimeNs = currentTimeNs - prevTimeNs.current;
+    prevTimeNs.current = currentTimeNs;
+
+    if (userScrolling.current) return;
+
+    if (scrollTargetRef.current === null) {
+      // First time or after reset — compute absolute position
+      const viewportH = containerRef.current.clientHeight;
+      const textY = timeToScrollY(currentTimeNs);
+      scrollTargetRef.current = textY - viewportH * playheadFrac;
+    } else if (deltaTimeNs > 0 && deltaTimeNs < 1e9) {
+      // Normal playback — advance target by the equivalent scroll delta
+      const curY = timeToScrollY(currentTimeNs);
+      const prevY = timeToScrollY(currentTimeNs - deltaTimeNs);
+      scrollTargetRef.current += (curY - prevY);
     }
-
-    const viewportH = containerRef.current.clientHeight;
-    const playheadOffset = viewportH * playheadFrac;
-    const textY = timeToScrollY(currentTimeNs);
-    scrollTargetRef.current = textY - playheadOffset;
+    // If deltaTimeNs is negative or very large (seek), let the animation
+    // loop hold the current position until next normal tick.
   }, [currentTimeNs, timeToScrollY, lines]);
 
   // Smooth scroll animation loop
@@ -277,7 +280,8 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
   }, []);
 
   // Scroll-to-scrub: user scrolling is authoritative.
-  // Sets lastScrubSeekNs to suppress auto-scroll until the video catches up.
+  // Anchors scrollTargetRef to current scroll position so auto-scroll
+  // continues smoothly from where the user left off.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -289,18 +293,21 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     const onScroll = () => {
       if (!userInitiated) return;
       userScrolling.current = true;
-      scrollTargetRef.current = null; // cancel any pending auto-scroll
+
+      // Anchor auto-scroll to the user's position
+      scrollTargetRef.current = container.scrollTop;
 
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
+        // When user stops, anchor target to current position so
+        // playback continues smoothly from here
+        scrollTargetRef.current = container.scrollTop;
         userScrolling.current = false;
-      }, paused ? 999999 : 2000);
+      }, paused ? 999999 : 500);
 
       const viewportH = container.clientHeight;
       const playheadY = container.scrollTop + viewportH * playheadFrac;
-      const seekTimeNs = scrollYToTime(playheadY);
-      lastScrubSeekNs.current = seekTimeNs;
-      seekTo(seekTimeNs);
+      seekTo(scrollYToTime(playheadY));
       userInitiated = false;
     };
 
