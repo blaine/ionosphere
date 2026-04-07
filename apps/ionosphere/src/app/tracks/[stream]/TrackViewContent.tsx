@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
-import TranscriptView from "@/app/components/TranscriptView";
+import WindowedTranscriptView from "@/app/components/WindowedTranscriptView";
 import StreamTimeline from "@/app/components/StreamTimeline";
 import WaveformBand from "@/app/components/WaveformBand";
 import SpeakerPopover from "@/app/components/SpeakerPopover";
@@ -373,7 +373,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
               </div>
             )}
             {activeTab === "transcript" && hasTranscript && (
-              <TranscriptView document={track.transcript!} windowed />
+              <WindowedTranscriptView document={track.transcript!} />
             )}
           </div>
         </div>

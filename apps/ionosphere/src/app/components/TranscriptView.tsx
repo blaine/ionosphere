@@ -19,8 +19,6 @@ interface TranscriptViewProps {
   comments?: CommentData[];
   transcriptUri?: string;
   onCommentPublished?: () => void;
-  /** Render only words near the playhead (for large transcripts like full-day streams) */
-  windowed?: boolean;
 }
 
 const WordSpanComponent = forwardRef<
@@ -74,7 +72,7 @@ const WordSpanComponent = forwardRef<
   );
 });
 
-export default function TranscriptView({ document, comments, transcriptUri, onCommentPublished, windowed = false }: TranscriptViewProps) {
+export default function TranscriptView({ document, comments, transcriptUri, onCommentPublished }: TranscriptViewProps) {
   const { currentTimeNs, paused, seekTo } = useTimestamp();
   const { agent } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -453,59 +451,6 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   // Expanded reaction group (which span's comments are shown)
   const [expandedSpan, setExpandedSpan] = useState<string | null>(null);
 
-  // --- Stable windowed rendering for large transcripts ---
-  // Render buffer: ±120s. Only recompute when playhead exits inner ±60s zone.
-  // This keeps the DOM stable during normal playback (no mount/unmount thrash).
-  const RENDER_BUFFER_NS = 120e9;
-  const INNER_ZONE_NS = 60e9;
-  const windowBounds = useRef<{ startIdx: number; endIdx: number; centerTimeNs: number }>({
-    startIdx: 0, endIdx: words.length, centerTimeNs: 0,
-  });
-
-  const windowedWords = useMemo(() => {
-    if (!windowed || words.length <= 2000) {
-      return words.map((word, i) => ({ word, globalIdx: i }));
-    }
-
-    const prev = windowBounds.current;
-    const needsUpdate =
-      prev.endIdx === words.length && prev.startIdx === 0 // initial state
-      || Math.abs(currentTimeNs - prev.centerTimeNs) > INNER_ZONE_NS;
-
-    let startIdx = prev.startIdx;
-    let endIdx = prev.endIdx;
-
-    if (needsUpdate) {
-      const windowStart = currentTimeNs - RENDER_BUFFER_NS;
-      const windowEnd = currentTimeNs + RENDER_BUFFER_NS;
-
-      // Binary search for start
-      let lo = 0, hi = words.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (words[mid].endTime < windowStart) lo = mid + 1;
-        else hi = mid;
-      }
-      startIdx = lo;
-
-      // Binary search for end
-      lo = startIdx; hi = words.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (words[mid].startTime > windowEnd) hi = mid - 1;
-        else lo = mid;
-      }
-      endIdx = lo + 1;
-
-      windowBounds.current = { startIdx, endIdx, centerTimeNs: currentTimeNs };
-    }
-
-    return words.slice(startIdx, endIdx).map((word, i) => ({
-      word,
-      globalIdx: startIdx + i,
-    }));
-  }, [windowed, words, currentTimeNs]);
-
   const handlePublish = useCallback(async (byteStart: number, byteEnd: number, text: string) => {
     if (!agent || !transcriptUri) return;
 
@@ -562,15 +507,15 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       </div>
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
-      {windowedWords.map((word) => (
+      {words.map((word, i) => (
         <WordSpanComponent
-          key={word.globalIdx}
-          ref={(el) => setWordRef(word.globalIdx, el)}
-          word={word.word}
-          concept={wordConcepts[word.globalIdx]?.[0] || null}
+          key={i}
+          ref={(el) => setWordRef(i, el)}
+          word={word}
+          concept={wordConcepts[i]?.[0] || null}
           currentTimeNs={currentTimeNs}
           onSeek={handleSeek}
-          hasComment={wordHasComment.has(word.globalIdx)}
+          hasComment={wordHasComment.has(i)}
         />
       ))}
       {/* Reaction margin indicators */}
