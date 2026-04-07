@@ -215,17 +215,42 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
   );
 
   // --- Scroll state ---
+  //
+  // After scroll-scrub seeks the video, currentTimeNs still reflects the
+  // old position until the video's timeupdate fires. Without protection,
+  // the auto-scroll effect would see the stale time and scroll back to
+  // the old position, causing a visible bounce.
+  //
+  // Fix: track the last seeked time from scroll-scrub. Auto-scroll only
+  // resumes once currentTimeNs is within tolerance of the seek target
+  // (meaning the video has caught up to the seek).
 
   const [scrollTop, setScrollTop] = useState(0);
   const userScrolling = useRef(false);
   const userScrollTimer = useRef<ReturnType<typeof setTimeout>>();
+  const lastScrubSeekNs = useRef<number | null>(null);
   const playheadFrac = 0.33;
   const scrollTargetRef = useRef<number | null>(null);
   const animFrameRef = useRef(0);
 
-  // Auto-scroll: position playhead time at 33% of viewport
+  // Auto-scroll: position playhead time at 33% of viewport.
+  // Suppressed while user is scrolling OR while the video hasn't caught
+  // up to the last scroll-scrub seek.
   useEffect(() => {
     if (userScrolling.current || !containerRef.current || lines.length === 0) return;
+
+    // If we recently scroll-scrubbed, wait for the video to catch up
+    if (lastScrubSeekNs.current !== null) {
+      const drift = Math.abs(currentTimeNs - lastScrubSeekNs.current);
+      if (drift > 2e9) {
+        // Video hasn't caught up yet — don't auto-scroll
+        scrollTargetRef.current = null;
+        return;
+      }
+      // Video caught up — clear the lock
+      lastScrubSeekNs.current = null;
+    }
+
     const viewportH = containerRef.current.clientHeight;
     const playheadOffset = viewportH * playheadFrac;
     const textY = timeToScrollY(currentTimeNs);
@@ -251,7 +276,8 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     return () => cancelAnimationFrame(animFrameRef.current);
   }, []);
 
-  // Scroll-to-scrub
+  // Scroll-to-scrub: user scrolling is authoritative.
+  // Sets lastScrubSeekNs to suppress auto-scroll until the video catches up.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -263,6 +289,8 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     const onScroll = () => {
       if (!userInitiated) return;
       userScrolling.current = true;
+      scrollTargetRef.current = null; // cancel any pending auto-scroll
+
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
         userScrolling.current = false;
@@ -270,7 +298,9 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
 
       const viewportH = container.clientHeight;
       const playheadY = container.scrollTop + viewportH * playheadFrac;
-      seekTo(scrollYToTime(playheadY));
+      const seekTimeNs = scrollYToTime(playheadY);
+      lastScrubSeekNs.current = seekTimeNs;
+      seekTo(seekTimeNs);
       userInitiated = false;
     };
 
