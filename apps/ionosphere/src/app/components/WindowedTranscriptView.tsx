@@ -158,19 +158,32 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     return () => observer.disconnect();
   }, []);
 
-  // Pretext layout: compute line breaks and positions for the full text
-  const { layoutResult, lineTimeMap } = useMemo(() => {
-    if (words.length === 0 || containerWidth < 100) {
-      return { layoutResult: null, lineTimeMap: [] };
+  // Pretext layout: compute line breaks and positions for the full text.
+  // Runs client-side only (Pretext needs canvas for font measurement).
+  // Recomputes when container width changes.
+  const [layoutState, setLayoutState] = useState<{
+    layoutResult: LayoutLinesResult | null;
+    lineTimeMap: LineTimeEntry[];
+    forWidth: number;
+  }>({ layoutResult: null, lineTimeMap: [], forWidth: 0 });
+
+  useEffect(() => {
+    if (words.length === 0 || containerWidth < 100) return;
+    // Skip if we already computed for this width
+    if (layoutState.forWidth === containerWidth && layoutState.layoutResult) return;
+
+    try {
+      const font = "16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+      const prepared = prepareWithSegments(fullText, font);
+      const result = layoutWithLines(prepared, containerWidth, LINE_HEIGHT);
+      const map = buildLineTimeMap(result, words, fullText, LINE_HEIGHT);
+      setLayoutState({ layoutResult: result, lineTimeMap: map, forWidth: containerWidth });
+    } catch (err) {
+      console.error("Pretext layout failed:", err);
     }
-    // prepare() measures character widths using the specified font
-    const font = "16px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-    const prepared = prepareWithSegments(fullText, font);
-    const result = layoutWithLines(prepared, containerWidth, LINE_HEIGHT);
-    const map = buildLineTimeMap(result, words, fullText, LINE_HEIGHT);
-    return { layoutResult: result, lineTimeMap: map };
   }, [fullText, words, containerWidth]);
 
+  const { layoutResult, lineTimeMap } = layoutState;
   const totalHeight = layoutResult ? layoutResult.height : 0;
 
   // --- Time ↔ scroll position mapping ---
@@ -350,9 +363,14 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
       </div>
 
       {/* Total scrollable area */}
+      {!layoutResult && (
+        <div className="flex items-center justify-center h-32 text-neutral-500 text-sm">
+          Computing layout...
+        </div>
+      )}
       <div style={{ height: totalHeight, position: "relative" }}>
         {/* Rendered words positioned at the right offset */}
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, paddingTop: topSpacerHeight }}>
+        <div className="p-4" style={{ position: "absolute", top: 0, left: 0, right: 0, paddingTop: topSpacerHeight + 16 }}>
           {words.slice(visibleStartIdx, visibleEndIdx).map((word, i) => {
             const globalIdx = visibleStartIdx + i;
             return (
