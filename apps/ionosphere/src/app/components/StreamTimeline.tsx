@@ -32,6 +32,7 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
     activeDrag,
     windowStart,
     windowEnd,
+    pixelToTime,
     startDrag,
     applyCorrection,
   } = useTimelineEngine();
@@ -88,15 +89,17 @@ export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
     (e: React.MouseEvent, talkRkey: string, edge: "start" | "end", seconds: number) => {
       if (!editingEnabled) return;
       e.stopPropagation();
-      // Always select the edge on click
       selectTalk(talkRkey);
       selectEdge(edge);
-      // In trim mode, also start a drag
       if (mode === "trim") {
-        startDrag(talkRkey, edge, seconds);
+        // Compute cursor time for grab offset (so handle tracks cursor exactly)
+        const timeline = document.querySelector("[data-timeline-bar]") as HTMLElement;
+        const rect = timeline?.getBoundingClientRect();
+        const cursorSeconds = rect ? pixelToTime(e.clientX - rect.left) : seconds;
+        startDrag(talkRkey, edge, seconds, cursorSeconds);
       }
     },
-    [editingEnabled, mode, startDrag, selectTalk, selectEdge],
+    [editingEnabled, mode, startDrag, selectTalk, selectEdge, pixelToTime],
   );
 
   const scrubberPct = Math.min(100, Math.max(0,

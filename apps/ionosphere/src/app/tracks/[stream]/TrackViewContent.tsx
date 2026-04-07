@@ -310,7 +310,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
               </div>
 
               {/* Timeline bar with interaction overlay */}
-              <div className="relative border border-neutral-800 rounded" data-timeline-bar ref={timelineBarRef}>
+              <div className="relative" data-timeline-bar ref={timelineBarRef}>
                 <StreamTimeline allTalkRkeys={track.talks.map((t) => t.rkey)} />
                 <InteractionOverlay />
               </div>

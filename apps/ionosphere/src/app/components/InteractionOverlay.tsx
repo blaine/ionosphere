@@ -31,7 +31,7 @@ export default function InteractionOverlay() {
       if (!timeline) return;
       const rect = timeline.getBoundingClientRect();
       const px = e.clientX - rect.left;
-      let timeSeconds = pixelToTime(px);
+      let timeSeconds = pixelToTime(px) - activeDrag.grabOffsetSeconds;
 
       if (!e.altKey) {
         const snapResult = findSnap(timeSeconds, activeDrag.edge, 10);

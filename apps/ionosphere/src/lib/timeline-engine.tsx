@@ -32,6 +32,7 @@ interface DragState {
   edge: "start" | "end";
   originalSeconds: number;
   currentSeconds: number;
+  grabOffsetSeconds: number; // cursor position minus boundary position at mousedown
 }
 
 interface EngineState {
@@ -53,7 +54,7 @@ type EngineAction =
   | { type: "SET_MODE"; mode: EditMode }
   | { type: "SELECT_TALK"; rkey: string | null }
   | { type: "SELECT_EDGE"; edge: "start" | "end" | null }
-  | { type: "START_DRAG"; talkRkey: string; edge: "start" | "end"; seconds: number }
+  | { type: "START_DRAG"; talkRkey: string; edge: "start" | "end"; seconds: number; cursorSeconds: number }
   | { type: "UPDATE_DRAG"; seconds: number }
   | { type: "COMMIT_DRAG" }
   | { type: "CANCEL_DRAG" }
@@ -131,6 +132,7 @@ function engineReducer(state: EngineState, action: EngineAction): EngineState {
           edge: action.edge,
           originalSeconds: action.seconds,
           currentSeconds: action.seconds,
+          grabOffsetSeconds: action.cursorSeconds - action.seconds,
         },
       };
 
@@ -239,7 +241,7 @@ interface TimelineEngineContextValue {
   setMode: (mode: EditMode) => void;
   selectTalk: (rkey: string | null) => void;
   selectEdge: (edge: "start" | "end" | null) => void;
-  startDrag: (talkRkey: string, edge: "start" | "end", seconds: number) => void;
+  startDrag: (talkRkey: string, edge: "start" | "end", seconds: number, cursorSeconds: number) => void;
   updateDrag: (seconds: number) => void;
   commitDrag: () => void;
   cancelDrag: () => void;
@@ -349,8 +351,8 @@ export function TimelineEngineProvider({
     setMode: (mode: EditMode) => dispatch({ type: "SET_MODE", mode }),
     selectTalk: (rkey: string | null) => dispatch({ type: "SELECT_TALK", rkey }),
     selectEdge: (edge: "start" | "end" | null) => dispatch({ type: "SELECT_EDGE", edge }),
-    startDrag: (talkRkey: string, edge: "start" | "end", seconds: number) =>
-      dispatch({ type: "START_DRAG", talkRkey, edge, seconds }),
+    startDrag: (talkRkey: string, edge: "start" | "end", seconds: number, cursorSeconds: number) =>
+      dispatch({ type: "START_DRAG", talkRkey, edge, seconds, cursorSeconds }),
     updateDrag: (seconds: number) => dispatch({ type: "UPDATE_DRAG", seconds }),
     commitDrag: () => dispatch({ type: "COMMIT_DRAG" }),
     cancelDrag: () => dispatch({ type: "CANCEL_DRAG" }),
