@@ -19,6 +19,8 @@ interface TranscriptViewProps {
   comments?: CommentData[];
   transcriptUri?: string;
   onCommentPublished?: () => void;
+  /** Render only words near the playhead (for large transcripts like full-day streams) */
+  windowed?: boolean;
 }
 
 const WordSpanComponent = forwardRef<
@@ -72,7 +74,7 @@ const WordSpanComponent = forwardRef<
   );
 });
 
-export default function TranscriptView({ document, comments, transcriptUri, onCommentPublished }: TranscriptViewProps) {
+export default function TranscriptView({ document, comments, transcriptUri, onCommentPublished, windowed = false }: TranscriptViewProps) {
   const { currentTimeNs, paused, seekTo } = useTimestamp();
   const { agent } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -507,17 +509,48 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       </div>
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
-      {words.map((word, i) => (
-        <WordSpanComponent
-          key={i}
-          ref={(el) => setWordRef(i, el)}
-          word={word}
-          concept={wordConcepts[i]?.[0] || null}
-          currentTimeNs={currentTimeNs}
-          onSeek={handleSeek}
-          hasComment={wordHasComment.has(i)}
-        />
-      ))}
+      {(() => {
+        // In windowed mode, only render words within ±60s of the playhead.
+        // This reduces DOM from ~64K spans to ~500 for full-day streams.
+        const WINDOW_NS = 60e9; // 60 seconds in nanoseconds
+        let startIdx = 0;
+        let endIdx = words.length;
+
+        if (windowed && words.length > 2000) {
+          // Binary search for the start of the window
+          const windowStart = currentTimeNs - WINDOW_NS;
+          const windowEnd = currentTimeNs + WINDOW_NS;
+          let lo = 0, hi = words.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (words[mid].endTime < windowStart) lo = mid + 1;
+            else hi = mid;
+          }
+          startIdx = lo;
+          lo = startIdx; hi = words.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (words[mid].startTime > windowEnd) hi = mid - 1;
+            else lo = mid;
+          }
+          endIdx = lo + 1;
+        }
+
+        return words.slice(startIdx, endIdx).map((word, i) => {
+          const globalIdx = startIdx + i;
+          return (
+            <WordSpanComponent
+              key={globalIdx}
+              ref={(el) => setWordRef(globalIdx, el)}
+              word={word}
+              concept={wordConcepts[globalIdx]?.[0] || null}
+              currentTimeNs={currentTimeNs}
+              onSeek={handleSeek}
+              hasComment={wordHasComment.has(globalIdx)}
+            />
+          );
+        });
+      })()}
       {/* Reaction margin indicators */}
       {[...reactionGroups.entries()].map(([key, group]) => {
         // Find the first word span that overlaps this range to position the indicator

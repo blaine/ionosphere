@@ -267,7 +267,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
             </div>
 
             {/* Video */}
-            <div className="mb-2 max-h-[33vh] overflow-hidden rounded-lg bg-black">
+            <div className="mb-2 max-h-[33vh] flex items-center justify-center rounded-lg bg-black overflow-hidden">
               <VideoPlayer videoUri={track.streamUri} />
             </div>
 
@@ -373,7 +373,7 @@ function TrackViewInner({ track }: { track: TrackData }) {
               </div>
             )}
             {activeTab === "transcript" && hasTranscript && (
-              <TranscriptView document={track.transcript!} />
+              <TranscriptView document={track.transcript!} windowed />
             )}
           </div>
         </div>
