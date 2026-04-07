@@ -285,47 +285,30 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     };
   }, [seekTo, paused, scrollYToTime]);
 
-  // Compute visible word range from scroll position
-  const { visibleStartIdx, visibleEndIdx } = useMemo(() => {
-    if (lines.length === 0) return { visibleStartIdx: 0, visibleEndIdx: 0 };
+  // Compute visible LINE range from scroll position
+  const { startLine, endLine } = useMemo(() => {
+    if (lines.length === 0) return { startLine: 0, endLine: 0 };
     const viewportH = containerRef.current?.clientHeight ?? 600;
     const viewTop = scrollTop - VIEWPORT_BUFFER;
     const viewBottom = scrollTop + viewportH + VIEWPORT_BUFFER;
 
-    // Binary search for first visible line
     let lo = 0, hi = lines.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (lines[mid].yBottom < viewTop) lo = mid + 1;
       else hi = mid;
     }
-    const startLine = lo;
+    const sl = lo;
 
-    // Binary search for last visible line
-    lo = startLine; hi = lines.length - 1;
+    lo = sl; hi = lines.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
       if (lines[mid].yTop <= viewBottom) lo = mid;
       else hi = mid - 1;
     }
-    const endLine = lo;
 
-    return {
-      visibleStartIdx: lines[startLine]?.wordStartIdx ?? 0,
-      visibleEndIdx: lines[endLine]?.wordEndIdx ?? 0,
-    };
+    return { startLine: sl, endLine: lo + 1 };
   }, [scrollTop, lines]);
-
-  // Y offset for the first visible word
-  const topOffset = useMemo(() => {
-    if (lines.length === 0 || visibleStartIdx === 0) return 0;
-    for (const line of lines) {
-      if (line.wordStartIdx <= visibleStartIdx && line.wordEndIdx > visibleStartIdx) {
-        return line.yTop;
-      }
-    }
-    return 0;
-  }, [lines, visibleStartIdx]);
 
   const handleSeek = useCallback((ns: number) => seekTo(ns), [seekTo]);
 
@@ -342,22 +325,36 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
         }} />
       </div>
 
-      {/* Total scrollable area with virtual positioning */}
-      <div style={{ height: totalHeight, position: "relative" }}>
-        <div className="p-4" style={{ position: "absolute", top: topOffset, left: 0, right: 0 }}>
-          {words.slice(visibleStartIdx, visibleEndIdx).map((word, i) => {
-            const globalIdx = visibleStartIdx + i;
-            return (
-              <WordSpanComponent
-                key={globalIdx}
-                word={word}
-                concept={wordConcepts[globalIdx]?.[0] || null}
-                currentTimeNs={currentTimeNs}
-                onSeek={handleSeek}
-              />
-            );
-          })}
-        </div>
+      {/* Total scrollable area — each line is absolutely positioned */}
+      <div style={{ height: totalHeight, position: "relative", padding: "0 16px" }}>
+        {lines.slice(startLine, endLine).map((line) => (
+          <div
+            key={line.wordStartIdx}
+            style={{
+              position: "absolute",
+              top: line.yTop,
+              left: 16,
+              right: 16,
+              height: LINE_HEIGHT,
+              lineHeight: `${LINE_HEIGHT}px`,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+            }}
+          >
+            {words.slice(line.wordStartIdx, line.wordEndIdx).map((word, i) => {
+              const globalIdx = line.wordStartIdx + i;
+              return (
+                <WordSpanComponent
+                  key={globalIdx}
+                  word={word}
+                  concept={wordConcepts[globalIdx]?.[0] || null}
+                  currentTimeNs={currentTimeNs}
+                  onSeek={handleSeek}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
