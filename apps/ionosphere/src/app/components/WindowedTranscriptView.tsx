@@ -233,10 +233,12 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
   const playheadFrac = 0.33;
   const scrollTargetRef = useRef<number | null>(null);
   const prevTimeNs = useRef(currentTimeNs);
+  const scrollVelocity = useRef(0); // px per ms — for interpolation between timeupdates
+  const lastTickMs = useRef(0);
   const animFrameRef = useRef(0);
 
-  // Auto-scroll: advance by time DELTA, not absolute position.
-  // This avoids any mismatch between computed scroll position and actual.
+  // On each timeupdate (~4Hz): compute scroll velocity from the delta.
+  // The animation loop uses this to interpolate at 60fps.
   useEffect(() => {
     if (!containerRef.current || lines.length === 0) return;
 
@@ -246,30 +248,58 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
     if (userScrolling.current) return;
 
     if (scrollTargetRef.current === null) {
-      // First time or after reset — compute absolute position
       const viewportH = containerRef.current.clientHeight;
       const textY = timeToScrollY(currentTimeNs);
       scrollTargetRef.current = textY - viewportH * playheadFrac;
+      scrollVelocity.current = 0;
     } else if (deltaTimeNs > 0 && deltaTimeNs < 1e9) {
-      // Normal playback — advance target by the equivalent scroll delta
       const curY = timeToScrollY(currentTimeNs);
       const prevY = timeToScrollY(currentTimeNs - deltaTimeNs);
-      scrollTargetRef.current += (curY - prevY);
+      const deltaScrollPx = curY - prevY;
+      const deltaMs = deltaTimeNs / 1e6;
+
+      // Snap target to the correct absolute position for this time
+      const viewportH = containerRef.current.clientHeight;
+      scrollTargetRef.current = curY - viewportH * playheadFrac;
+
+      // Update velocity (px/ms) — smoothed to avoid jitter
+      if (deltaMs > 0) {
+        const newVelocity = deltaScrollPx / deltaMs;
+        scrollVelocity.current = scrollVelocity.current * 0.7 + newVelocity * 0.3;
+      }
+    } else {
+      // Seek or pause — stop velocity
+      scrollVelocity.current = 0;
     }
-    // If deltaTimeNs is negative or very large (seek), let the animation
-    // loop hold the current position until next normal tick.
+
+    lastTickMs.current = performance.now();
   }, [currentTimeNs, timeToScrollY, lines]);
 
-  // Smooth scroll animation loop
+  // Animation loop: interpolate at 60fps using velocity between timeupdates.
+  // This gives truly continuous motion instead of LERP-chasing 4Hz updates.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
+    let prevFrameMs = performance.now();
+
     const animate = () => {
+      const now = performance.now();
+      const frameDt = now - prevFrameMs;
+      prevFrameMs = now;
+
       if (!userScrolling.current && scrollTargetRef.current !== null) {
-        const diff = scrollTargetRef.current - container.scrollTop;
-        if (Math.abs(diff) > 0.5) {
-          container.scrollTop += diff * 0.15;
+        // Extrapolate target forward using velocity since last timeupdate
+        const msSinceUpdate = now - lastTickMs.current;
+        const extrapolated = scrollTargetRef.current + scrollVelocity.current * msSinceUpdate;
+
+        const diff = extrapolated - container.scrollTop;
+        if (Math.abs(diff) > 0.3) {
+          // Blend: mostly linear tracking, slight LERP for convergence
+          const linearStep = scrollVelocity.current * frameDt;
+          const lerpStep = diff * 0.12;
+          // Use whichever moves us closer to the target
+          container.scrollTop += Math.abs(linearStep) > 0.1 ? linearStep + (diff - linearStep) * 0.1 : lerpStep;
         }
       }
       setScrollTop(container.scrollTop);
