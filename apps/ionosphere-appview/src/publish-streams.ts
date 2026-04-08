@@ -121,19 +121,23 @@ async function main() {
       const CHUNK_SIZE = 1000;
       let chunkIdx = 0;
 
-      for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
-        const chunk = segments.slice(i, i + CHUNK_SIZE);
-        const rkey = `${stream.slug}-diarization-${String(chunkIdx).padStart(3, "0")}`;
-        await pds.putRecord("tv.ionosphere.diarization", rkey, {
-          $type: "tv.ionosphere.diarization",
-          streamUri,
-          chunkIndex: chunkIdx,
-          segments: chunk,
-          speakerCount: speakers.length,
-        });
-        chunkIdx++;
+      try {
+        for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
+          const chunk = segments.slice(i, i + CHUNK_SIZE);
+          const rkey = `${stream.slug}-diarization-${String(chunkIdx).padStart(3, "0")}`;
+          await pds.putRecord("tv.ionosphere.diarization", rkey, {
+            $type: "tv.ionosphere.diarization",
+            streamUri,
+            chunkIndex: chunkIdx,
+            segments: chunk,
+            speakerCount: speakers.length,
+          });
+          chunkIdx++;
+        }
+        console.log(`  diarization: ${segments.length} segments in ${chunkIdx} chunks, ${speakers.length} speakers`);
+      } catch (err: any) {
+        console.log(`  diarization: FAILED (${err.error || err.message})`);
       }
-      console.log(`  diarization: ${segments.length} segments in ${chunkIdx} chunks, ${speakers.length} speakers`);
     } else {
       console.log(`  diarization: MISSING`);
     }

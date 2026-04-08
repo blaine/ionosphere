@@ -209,6 +209,14 @@ export function migrate(db: Database.Database): void {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Migrations for existing tables
+  `);
+
+  // Add chunk_index columns if missing (for existing DBs)
+  try { db.exec("ALTER TABLE stream_transcripts ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
+  try { db.exec("ALTER TABLE stream_diarizations ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
+
+  db.exec(`
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),
