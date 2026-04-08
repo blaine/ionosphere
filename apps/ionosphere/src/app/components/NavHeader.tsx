@@ -6,7 +6,6 @@ import AuthButton from "./AuthButton";
 
 const NAV_ITEMS = [
   { href: "/talks", label: "Talks" },
-  { href: "/tracks", label: "Tracks" },
   { href: "/speakers", label: "Speakers" },
   { href: "/concepts", label: "Concepts" },
   { href: "/concordance", label: "Index" },

@@ -37,11 +37,3 @@ export async function getIndex() {
 export async function getConceptClusters() {
   return fetchApi<{ clusters: any[] }>("/xrpc/tv.ionosphere.getConceptClusters");
 }
-
-export async function getTracks() {
-  return fetchApi<{ tracks: any[] }>("/xrpc/tv.ionosphere.getTracks");
-}
-
-export async function getTrack(stream: string) {
-  return fetchApi<any>(`/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}`);
-}

@@ -3,8 +3,12 @@ import type { Metadata } from "next";
 import TrackViewContent from "./TrackViewContent";
 
 export async function generateStaticParams() {
-  const { tracks } = await getTracks();
-  return tracks.map((t: any) => ({ stream: t.slug }));
+  try {
+    const { tracks } = await getTracks();
+    return tracks.map((t: any) => ({ stream: t.slug }));
+  } catch {
+    return []; // tracks endpoint not available — render on-demand
+  }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ stream: string }> }): Promise<Metadata> {
