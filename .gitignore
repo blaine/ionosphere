@@ -14,3 +14,6 @@ next-env.d.ts
 .worktrees/
 apps/data
 package-lock.json
+*.DS_Store
+.sprite
+.claude/worktrees
