@@ -92,6 +92,19 @@ export class PdsClient {
     return uri;
   }
 
+  async deleteRecord(collection: string, rkey: string): Promise<void> {
+    if (!this.did) throw new Error("Not logged in");
+    const did = this.did;
+    await retryWithBackoff(async () => {
+      await this.agent.api.com.atproto.repo.deleteRecord({
+        repo: did,
+        collection,
+        rkey,
+      });
+    });
+    await delay(this.writeDelay);
+  }
+
   makeUri(collection: string, rkey: string): string {
     if (!this.did) throw new Error("Not logged in");
     return `at://${this.did}/${collection}/${rkey}`;

@@ -70,7 +70,7 @@ function extractChunk(
   if (existsSync(outputPath)) return;
   console.log(`    Extracting chunk: ${startSec}s - ${startSec + durationSec}s`);
   execSync(
-    `ffmpeg -i "${playlistUrl}" -ss ${startSec} -t ${durationSec} -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 32k "${outputPath}" -y`,
+    `ffmpeg -ss ${startSec} -i "${playlistUrl}" -t ${durationSec} -vn -acodec libmp3lame -ar 16000 -ac 1 -b:a 32k "${outputPath}" -y`,
     { stdio: "pipe", timeout: 600_000 }
   );
 }

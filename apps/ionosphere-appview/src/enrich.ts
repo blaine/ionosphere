@@ -166,13 +166,19 @@ Extract the following, returning JSON:
 }
 
 Guidelines:
-- For concepts: focus on technical concepts, protocols, projects, organizations, standards, and tools. Not generic words.
-- Include AT Protocol ecosystem concepts (PDS, DID, Jetstream, lexicons, etc.) when mentioned.
-- For speaker mentions: only people actually named in the transcript, matched to the speaker index when possible.
-- For cross-refs: only when the speaker explicitly references another talk or topic that matches a talk in the index.
-- For links: URLs spoken aloud or clearly referenced (e.g., "check out our website at example.com").
+- For concepts: cast a wide net. Include:
+  - Technical concepts, protocols, projects, organizations, standards, tools
+  - AT Protocol ecosystem concepts (PDS, DID, Jetstream, lexicons, etc.)
+  - Key metaphors, analogies, and thematic imagery the speaker uses (e.g., "kelp forest", "landslide", "garden")
+  - Books, papers, academic works, and theoretical frameworks referenced
+  - Historical events, places, and phenomena discussed (even as metaphor)
+  - Named entities: companies, communities, movements, legislation
+- Aim for 20-40 concepts per talk. If a speaker discusses it substantively, it's a concept.
+- For speaker mentions: people actually named in the transcript, matched to the speaker index when possible.
+- For cross-refs: when the speaker explicitly references another talk or topic that matches a talk in the index.
+- For links: URLs spoken aloud or clearly referenced.
 - Be precise with quotes — use the exact text from the transcript.
-- Be conservative — only include things you're confident about.`,
+- Be thorough — if in doubt, include it. A rich knowledge graph is more valuable than a sparse one.`,
       },
       {
         role: "user",
@@ -282,11 +288,24 @@ async function main() {
   console.log(`  Cross-refs: ${result.crossRefs.length}`);
   console.log(`  Links: ${result.links.length}`);
 
-  // 5. Write concept records and annotation records to PDS
-  const encoder = new TextEncoder();
-  const transcriptLower = transcript.toLowerCase();
+  // 5. Delete old annotations for this talk before writing new ones
+  const allAnnotations = await listRecords("tv.ionosphere.annotation", did);
   const talkUri = `at://${did}/tv.ionosphere.talk/${rkey}`;
   const transcriptUri = `at://${did}/tv.ionosphere.transcript/${transcriptRkey}`;
+  const oldAnnotations = allAnnotations.filter(
+    (a: any) => a.value.talkUri === talkUri
+  );
+  if (oldAnnotations.length > 0) {
+    console.log(`  Deleting ${oldAnnotations.length} old annotations...`);
+    for (const a of oldAnnotations) {
+      const aRkey = a.uri.split("/").pop();
+      await pds.deleteRecord("tv.ionosphere.annotation", aRkey);
+    }
+  }
+
+  // 6. Write concept records and annotation records to PDS
+  const encoder = new TextEncoder();
+  const transcriptLower = transcript.toLowerCase();
   let annotationCount = 0;
 
   for (const concept of result.concepts) {
