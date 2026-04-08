@@ -8,7 +8,7 @@ node_modules
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
-apps/ionosphere-appview/data/pds
-apps/ionosphere-appview/tools/.venv
+apps/ionosphere-appview/data
+apps/ionosphere-appview/tools
 apps/data
 docs
