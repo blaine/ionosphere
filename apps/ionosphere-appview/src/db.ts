@@ -173,6 +173,40 @@ export function migrate(db: Database.Database): void {
       fetched_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS streams (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      room TEXT NOT NULL,
+      day_label TEXT NOT NULL,
+      stream_video_uri TEXT NOT NULL,
+      duration_seconds REAL NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS stream_transcripts (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      stream_uri TEXT NOT NULL,
+      text TEXT NOT NULL,
+      start_ms INTEGER NOT NULL,
+      timings TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS stream_diarizations (
+      uri TEXT PRIMARY KEY,
+      did TEXT NOT NULL,
+      rkey TEXT NOT NULL,
+      stream_uri TEXT NOT NULL,
+      segments TEXT NOT NULL,
+      speaker_count INTEGER NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
       id INTEGER PRIMARY KEY CHECK (id = 1),

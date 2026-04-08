@@ -27,6 +27,9 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.transcript",
   "tv.ionosphere.annotation",
   "tv.ionosphere.comment",
+  "tv.ionosphere.stream",
+  "tv.ionosphere.streamTranscript",
+  "tv.ionosphere.diarization",
   "org.relationaltext.lens",
 ];
 
@@ -74,6 +77,15 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       case "tv.ionosphere.comment":
         db.prepare("DELETE FROM comments WHERE uri = ?").run(uri);
         break;
+      case "tv.ionosphere.stream":
+        db.prepare("DELETE FROM streams WHERE uri = ?").run(uri);
+        break;
+      case "tv.ionosphere.streamTranscript":
+        db.prepare("DELETE FROM stream_transcripts WHERE uri = ?").run(uri);
+        break;
+      case "tv.ionosphere.diarization":
+        db.prepare("DELETE FROM stream_diarizations WHERE uri = ?").run(uri);
+        break;
       case "org.relationaltext.lens":
         db.prepare("DELETE FROM lenses WHERE uri = ?").run(uri);
         break;
@@ -106,6 +118,15 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "tv.ionosphere.comment":
       indexUserComment(db, event.did, rkey, uri, record);
+      break;
+    case "tv.ionosphere.stream":
+      indexStream(db, event.did, rkey, uri, record);
+      break;
+    case "tv.ionosphere.streamTranscript":
+      indexStreamTranscript(db, event.did, rkey, uri, record);
+      break;
+    case "tv.ionosphere.diarization":
+      indexDiarization(db, event.did, rkey, uri, record);
       break;
     case "org.relationaltext.lens":
       indexLens(db, event.did, rkey, uri, record);
@@ -343,6 +364,67 @@ function indexUserComment(
   );
 
   ensureProfile(db, did);
+}
+
+function indexStream(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO streams
+     (uri, did, rkey, name, slug, room, day_label, stream_video_uri, duration_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri, did, rkey,
+    record.name as string,
+    record.slug as string,
+    record.room as string,
+    record.dayLabel as string,
+    record.streamVideoUri as string,
+    record.durationSeconds as number,
+  );
+}
+
+function indexStreamTranscript(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO stream_transcripts
+     (uri, did, rkey, stream_uri, text, start_ms, timings)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri, did, rkey,
+    record.streamUri as string,
+    record.text as string,
+    record.startMs as number,
+    JSON.stringify(record.timings),
+  );
+}
+
+function indexDiarization(
+  db: Database.Database,
+  did: string,
+  rkey: string,
+  uri: string,
+  record: Record<string, unknown>
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO stream_diarizations
+     (uri, did, rkey, stream_uri, segments, speaker_count)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    uri, did, rkey,
+    record.streamUri as string,
+    JSON.stringify(record.segments),
+    record.speakerCount as number,
+  );
 }
 
 function rebuildTalkConcepts(db: Database.Database, _deletedUri: string): void {
