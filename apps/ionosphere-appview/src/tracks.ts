@@ -47,63 +47,64 @@ function getStreamsFromDb(db: Database.Database): any[] {
   return db.prepare("SELECT * FROM streams ORDER BY day_label, name").all() as any[];
 }
 
-function getStreamTranscriptFromDb(db: Database.Database, streamUri: string): { text: string; facets: any[] } | null {
-  const row = db.prepare("SELECT * FROM stream_transcripts WHERE stream_uri = ?").get(streamUri) as any;
-  if (!row) return null;
-
-  // Decode compact format back to text + timestamp facets
-  const timings: number[] = JSON.parse(row.timings);
-  const words = row.text.split(" ");
+/** Decode chunked stream transcripts from DB, reassembling into a single document. */
+function decodeChunkedTranscript(chunks: any[]): { text: string; facets: any[]; words: Array<{ start: number; end: number; speaker: string }> } {
   const facets: any[] = [];
+  const words: Array<{ start: number; end: number; speaker: string }> = [];
+  let fullText = "";
   let byteOffset = 0;
-  let timeMs = 0;
 
-  for (let i = 0; i < words.length; i++) {
-    const wordText = words[i] + " ";
-    const byteStart = byteOffset;
-    const wordBytes = Buffer.byteLength(wordText, "utf-8");
-    byteOffset += wordBytes;
+  for (const chunk of chunks) {
+    const timings: number[] = JSON.parse(chunk.timings);
+    const chunkWords = chunk.text.split(" ");
+    let timeMs = 0;
 
-    const gap = timings[i * 2] || 0;
-    const dur = timings[i * 2 + 1] || 0;
-    timeMs += gap;
-    const startNs = timeMs * 1e6;
-    timeMs += dur;
-    const endNs = timeMs * 1e6;
+    for (let i = 0; i < chunkWords.length; i++) {
+      if (!chunkWords[i]) continue;
+      const wordText = chunkWords[i] + " ";
+      const byteStart = byteOffset;
+      const wordBytes = Buffer.byteLength(wordText, "utf-8");
+      byteOffset += wordBytes;
+      fullText += wordText;
 
-    facets.push({
-      index: { byteStart, byteEnd: byteOffset },
-      features: [{
-        $type: "tv.ionosphere.facet#timestamp",
-        startTime: Math.round(startNs),
-        endTime: Math.round(endNs),
-      }],
-    });
+      const gap = timings[i * 2] || 0;
+      const dur = timings[i * 2 + 1] || 0;
+      timeMs += gap;
+      const startMs = timeMs;
+      timeMs += dur;
+      const endMs = timeMs;
+
+      facets.push({
+        index: { byteStart, byteEnd: byteOffset },
+        features: [{
+          $type: "tv.ionosphere.facet#timestamp",
+          startTime: Math.round(startMs * 1e6),
+          endTime: Math.round(endMs * 1e6),
+        }],
+      });
+
+      words.push({ start: startMs / 1000, end: endMs / 1000, speaker: "" });
+    }
   }
 
-  return { text: row.text.split(" ").map((w: string) => w + " ").join(""), facets };
+  return { text: fullText, facets, words };
+}
+
+function getStreamTranscriptFromDb(db: Database.Database, streamUri: string): { text: string; facets: any[] } | null {
+  const chunks = db.prepare(
+    "SELECT * FROM stream_transcripts WHERE stream_uri = ? ORDER BY chunk_index ASC"
+  ).all(streamUri) as any[];
+  if (chunks.length === 0) return null;
+  const { text, facets } = decodeChunkedTranscript(chunks);
+  return { text, facets };
 }
 
 function getStreamWordsFromDb(db: Database.Database, streamUri: string): Array<{ start: number; end: number; speaker: string }> {
-  const row = db.prepare("SELECT * FROM stream_transcripts WHERE stream_uri = ?").get(streamUri) as any;
-  if (!row) return [];
-
-  const timings: number[] = JSON.parse(row.timings);
-  const words = row.text.split(" ");
-  const result: Array<{ start: number; end: number; speaker: string }> = [];
-  let timeMs = 0;
-
-  for (let i = 0; i < words.length; i++) {
-    const gap = timings[i * 2] || 0;
-    const dur = timings[i * 2 + 1] || 0;
-    timeMs += gap;
-    const start = timeMs / 1000;
-    timeMs += dur;
-    const end = timeMs / 1000;
-    result.push({ start, end, speaker: "" }); // speaker comes from diarization
-  }
-
-  return result;
+  const chunks = db.prepare(
+    "SELECT * FROM stream_transcripts WHERE stream_uri = ? ORDER BY chunk_index ASC"
+  ).all(streamUri) as any[];
+  if (chunks.length === 0) return [];
+  return decodeChunkedTranscript(chunks).words;
 }
 
 function getDiarizationFromDb(db: Database.Database, streamUri: string): any[] {

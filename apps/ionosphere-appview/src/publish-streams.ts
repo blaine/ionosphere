@@ -74,22 +74,40 @@ async function main() {
     });
     console.log(`  stream: ${stream.slug}`);
 
-    // 2. Publish transcript (compact encoded)
+    // 2. Publish transcript in chunks (AT Protocol has ~500KB request body limit)
     const txPath = path.join(DATA_DIR, stream.dirName, "transcript-enriched.json");
     if (existsSync(txPath)) {
       const data = JSON.parse(readFileSync(txPath, "utf-8"));
       const words = data.words || [];
-      const compact = compactEncode(words);
-      const recordSize = compact.text.length + JSON.stringify(compact.timings).length;
 
-      await pds.putRecord("tv.ionosphere.streamTranscript", `${stream.slug}-transcript`, {
-        $type: "tv.ionosphere.streamTranscript",
-        streamUri,
-        text: compact.text,
-        startMs: compact.startMs,
-        timings: compact.timings,
-      });
-      console.log(`  transcript: ${words.length} words (${(recordSize / 1024).toFixed(0)}KB compact)`);
+      // Split into ~15-minute chunks to stay well under the limit
+      const CHUNK_SECONDS = 15 * 60;
+      let chunkStart = 0;
+      let chunkIdx = 0;
+
+      while (chunkStart < words.length) {
+        const chunkStartTime = words[chunkStart].start;
+        const chunkEndTime = chunkStartTime + CHUNK_SECONDS;
+        let chunkEnd = chunkStart;
+        while (chunkEnd < words.length && words[chunkEnd].start < chunkEndTime) chunkEnd++;
+
+        const chunkWords = words.slice(chunkStart, chunkEnd);
+        const compact = compactEncode(chunkWords);
+        const rkey = `${stream.slug}-transcript-${String(chunkIdx).padStart(3, "0")}`;
+
+        await pds.putRecord("tv.ionosphere.streamTranscript", rkey, {
+          $type: "tv.ionosphere.streamTranscript",
+          streamUri,
+          chunkIndex: chunkIdx,
+          text: compact.text,
+          startMs: compact.startMs,
+          timings: compact.timings,
+        });
+
+        chunkIdx++;
+        chunkStart = chunkEnd;
+      }
+      console.log(`  transcript: ${words.length} words in ${chunkIdx} chunks`);
     } else {
       console.log(`  transcript: MISSING`);
     }

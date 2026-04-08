@@ -397,11 +397,12 @@ function indexStreamTranscript(
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO stream_transcripts
-     (uri, did, rkey, stream_uri, text, start_ms, timings)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+     (uri, did, rkey, stream_uri, chunk_index, text, start_ms, timings)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri, did, rkey,
     record.streamUri as string,
+    (record.chunkIndex as number) ?? 0,
     record.text as string,
     record.startMs as number,
     JSON.stringify(record.timings),
