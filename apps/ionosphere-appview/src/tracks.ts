@@ -174,10 +174,24 @@ export function getTracksIndex(db: Database.Database) {
     ? dbStreams.map((s: any) => ({ slug: s.slug, name: s.name, room: s.room, dayLabel: s.day_label, uri: s.stream_video_uri, durationSeconds: s.duration_seconds }))
     : STREAMS.map((s) => ({ slug: s.slug, name: s.name, room: s.room, dayLabel: s.dayLabel, uri: s.uri, durationSeconds: s.durationSeconds }));
 
+  // Map stream rooms to day labels for talk counting
+  const DAY_DATES: Record<string, string[]> = {
+    "Friday": ["2026-03-27"],
+    "Saturday": ["2026-03-28"],
+    "Sunday": ["2026-03-29"],
+  };
+
   return streamConfigs.map((s) => {
-    const talks = db.prepare(
-      `SELECT COUNT(*) as cnt FROM talks WHERE video_segments LIKE ?`
-    ).get(`%${s.uri}%`) as { cnt: number };
+    // Count talks by matching room + day (since video_segments isn't published to PDS)
+    const dates = DAY_DATES[s.dayLabel] || [];
+    let talkCount = 0;
+    if (dates.length > 0) {
+      const result = db.prepare(
+        `SELECT COUNT(*) as cnt FROM talks
+         WHERE room = ? AND starts_at LIKE ?`
+      ).get(s.room, `${dates[0]}%`) as { cnt: number };
+      talkCount = result.cnt;
+    }
 
     return {
       slug: s.slug,
@@ -185,7 +199,7 @@ export function getTracksIndex(db: Database.Database) {
       room: s.room,
       dayLabel: s.dayLabel,
       durationSeconds: s.durationSeconds,
-      talkCount: talks.cnt,
+      talkCount,
       playbackUrl: playbackUrl(s.uri),
     };
   });
