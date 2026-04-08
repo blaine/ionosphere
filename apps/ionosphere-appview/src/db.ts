@@ -203,6 +203,7 @@ export function migrate(db: Database.Database): void {
       did TEXT NOT NULL,
       rkey TEXT NOT NULL,
       stream_uri TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL DEFAULT 0,
       segments TEXT NOT NULL,
       speaker_count INTEGER NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP

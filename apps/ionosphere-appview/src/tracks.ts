@@ -108,9 +108,15 @@ function getStreamWordsFromDb(db: Database.Database, streamUri: string): Array<{
 }
 
 function getDiarizationFromDb(db: Database.Database, streamUri: string): any[] {
-  const row = db.prepare("SELECT * FROM stream_diarizations WHERE stream_uri = ?").get(streamUri) as any;
-  if (!row) return [];
-  return JSON.parse(row.segments);
+  const chunks = db.prepare(
+    "SELECT * FROM stream_diarizations WHERE stream_uri = ? ORDER BY chunk_index ASC"
+  ).all(streamUri) as any[];
+  if (chunks.length === 0) return [];
+  const segments: any[] = [];
+  for (const chunk of chunks) {
+    segments.push(...JSON.parse(chunk.segments));
+  }
+  return segments;
 }
 
 // --- Local file fallback ---

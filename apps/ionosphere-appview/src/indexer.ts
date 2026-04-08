@@ -418,11 +418,12 @@ function indexDiarization(
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO stream_diarizations
-     (uri, did, rkey, stream_uri, segments, speaker_count)
-     VALUES (?, ?, ?, ?, ?, ?)`
+     (uri, did, rkey, stream_uri, chunk_index, segments, speaker_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri, did, rkey,
     record.streamUri as string,
+    (record.chunkIndex as number) ?? 0,
     JSON.stringify(record.segments),
     record.speakerCount as number,
   );

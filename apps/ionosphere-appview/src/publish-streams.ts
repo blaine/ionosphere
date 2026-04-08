@@ -112,20 +112,28 @@ async function main() {
       console.log(`  transcript: MISSING`);
     }
 
-    // 3. Publish diarization
+    // 3. Publish diarization (chunked to stay under record size limit)
     const diaPath = path.join(DATA_DIR, stream.dirName, "diarization.json");
     if (existsSync(diaPath)) {
       const data = JSON.parse(readFileSync(diaPath, "utf-8"));
       const segments = data.segments || [];
       const speakers = data.speakers || [];
+      const CHUNK_SIZE = 1000;
+      let chunkIdx = 0;
 
-      await pds.putRecord("tv.ionosphere.diarization", `${stream.slug}-diarization`, {
-        $type: "tv.ionosphere.diarization",
-        streamUri,
-        segments,
-        speakerCount: speakers.length,
-      });
-      console.log(`  diarization: ${segments.length} segments, ${speakers.length} speakers`);
+      for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
+        const chunk = segments.slice(i, i + CHUNK_SIZE);
+        const rkey = `${stream.slug}-diarization-${String(chunkIdx).padStart(3, "0")}`;
+        await pds.putRecord("tv.ionosphere.diarization", rkey, {
+          $type: "tv.ionosphere.diarization",
+          streamUri,
+          chunkIndex: chunkIdx,
+          segments: chunk,
+          speakerCount: speakers.length,
+        });
+        chunkIdx++;
+      }
+      console.log(`  diarization: ${segments.length} segments in ${chunkIdx} chunks, ${speakers.length} speakers`);
     } else {
       console.log(`  diarization: MISSING`);
     }
