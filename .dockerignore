@@ -2,8 +2,13 @@ node_modules
 .next
 .git
 .claude
+.worktrees
+.sprite
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.sqlite-journal
 apps/ionosphere-appview/data/pds
+apps/ionosphere-appview/tools/.venv
+apps/data
 docs
