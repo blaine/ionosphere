@@ -9,8 +9,16 @@ function formatDuration(seconds: number): string {
 
 const DAY_ORDER = ["Friday", "Saturday", "Sunday"];
 
+export const dynamic = "force-dynamic";
+
 export default async function TracksPage() {
-  const { tracks } = await getTracks();
+  let tracks: any[] = [];
+  try {
+    const data = await getTracks();
+    tracks = data.tracks;
+  } catch {
+    // tracks API not available yet
+  }
 
   const byDay = new Map<string, any[]>();
   for (const track of tracks) {
