@@ -12,3 +12,5 @@ apps/*/data/
 .env.local
 next-env.d.ts
 .worktrees/
+apps/data
+package-lock.json

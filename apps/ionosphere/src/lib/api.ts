@@ -45,3 +45,19 @@ export async function getTracks() {
 export async function getTrack(stream: string) {
   return fetchApi<any>(`/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}`);
 }
+
+export async function getCorrections(stream: string) {
+  const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getCorrections?stream=${encodeURIComponent(stream)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json() as Promise<{ corrections: any[] }>;
+}
+
+export async function saveCorrections(stream: string, corrections: any[]) {
+  const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.putCorrections`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stream, corrections }),
+  });
+  if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+  return res.json();
+}

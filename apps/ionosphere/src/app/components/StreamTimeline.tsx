@@ -1,23 +1,9 @@
 "use client";
 
-import { useTimestamp } from "./TimestampProvider";
 import { useRef, useCallback, useMemo } from "react";
+import { useTimestamp } from "./TimestampProvider";
 import { talkColor, buildIndexMap } from "@/lib/track-colors";
-
-interface Talk {
-  rkey: string;
-  title: string;
-  startSeconds: number;
-  endSeconds: number | null;
-}
-
-interface StreamTimelineProps {
-  talks: Talk[];
-  durationSeconds: number;
-  offsetSeconds?: number;
-  /** All talks in the stream (for stable color assignment). Pass the full list, not just visible. */
-  allTalks?: Talk[];
-}
+import { useTimelineEngine } from "@/lib/timeline-engine";
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -26,52 +12,130 @@ function formatTime(seconds: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export default function StreamTimeline({ talks, durationSeconds, offsetSeconds = 0, allTalks }: StreamTimelineProps) {
+interface StreamTimelineProps {
+  allTalkRkeys: string[];
+}
+
+export default function StreamTimeline({ allTalkRkeys }: StreamTimelineProps) {
   const { currentTimeNs, seekTo } = useTimestamp();
   const barRef = useRef<HTMLDivElement>(null);
   const currentTimeSec = currentTimeNs / 1e9;
 
-  // Build stable color index from ALL talks (not just visible)
+  const {
+    effectiveTalks,
+    editingEnabled,
+    mode,
+    selectedTalkRkey,
+    selectedEdge,
+    selectTalk,
+    selectEdge,
+    activeDrag,
+    windowStart,
+    windowEnd,
+    pixelToTime,
+    startDrag,
+    applyCorrection,
+  } = useTimelineEngine();
+
+  const windowDuration = windowEnd - windowStart;
+
   const colorIndex = useMemo(
-    () => buildIndexMap((allTalks ?? talks).map((t) => t.rkey)),
-    [allTalks, talks],
+    () => buildIndexMap(allTalkRkeys),
+    [allTalkRkeys],
   );
 
-  const handleClick = useCallback(
+  const visibleTalks = useMemo(
+    () => effectiveTalks.filter(
+      (t) => t.startSeconds < windowEnd && (t.endSeconds ?? windowEnd) > windowStart,
+    ),
+    [effectiveTalks, windowStart, windowEnd],
+  );
+
+  const handleBarClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!barRef.current) return;
       const rect = barRef.current.getBoundingClientRect();
       const fraction = (e.clientX - rect.left) / rect.width;
-      const seconds = offsetSeconds + fraction * durationSeconds;
+      const seconds = windowStart + fraction * windowDuration;
+
+      if (editingEnabled) {
+        // Split mode: click on selected talk to split at position
+        if (mode === "split" && selectedTalkRkey) {
+          const talk = effectiveTalks.find((t) => t.rkey === selectedTalkRkey);
+          if (talk && seconds > talk.startSeconds && seconds < (talk.endSeconds ?? windowEnd)) {
+            const newRkey = crypto.randomUUID().slice(0, 8);
+            applyCorrection({ type: "split_talk", talkRkey: selectedTalkRkey, atSeconds: seconds, newRkey });
+            return;
+          }
+        }
+
+        // All modes: click on a talk to select it
+        const clicked = visibleTalks.find(
+          (t) => seconds >= t.startSeconds && seconds < (t.endSeconds ?? windowEnd),
+        );
+        selectTalk(clicked?.rkey ?? null);
+        if (clicked) {
+          seekTo(clicked.startSeconds * 1e9);
+          return;
+        }
+      }
+
       seekTo(seconds * 1e9);
     },
-    [durationSeconds, offsetSeconds, seekTo],
+    [windowStart, windowDuration, seekTo, editingEnabled, mode, selectedTalkRkey, effectiveTalks, visibleTalks, selectTalk, applyCorrection, windowEnd],
+  );
+
+  const handleEdgeMouseDown = useCallback(
+    (e: React.MouseEvent, talkRkey: string, edge: "start" | "end", seconds: number) => {
+      if (!editingEnabled) return;
+      e.stopPropagation();
+      selectTalk(talkRkey);
+      selectEdge(edge);
+      if (mode === "trim") {
+        // Compute cursor time for grab offset (so handle tracks cursor exactly)
+        const timeline = document.querySelector("[data-timeline-bar]") as HTMLElement;
+        const rect = timeline?.getBoundingClientRect();
+        const cursorSeconds = rect ? pixelToTime(e.clientX - rect.left) : seconds;
+        startDrag(talkRkey, edge, seconds, cursorSeconds);
+      }
+    },
+    [editingEnabled, mode, startDrag, selectTalk, selectEdge, pixelToTime],
   );
 
   const scrubberPct = Math.min(100, Math.max(0,
-    ((currentTimeSec - offsetSeconds) / durationSeconds) * 100,
+    ((currentTimeSec - windowStart) / windowDuration) * 100,
   ));
-
-  const windowEnd = offsetSeconds + durationSeconds;
 
   return (
     <div
       ref={barRef}
-      onClick={handleClick}
-      className="relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden border border-neutral-800"
+      onClick={handleBarClick}
+      className={`relative w-full h-10 bg-neutral-900 rounded cursor-pointer overflow-hidden ${editingEnabled ? "select-none" : ""}`}
     >
-      {talks.map((talk, i) => {
-        const talkStart = Math.max(talk.startSeconds, offsetSeconds);
+      {visibleTalks.map((talk, i) => {
+        const talkStart = Math.max(talk.startSeconds, windowStart);
         const talkEnd = Math.min(talk.endSeconds ?? windowEnd, windowEnd);
-        if (talkStart >= windowEnd || talkEnd <= offsetSeconds) return null;
+        if (talkStart >= windowEnd || talkEnd <= windowStart) return null;
 
-        const left = ((talkStart - offsetSeconds) / durationSeconds) * 100;
-        const width = ((talkEnd - talkStart) / durationSeconds) * 100;
+        let displayStart = talkStart;
+        let displayEnd = talkEnd;
+        if (activeDrag?.talkRkey === talk.rkey) {
+          if (activeDrag.edge === "start") displayStart = Math.max(activeDrag.currentSeconds, windowStart);
+          if (activeDrag.edge === "end") displayEnd = Math.min(activeDrag.currentSeconds, windowEnd);
+        }
+
+        const left = ((displayStart - windowStart) / windowDuration) * 100;
+        const width = ((displayEnd - displayStart) / windowDuration) * 100;
+        const isSelected = selectedTalkRkey === talk.rkey;
+        const isStartEdgeSelected = isSelected && selectedEdge === "start";
+        const isEndEdgeSelected = isSelected && selectedEdge === "end";
 
         return (
           <div
             key={`${talk.rkey}-${i}`}
-            className="absolute top-0 h-full border-r border-neutral-700/50 flex items-center overflow-hidden"
+            className={`absolute top-0 h-full flex items-center overflow-hidden ${
+              isSelected ? "ring-1 ring-white/30 z-[5]" : ""
+            }`}
             style={{
               left: `${left}%`,
               width: `${width}%`,
@@ -79,9 +143,37 @@ export default function StreamTimeline({ talks, durationSeconds, offsetSeconds =
             }}
             title={`${talk.title} (${formatTime(talk.startSeconds)})`}
           >
-            <span className="text-[10px] text-neutral-300 px-1 truncate">
+            {/* Left (start) edge handle */}
+            {editingEnabled && (
+              <div
+                className={`absolute left-0 top-0 w-1.5 h-full cursor-col-resize z-[6] transition-colors ${
+                  isStartEdgeSelected
+                    ? "bg-yellow-400/80"
+                    : "hover:bg-white/40"
+                }`}
+                onMouseDown={(e) => handleEdgeMouseDown(e, talk.rkey, "start", talk.startSeconds)}
+              />
+            )}
+
+            <span className="text-[10px] text-neutral-300 px-2 truncate">
               {talk.title}
             </span>
+
+            {talk.verified && (
+              <span className="absolute top-0.5 right-1 text-[8px] text-green-400">&#10003;</span>
+            )}
+
+            {/* Right (end) edge handle */}
+            {editingEnabled && (
+              <div
+                className={`absolute right-0 top-0 w-1.5 h-full cursor-col-resize z-[6] transition-colors ${
+                  isEndEdgeSelected
+                    ? "bg-yellow-400/80"
+                    : "hover:bg-white/40"
+                }`}
+                onMouseDown={(e) => handleEdgeMouseDown(e, talk.rkey, "end", talk.endSeconds ?? windowEnd)}
+              />
+            )}
           </div>
         );
       })}
@@ -92,7 +184,7 @@ export default function StreamTimeline({ talks, durationSeconds, offsetSeconds =
       />
 
       <div className="absolute bottom-0 left-1 text-[9px] text-neutral-500">
-        {formatTime(offsetSeconds)}
+        {formatTime(windowStart)}
       </div>
       <div className="absolute bottom-0 right-1 text-[9px] text-neutral-500">
         {formatTime(windowEnd)}

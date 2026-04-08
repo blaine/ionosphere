@@ -22,7 +22,7 @@ export interface StreamConfig {
   durationSeconds: number;
 }
 
-const STREAMS: StreamConfig[] = [
+export const STREAMS: StreamConfig[] = [
   { slug: "great-hall-day-1", name: "Great Hall - Saturday", room: "Great Hall South", day: 1, dayLabel: "Saturday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miieadw52j22", dirName: "Great_Hall___Day_1", durationSeconds: 28433 },
   { slug: "great-hall-day-2", name: "Great Hall - Sunday", room: "Great Hall South", day: 2, dayLabel: "Sunday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miighlz53o22", dirName: "Great_Hall___Day_2", durationSeconds: 28433 },
   { slug: "room-2301-day-1", name: "Room 2301 - Saturday", room: "Room 2301", day: 1, dayLabel: "Saturday", uri: "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3miieadx2dj22", dirName: "Room_2301___Day_1", durationSeconds: 27400 },
@@ -82,6 +82,17 @@ function loadTranscript(dirName: string): { text: string; facets: any[] } | null
   const result = { text, facets };
   transcriptCache.set(dirName, result);
   return result;
+}
+
+function loadWords(dirName: string): Array<{ start: number; end: number; speaker: string }> {
+  const txPath = path.join(DATA_DIR, dirName, "transcript-enriched.json");
+  if (!existsSync(txPath)) return [];
+  const data = JSON.parse(readFileSync(txPath, "utf-8"));
+  return (data.words || []).map((w: any) => ({
+    start: w.start,
+    end: w.end,
+    speaker: w.speaker,
+  }));
 }
 
 export function getTracksIndex(db: Database.Database) {
@@ -150,6 +161,7 @@ export function getTrackData(db: Database.Database, slug: string) {
 
   const diarization = loadDiarization(stream.dirName);
   const transcript = loadTranscript(stream.dirName);
+  const words = loadWords(stream.dirName);
 
   return {
     slug: stream.slug,
@@ -162,5 +174,6 @@ export function getTrackData(db: Database.Database, slug: string) {
     talks,
     diarization,
     transcript,
+    words,
   };
 }

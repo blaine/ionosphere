@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { buildConcordance } from "./concordance.js";
-import { getTracksIndex, getTrackData } from "./tracks.js";
+import { getTracksIndex, getTrackData, STREAMS } from "./tracks.js";
 import type Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import {
   decodeToDocument,
@@ -65,7 +65,7 @@ export function createRoutes(db: Database.Database): Hono {
   app.use("*", async (c, next) => {
     await next();
     c.header("Access-Control-Allow-Origin", "*");
-    c.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+    c.header("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
     c.header("Access-Control-Allow-Headers", "Content-Type");
   });
   app.options("*", (c) => c.text("", 204));
@@ -526,6 +526,46 @@ export function createRoutes(db: Database.Database): Hono {
     const data = getTrackData(db, stream);
     if (!data) return c.json({ error: "stream not found" }, 404);
     return c.json(data);
+  });
+
+  // --- Corrections sidecar ---
+
+  const validSlugs = new Set(STREAMS.map((s) => s.slug));
+
+  app.get("/xrpc/tv.ionosphere.getCorrections", (c) => {
+    const stream = c.req.query("stream");
+    if (!stream) return c.json({ error: "missing stream parameter" }, 400);
+    if (!validSlugs.has(stream)) return c.json({ error: "invalid stream" }, 400);
+
+    const correctionsPath = path.resolve(
+      import.meta.dirname,
+      `../data/corrections/corrections-${stream}.json`,
+    );
+    if (!existsSync(correctionsPath)) {
+      return c.json({ corrections: [] });
+    }
+    const data = JSON.parse(readFileSync(correctionsPath, "utf-8"));
+    return c.json({ corrections: data });
+  });
+
+  app.put("/xrpc/tv.ionosphere.putCorrections", async (c) => {
+    const body = await c.req.json();
+    const stream = body.stream;
+    const corrections = body.corrections;
+    if (!stream || !Array.isArray(corrections)) {
+      return c.json({ error: "missing stream or corrections" }, 400);
+    }
+    if (!validSlugs.has(stream)) {
+      return c.json({ error: "invalid stream" }, 400);
+    }
+
+    const dir = path.resolve(import.meta.dirname, "../data/corrections");
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const correctionsPath = path.resolve(dir, `corrections-${stream}.json`);
+    writeFileSync(correctionsPath, JSON.stringify(corrections, null, 2));
+    return c.json({ ok: true, count: corrections.length });
   });
 
   return app;
