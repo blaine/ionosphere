@@ -23,7 +23,7 @@ interface Talk {
   confidence: string;
 }
 
-interface TrackData {
+interface TrackMeta {
   slug: string;
   name: string;
   room: string;
@@ -32,10 +32,15 @@ interface TrackData {
   durationSeconds: number;
   playbackUrl: string;
   talks: Talk[];
+}
+
+interface TrackData extends TrackMeta {
   diarization: Array<{ start: number; end: number; speaker: string }>;
   transcript?: { text: string; facets: any[] };
   words?: Array<{ start: number; end: number; speaker: string }>;
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 function formatTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -382,7 +387,28 @@ function TrackViewInner({ track }: { track: TrackData }) {
   );
 }
 
-export default function TrackViewContent({ track }: { track: TrackData }) {
+export default function TrackViewContent({ trackMeta, stream }: { trackMeta: TrackMeta; stream: string }) {
+  const [track, setTrack] = useState<TrackData | null>(null);
+
+  useEffect(() => {
+    // Fetch the heavy data (diarization, transcript, words) client-side
+    fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}`)
+      .then(res => res.json())
+      .then(data => setTrack(data))
+      .catch(() => {
+        // Fallback: use meta without heavy data
+        setTrack({ ...trackMeta, diarization: [], words: [] });
+      });
+  }, [stream, trackMeta]);
+
+  if (!track) {
+    return (
+      <div className="flex items-center justify-center h-screen text-neutral-500">
+        Loading track data...
+      </div>
+    );
+  }
+
   return (
     <TimestampProvider>
       <TrackViewInner track={track} />
