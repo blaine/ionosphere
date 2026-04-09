@@ -183,24 +183,40 @@ const DAY_DATES: Record<string, string> = {
   "Sunday": "2026-03-29",
 };
 
-// Which schedule rooms map to which stream
-const STREAM_ROOMS: Record<string, string[]> = {
-  "great-hall-day-1": ["Great Hall South"],
-  "great-hall-day-2": ["Great Hall South"],
-  "room-2301-day-1": ["Room 2301"],
-  "room-2301-day-2": ["Room 2301"],
-  "performance-theatre-day-1": ["Performance Theatre"],
-  "performance-theatre-day-2": ["Performance Theatre"],
-  // ATScience was Friday — talks were in various rooms
-  "atscience": ["Performance Theatre", "2301 Classroom", "2311 Classroom", "Bukhman Lounge", "Room 2301", "Great Hall South"],
+// Stream-to-talk matching: room + date, or rkey prefix for ATScience
+const STREAM_MATCH: Record<string, { rooms?: string[]; rkeyPrefix?: string }> = {
+  "great-hall-day-1": { rooms: ["Great Hall South"] },
+  "great-hall-day-2": { rooms: ["Great Hall South"] },
+  "room-2301-day-1": { rooms: ["Room 2301"] },
+  "room-2301-day-2": { rooms: ["Room 2301"] },
+  "performance-theatre-day-1": { rooms: ["Performance Theatre"] },
+  "performance-theatre-day-2": { rooms: ["Performance Theatre"] },
+  "atscience": { rkeyPrefix: "ats26-" },
 };
 
 function getTalksForStream(db: Database.Database, slug: string, dayLabel: string): any[] {
-  const date = DAY_DATES[dayLabel];
-  const rooms = STREAM_ROOMS[slug];
-  if (!date || !rooms?.length) return [];
+  const match = STREAM_MATCH[slug];
+  if (!match) return [];
 
-  const placeholders = rooms.map(() => "?").join(",");
+  // ATScience: match by rkey prefix (spans multiple rooms on Friday)
+  if (match.rkeyPrefix) {
+    return db.prepare(
+      `SELECT t.rkey, t.title, t.starts_at, t.ends_at, t.duration,
+              GROUP_CONCAT(s.name) as speaker_names
+       FROM talks t
+       LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
+       LEFT JOIN speakers s ON ts.speaker_uri = s.uri
+       WHERE t.rkey LIKE ?
+       GROUP BY t.rkey
+       ORDER BY t.starts_at ASC`
+    ).all(`${match.rkeyPrefix}%`) as any[];
+  }
+
+  // Other streams: match by room + date
+  const date = DAY_DATES[dayLabel];
+  if (!date || !match.rooms?.length) return [];
+
+  const placeholders = match.rooms.map(() => "?").join(",");
   return db.prepare(
     `SELECT t.rkey, t.title, t.starts_at, t.ends_at, t.duration,
             GROUP_CONCAT(s.name) as speaker_names
@@ -208,9 +224,9 @@ function getTalksForStream(db: Database.Database, slug: string, dayLabel: string
      LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
      LEFT JOIN speakers s ON ts.speaker_uri = s.uri
      WHERE t.room IN (${placeholders}) AND t.starts_at LIKE ?
-     GROUP BY t.uri
+     GROUP BY t.rkey
      ORDER BY t.starts_at ASC`
-  ).all(...rooms, `${date}%`) as any[];
+  ).all(...match.rooms, `${date}%`) as any[];
 }
 
 // --- Public API ---

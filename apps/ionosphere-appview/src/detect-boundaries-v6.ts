@@ -573,35 +573,56 @@ async function main() {
   // Get talks from DB
   const db = openDb();
   const roomMap: Record<string, { rooms: string[]; dates: string[] }> = {
-    "ATScience": { rooms: ["Performance Theatre", "Bukhman Lounge"], dates: ["2026-03-27"] },
+    "ATScience": { rooms: [], dates: ["2026-03-27"], rkeyPrefix: "ats26-" },
     "Great Hall South": { rooms: ["Great Hall South"], dates: [] },
     "Room 2301": { rooms: ["Room 2301", "2301 Classroom"], dates: [] },
     "Performance Theatre": { rooms: ["Performance Theatre"], dates: [] },
   };
-  const room = transcript.room || "Great Hall South";
+  // Resolve room from transcript metadata — check stream name for ATScience
+  let room = transcript.room || "Great Hall South";
+  if (!transcript.room && transcript.stream?.includes("ATScience")) room = "ATScience";
   const config = roomMap[room] || { rooms: [room], dates: [] };
   if (config.dates.length === 0) {
     const dayMap: Record<number, string> = { 1: "2026-03-28", 2: "2026-03-29" };
     if (dayMap[transcript.day]) config.dates = [dayMap[transcript.day]];
   }
 
-  const rp = config.rooms.map(() => "?").join(",");
-  const dp = config.dates.map(() => "?").join(",");
-  const dateFilter = config.dates.length > 0 ? `AND substr(datetime(t.starts_at, '-7 hours'), 1, 10) IN (${dp})` : "";
+  let talks: Talk[];
 
-  const talks = db.prepare(
-    `SELECT t.rkey, t.title, t.starts_at, t.ends_at,
-            GROUP_CONCAT(s.name) as speaker_names
-     FROM talks t
-     LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
-     LEFT JOIN speakers s ON ts.speaker_uri = s.uri
-     WHERE t.room IN (${rp}) ${dateFilter}
-     GROUP BY t.uri
-     ORDER BY t.starts_at ASC`,
-  ).all(...config.rooms, ...config.dates).map((t: any) => ({
-    ...t,
-    scheduledDuration: Math.max(300, (new Date(t.ends_at).getTime() - new Date(t.starts_at).getTime()) / 1000),
-  })) as Talk[];
+  if ((config as any).rkeyPrefix) {
+    // ATScience: match by rkey prefix
+    talks = db.prepare(
+      `SELECT t.rkey, t.title, t.starts_at, t.ends_at,
+              GROUP_CONCAT(s.name) as speaker_names
+       FROM talks t
+       LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
+       LEFT JOIN speakers s ON ts.speaker_uri = s.uri
+       WHERE t.rkey LIKE ?
+       GROUP BY t.rkey
+       ORDER BY t.starts_at ASC`
+    ).all(`${(config as any).rkeyPrefix}%`).map((t: any) => ({
+      ...t,
+      scheduledDuration: Math.max(300, (new Date(t.ends_at).getTime() - new Date(t.starts_at).getTime()) / 1000),
+    })) as Talk[];
+  } else {
+    const rp = config.rooms.map(() => "?").join(",");
+    const dp = config.dates.map(() => "?").join(",");
+    const dateFilter = config.dates.length > 0 ? `AND substr(datetime(t.starts_at, '-7 hours'), 1, 10) IN (${dp})` : "";
+
+    talks = db.prepare(
+      `SELECT t.rkey, t.title, t.starts_at, t.ends_at,
+              GROUP_CONCAT(s.name) as speaker_names
+       FROM talks t
+       LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
+       LEFT JOIN speakers s ON ts.speaker_uri = s.uri
+       WHERE t.room IN (${rp}) ${dateFilter}
+       GROUP BY t.rkey
+       ORDER BY t.starts_at ASC`,
+    ).all(...config.rooms, ...config.dates).map((t: any) => ({
+      ...t,
+      scheduledDuration: Math.max(300, (new Date(t.ends_at).getTime() - new Date(t.starts_at).getTime()) / 1000),
+    })) as Talk[];
+  }
 
   console.log(`Talks (${talks.length}):`);
   for (const t of talks) {
@@ -630,8 +651,12 @@ async function main() {
 
   // Pass 3: DP
   console.log(`\n=== Pass 3: Selecting ${talks.length - 1} transitions ===\n`);
-  const firstStart = findFirstTalkStart(gaps, talks, words, segments);
-  console.log(`  First talk starts at: ${fmt(firstStart)}`);
+  // Allow ground truth override for first talk start via --first-start <seconds>
+  const firstStartArg = process.argv.indexOf("--first-start");
+  const firstStart = firstStartArg >= 0
+    ? parseFloat(process.argv[firstStartArg + 1])
+    : findFirstTalkStart(gaps, talks, words, segments);
+  console.log(`  First talk starts at: ${fmt(firstStart)}${firstStartArg >= 0 ? " (ground truth)" : ""}`);
 
   const dpResult = selectTransitionsDP(gaps, talks, firstStart);
 
