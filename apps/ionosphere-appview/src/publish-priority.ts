@@ -68,6 +68,7 @@ async function main() {
       ...(talk.ends_at && { endsAt: talk.ends_at }),
       ...(talk.duration && { duration: talk.duration }),
       ...(talk.description && { description: talk.description }),
+      ...(talk.video_segments && { videoSegments: JSON.parse(talk.video_segments) }),
     };
 
     await pds.putRecord("tv.ionosphere.talk", rkey, record);

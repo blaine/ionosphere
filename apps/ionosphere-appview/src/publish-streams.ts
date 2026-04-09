@@ -124,12 +124,18 @@ async function main() {
       try {
         for (let i = 0; i < segments.length; i += CHUNK_SIZE) {
           const chunk = segments.slice(i, i + CHUNK_SIZE);
+          // Convert float seconds to integer milliseconds (AT Protocol rejects floats)
+          const intChunk = chunk.map((s: any) => ({
+            startMs: Math.round(s.start * 1000),
+            endMs: Math.round(s.end * 1000),
+            speaker: s.speaker,
+          }));
           const rkey = `${stream.slug}-diarization-${String(chunkIdx).padStart(3, "0")}`;
           await pds.putRecord("tv.ionosphere.diarization", rkey, {
             $type: "tv.ionosphere.diarization",
             streamUri,
             chunkIndex: chunkIdx,
-            segments: chunk,
+            segments: intChunk,
             speakerCount: speakers.length,
           });
           chunkIdx++;

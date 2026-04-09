@@ -169,10 +169,14 @@ function indexTalk(
   uri: string,
   record: Record<string, unknown>
 ): void {
+  const videoSegments = record.videoSegments
+    ? JSON.stringify(record.videoSegments)
+    : null;
+
   db.prepare(
     `INSERT OR REPLACE INTO talks
-     (uri, did, rkey, title, description, video_uri, video_offset_ns, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     did,
@@ -181,6 +185,7 @@ function indexTalk(
     (record.description as string) || null,
     (record.videoUri as string) || null,
     (record.videoOffsetNs as number) || 0,
+    videoSegments,
     (record.scheduleUri as string) || null,
     (record.eventUri as string) || null,
     (record.room as string) || null,

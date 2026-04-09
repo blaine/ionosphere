@@ -114,7 +114,15 @@ function getDiarizationFromDb(db: Database.Database, streamUri: string): any[] {
   if (chunks.length === 0) return [];
   const segments: any[] = [];
   for (const chunk of chunks) {
-    segments.push(...JSON.parse(chunk.segments));
+    const raw = JSON.parse(chunk.segments);
+    // Convert from integer ms (AT Protocol format) to float seconds (internal format)
+    for (const seg of raw) {
+      segments.push({
+        start: (seg.startMs ?? seg.start * 1000) / 1000,
+        end: (seg.endMs ?? seg.end * 1000) / 1000,
+        speaker: seg.speaker,
+      });
+    }
   }
   return segments;
 }
@@ -239,29 +247,55 @@ export function getTrackData(db: Database.Database, slug: string) {
   const dayLabel = dbStream?.day_label ?? hardcoded?.dayLabel ?? "";
   const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
 
-  // Get talks by room + day, compute offsets from scheduled start times
-  const rawTalks = getTalksForStream(db, slug, dayLabel);
+  // Try to get talks with precise video_segments offsets first
+  const segmentTalks = db.prepare(
+    `SELECT t.rkey, t.title, t.video_segments, t.starts_at, t.ends_at,
+            GROUP_CONCAT(s.name) as speaker_names
+     FROM talks t
+     LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
+     LEFT JOIN speakers s ON ts.speaker_uri = s.uri
+     WHERE t.video_segments LIKE ?
+     GROUP BY t.uri
+     ORDER BY t.starts_at ASC`
+  ).all(`%${streamUri}%`) as any[];
 
-  // Compute the stream's start time (earliest talk minus some buffer)
-  // Use the first talk's start time as reference
-  const streamDate = DAY_DATES[dayLabel];
-  const talks = rawTalks.map((t) => {
-    const talkStart = new Date(t.starts_at);
-    const talkEnd = t.ends_at ? new Date(t.ends_at) : null;
-    // Offset from start of day (streams typically start around 9am PDT = 16:00 UTC)
+  let talks: any[];
+
+  if (segmentTalks.length > 0) {
+    // Use precise boundary-detected offsets from video_segments
+    talks = segmentTalks.map((t) => {
+      const segments = JSON.parse(t.video_segments || "[]");
+      const fulldaySeg = segments.find(
+        (seg: any) => seg.type === "fullday" && seg.uri === streamUri
+      );
+      if (!fulldaySeg) return null;
+      return {
+        rkey: t.rkey,
+        title: t.title,
+        speakers: t.speaker_names ? t.speaker_names.split(",").map((n: string) => n.trim()) : [],
+        startSeconds: fulldaySeg.offsetNs / 1e9,
+        endSeconds: fulldaySeg.endOffsetNs ? fulldaySeg.endOffsetNs / 1e9 : null,
+        confidence: fulldaySeg.confidence || "high",
+      };
+    }).filter(Boolean).sort((a: any, b: any) => a.startSeconds - b.startSeconds);
+  } else {
+    // Fallback: use scheduled times with approximate offsets
+    const rawTalks = getTalksForStream(db, slug, dayLabel);
+    const streamDate = DAY_DATES[dayLabel];
     const dayStart = new Date(`${streamDate}T16:00:00Z`);
-    const startSeconds = Math.max(0, (talkStart.getTime() - dayStart.getTime()) / 1000);
-    const endSeconds = talkEnd ? (talkEnd.getTime() - dayStart.getTime()) / 1000 : null;
-
-    return {
-      rkey: t.rkey,
-      title: t.title,
-      speakers: t.speaker_names ? t.speaker_names.split(",").map((n: string) => n.trim()) : [],
-      startSeconds,
-      endSeconds,
-      confidence: "medium",
-    };
-  }).sort((a: any, b: any) => a.startSeconds - b.startSeconds);
+    talks = rawTalks.map((t) => {
+      const talkStart = new Date(t.starts_at);
+      const talkEnd = t.ends_at ? new Date(t.ends_at) : null;
+      return {
+        rkey: t.rkey,
+        title: t.title,
+        speakers: t.speaker_names ? t.speaker_names.split(",").map((n: string) => n.trim()) : [],
+        startSeconds: Math.max(0, (talkStart.getTime() - dayStart.getTime()) / 1000),
+        endSeconds: talkEnd ? (talkEnd.getTime() - dayStart.getTime()) / 1000 : null,
+        confidence: "medium",
+      };
+    }).sort((a: any, b: any) => a.startSeconds - b.startSeconds);
+  }
 
   // Fill in end times from the next talk's start where missing
   for (let i = 0; i < talks.length; i++) {
