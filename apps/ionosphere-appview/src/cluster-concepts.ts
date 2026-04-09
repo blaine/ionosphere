@@ -93,11 +93,11 @@ Your task: group these concepts into thematic clusters. Each cluster should have
 - A list of concept rkeys that belong to this cluster
 
 Guidelines:
-- Aim for 50-80 clusters (an order of magnitude fewer than the concepts)
+- You MUST produce between 60 and 80 clusters. This is a hard requirement — not fewer than 60, not more than 80.
 - Every concept must belong to exactly one cluster
 - Clusters should be meaningful and useful for browsing — not too broad ("Technology") or too narrow ("Bluesky's Follow Button")
-- Prefer clusters of 5-20 concepts. Very small clusters (1-2) should be merged into a related one. Very large clusters (30+) should be split.
-- Some natural cluster themes: protocol design, identity/authentication, content moderation, social graph, media/video, developer tools, research/academia, governance/policy, specific projects/apps, community/culture, data/storage, federation/decentralization, privacy/security, UI/UX, etc.
+- Prefer clusters of 15-35 concepts. Very small clusters (1-3) should be merged. Very large clusters (50+) MUST be split.
+- Include thematic clusters for: protocol design, identity/authentication, content moderation, social graph, media/video, developer tools, research/academia, governance/policy, specific projects/apps, community/culture, data/storage, federation/decentralization, privacy/security, UI/UX, natural metaphors/ecology, journalism/media, books/authors/scholarship, geographic/places, etc.
 
 Return JSON:
 {
