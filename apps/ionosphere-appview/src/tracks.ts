@@ -165,48 +165,69 @@ function loadWordsFromFile(dirName: string): Array<{ start: number; end: number;
   return (data.words || []).map((w: any) => ({ start: w.start, end: w.end, speaker: w.speaker }));
 }
 
+// --- Room + day matching ---
+// The schedule data uses room names that don't always match the stream names.
+// ATScience (Friday) used multiple rooms but was one stream.
+
+const DAY_DATES: Record<string, string> = {
+  "Friday": "2026-03-27",
+  "Saturday": "2026-03-28",
+  "Sunday": "2026-03-29",
+};
+
+// Which schedule rooms map to which stream
+const STREAM_ROOMS: Record<string, string[]> = {
+  "great-hall-day-1": ["Great Hall South"],
+  "great-hall-day-2": ["Great Hall South"],
+  "room-2301-day-1": ["Room 2301"],
+  "room-2301-day-2": ["Room 2301"],
+  "performance-theatre-day-1": ["Performance Theatre"],
+  "performance-theatre-day-2": ["Performance Theatre"],
+  // ATScience was Friday — talks were in various rooms
+  "atscience": ["Performance Theatre", "2301 Classroom", "2311 Classroom", "Bukhman Lounge", "Room 2301", "Great Hall South"],
+};
+
+function getTalksForStream(db: Database.Database, slug: string, dayLabel: string): any[] {
+  const date = DAY_DATES[dayLabel];
+  const rooms = STREAM_ROOMS[slug];
+  if (!date || !rooms?.length) return [];
+
+  const placeholders = rooms.map(() => "?").join(",");
+  return db.prepare(
+    `SELECT t.rkey, t.title, t.starts_at, t.ends_at, t.duration,
+            GROUP_CONCAT(s.name) as speaker_names
+     FROM talks t
+     LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
+     LEFT JOIN speakers s ON ts.speaker_uri = s.uri
+     WHERE t.room IN (${placeholders}) AND t.starts_at LIKE ?
+     GROUP BY t.uri
+     ORDER BY t.starts_at ASC`
+  ).all(...rooms, `${date}%`) as any[];
+}
+
 // --- Public API ---
 
 export function getTracksIndex(db: Database.Database) {
-  // Try DB first
   const dbStreams = getStreamsFromDb(db);
   const streamConfigs = dbStreams.length > 0
     ? dbStreams.map((s: any) => ({ slug: s.slug, name: s.name, room: s.room, dayLabel: s.day_label, uri: s.stream_video_uri, durationSeconds: s.duration_seconds }))
     : STREAMS.map((s) => ({ slug: s.slug, name: s.name, room: s.room, dayLabel: s.dayLabel, uri: s.uri, durationSeconds: s.durationSeconds }));
 
-  // Map stream rooms to day labels for talk counting
-  const DAY_DATES: Record<string, string[]> = {
-    "Friday": ["2026-03-27"],
-    "Saturday": ["2026-03-28"],
-    "Sunday": ["2026-03-29"],
-  };
-
   return streamConfigs.map((s) => {
-    // Count talks by matching room + day (since video_segments isn't published to PDS)
-    const dates = DAY_DATES[s.dayLabel] || [];
-    let talkCount = 0;
-    if (dates.length > 0) {
-      const result = db.prepare(
-        `SELECT COUNT(*) as cnt FROM talks
-         WHERE room = ? AND starts_at LIKE ?`
-      ).get(s.room, `${dates[0]}%`) as { cnt: number };
-      talkCount = result.cnt;
-    }
-
+    const talks = getTalksForStream(db, s.slug, s.dayLabel);
     return {
       slug: s.slug,
       name: s.name,
       room: s.room,
       dayLabel: s.dayLabel,
       durationSeconds: s.durationSeconds,
-      talkCount,
+      talkCount: talks.length,
       playbackUrl: playbackUrl(s.uri),
     };
   });
 }
 
 export function getTrackData(db: Database.Database, slug: string) {
-  // Try DB first, fall back to hardcoded config
   const dbStream = getStreamFromDb(db, slug);
   const hardcoded = STREAMS.find((s) => s.slug === slug);
 
@@ -218,38 +239,34 @@ export function getTrackData(db: Database.Database, slug: string) {
   const dayLabel = dbStream?.day_label ?? hardcoded?.dayLabel ?? "";
   const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
 
-  // Get talks with fullday segment offsets
-  const allTalks = db.prepare(
-    `SELECT t.rkey, t.title, t.video_segments, t.starts_at,
-            GROUP_CONCAT(s.name) as speaker_names
-     FROM talks t
-     LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
-     LEFT JOIN speakers s ON ts.speaker_uri = s.uri
-     WHERE t.video_segments LIKE ?
-     GROUP BY t.uri
-     ORDER BY t.starts_at ASC`
-  ).all(`%${streamUri}%`) as any[];
+  // Get talks by room + day, compute offsets from scheduled start times
+  const rawTalks = getTalksForStream(db, slug, dayLabel);
 
-  const talks = allTalks.map((t) => {
-    const segments = JSON.parse(t.video_segments || "[]");
-    const fulldaySeg = segments.find(
-      (seg: any) => seg.type === "fullday" && seg.uri === streamUri
-    );
-    if (!fulldaySeg) return null;
+  // Compute the stream's start time (earliest talk minus some buffer)
+  // Use the first talk's start time as reference
+  const streamDate = DAY_DATES[dayLabel];
+  const talks = rawTalks.map((t) => {
+    const talkStart = new Date(t.starts_at);
+    const talkEnd = t.ends_at ? new Date(t.ends_at) : null;
+    // Offset from start of day (streams typically start around 9am PDT = 16:00 UTC)
+    const dayStart = new Date(`${streamDate}T16:00:00Z`);
+    const startSeconds = Math.max(0, (talkStart.getTime() - dayStart.getTime()) / 1000);
+    const endSeconds = talkEnd ? (talkEnd.getTime() - dayStart.getTime()) / 1000 : null;
 
     return {
       rkey: t.rkey,
       title: t.title,
       speakers: t.speaker_names ? t.speaker_names.split(",").map((n: string) => n.trim()) : [],
-      startSeconds: fulldaySeg.offsetNs / 1e9,
-      endSeconds: fulldaySeg.endOffsetNs ? fulldaySeg.endOffsetNs / 1e9 : null,
-      confidence: fulldaySeg.confidence || "medium",
+      startSeconds,
+      endSeconds,
+      confidence: "medium",
     };
-  }).filter(Boolean).sort((a: any, b: any) => a.startSeconds - b.startSeconds);
+  }).sort((a: any, b: any) => a.startSeconds - b.startSeconds);
 
+  // Fill in end times from the next talk's start where missing
   for (let i = 0; i < talks.length; i++) {
-    if (!talks[i]!.endSeconds && i < talks.length - 1) {
-      talks[i]!.endSeconds = talks[i + 1]!.startSeconds;
+    if (!talks[i].endSeconds && i < talks.length - 1) {
+      talks[i].endSeconds = talks[i + 1].startSeconds;
     }
   }
 
