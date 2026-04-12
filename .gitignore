@@ -21,5 +21,6 @@ package-lock.json
 # Python NLP pipeline
 pipeline/.venv/
 pipeline/data/
+pipeline/*.egg-info/
 __pycache__/
 *.pyc
