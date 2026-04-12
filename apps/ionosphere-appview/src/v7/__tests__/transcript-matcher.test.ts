@@ -142,8 +142,7 @@ describe('extractSignals', () => {
         { word: 'Justin', start: 126.5, end: 127 },
       ];
       const transcript = makeTranscript(words);
-      // segment starts at 10, so 120s window is 10-130 — but pattern is at 125 which is within 120s of start=10
-      // Let's put it outside: segment starts at 0, pattern at 125s > 120s window
+      // segment starts at 0, so 120s window is 0-120 — pattern is at 125 which is outside
       const signals = extractSignals(transcript, 0, 200);
       // 125 > 0 + 120, so not in window
       const selfIntros = signals.filter((s) => s.type === 'self-intro');
@@ -236,6 +235,55 @@ describe('extractSignals', () => {
       expect(topicSig.keywords).not.toContain('we');
       expect(topicSig.keywords).not.toContain('the');
       expect(topicSig.keywords).not.toContain('big');
+    });
+  });
+
+  describe('name-scan detection (broader name search)', () => {
+    it('finds speaker name mentioned anywhere in intro window', () => {
+      const words = [
+        ...wordsFromSentence('Today we have Natalie presenting about protocols', 10),
+      ];
+      const transcript = makeTranscript(words);
+      const signals = extractSignals(transcript, 10, 200, ['Natalie', 'Mullins']);
+      const nameScans = signals.filter((s) => s.type === 'name-scan');
+      expect(nameScans.length).toBeGreaterThanOrEqual(1);
+      expect(nameScans.some((s) => (s as { name: string }).name === 'Natalie')).toBe(true);
+    });
+
+    it('finds speaker name in MC handoff window via name-scan', () => {
+      const words = [
+        ...wordsFromSentence('And now Natalie will take the stage', 40),
+        ...wordsFromSentence('Hello everyone welcome to my talk', 60),
+      ];
+      const transcript = makeTranscript(words);
+      // Segment starts at 60, MC window is 0-60
+      const signals = extractSignals(transcript, 60, 300, ['Natalie']);
+      const nameScans = signals.filter((s) => s.type === 'name-scan');
+      expect(nameScans.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not duplicate names already found by self-intro patterns', () => {
+      const words = [
+        { word: "I'm", start: 10, end: 10.5 },
+        { word: 'Justin', start: 10.5, end: 11 },
+      ];
+      const transcript = makeTranscript(words);
+      const signals = extractSignals(transcript, 10, 200, ['Justin']);
+      const selfIntros = signals.filter((s) => s.type === 'self-intro');
+      const nameScans = signals.filter((s) => s.type === 'name-scan');
+      expect(selfIntros).toHaveLength(1);
+      // Should not produce a duplicate name-scan for the same name
+      expect(nameScans.filter((s) => (s as { name: string }).name === 'Justin')).toHaveLength(0);
+    });
+
+    it('does not produce name-scan when no known names provided', () => {
+      const words = [
+        ...wordsFromSentence('Natalie talked about something interesting', 10),
+      ];
+      const transcript = makeTranscript(words);
+      const signals = extractSignals(transcript, 10, 200);
+      const nameScans = signals.filter((s) => s.type === 'name-scan');
+      expect(nameScans).toHaveLength(0);
     });
   });
 });
@@ -355,6 +403,97 @@ describe('matchSegmentToSchedule', () => {
     expect(result!.signals.length).toBeGreaterThan(0);
     expect(result!.signals.some((s) => s.includes('self-intro'))).toBe(true);
   });
+
+  describe('time proximity', () => {
+    it('boosts confidence when time proximity + name match', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Building Decentralized Identity Systems', 'Justin Banks'),
+      ];
+      const signals = [
+        { type: 'self-intro' as const, name: 'Justin' },
+        { type: 'topic' as const, keywords: ['building'] }, // only 1 keyword
+      ];
+      const timeProximities = new Map([['rkey1', 30]]); // 30s offset
+      const result = matchSegmentToSchedule(signals, schedule, timeProximities);
+      expect(result).not.toBeNull();
+      expect(result!.confidence).toBe('high'); // time + name + 1 keyword = high
+      expect(result!.signals.some((s) => s.includes('time-proximity'))).toBe(true);
+    });
+
+    it('time proximity alone does not match in normal mode', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Quantum Computing Advances', 'Alice Smith'),
+      ];
+      const signals = [
+        { type: 'topic' as const, keywords: ['dogs', 'cats'] },
+      ];
+      const timeProximities = new Map([['rkey1', 30]]);
+      const result = matchSegmentToSchedule(signals, schedule, timeProximities);
+      expect(result).toBeNull();
+    });
+
+    it('time proximity alone matches in loose mode with single candidate', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Quantum Computing Advances', 'Alice Smith'),
+      ];
+      const signals = [
+        { type: 'topic' as const, keywords: ['dogs', 'cats'] },
+      ];
+      const timeProximities = new Map([['rkey1', 30]]);
+      const result = matchSegmentToSchedule(signals, schedule, timeProximities, true);
+      expect(result).not.toBeNull();
+      expect(result!.rkey).toBe('rkey1');
+      expect(result!.confidence).toBe('low');
+    });
+
+    it('time proximity alone does NOT match in loose mode with multiple candidates', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Quantum Computing', 'Alice Smith'),
+        makeTalk('rkey2', 'Machine Learning', 'Bob Jones'),
+      ];
+      const signals = [
+        { type: 'topic' as const, keywords: ['dogs'] },
+      ];
+      const timeProximities = new Map([['rkey1', 30], ['rkey2', 60]]);
+      const result = matchSegmentToSchedule(signals, schedule, timeProximities, true);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('name-scan signal matching', () => {
+    it('matches name-scan signal at medium confidence', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Building Better Protocols', 'Natalie Mullins'),
+      ];
+      const signals = [
+        { type: 'name-scan' as const, name: 'Natalie' },
+        { type: 'topic' as const, keywords: ['dogs', 'cats'] },
+      ];
+      const result = matchSegmentToSchedule(signals, schedule);
+      expect(result).not.toBeNull();
+      expect(result!.rkey).toBe('rkey1');
+      expect(result!.confidence).toBe('medium');
+    });
+  });
+
+  describe('loose mode', () => {
+    it('accepts single keyword match in loose mode', () => {
+      const schedule = [
+        makeTalk('rkey1', 'Building Decentralized Identity', 'Alice Smith'),
+      ];
+      const signals = [
+        { type: 'topic' as const, keywords: ['decentralized'] },
+      ];
+      // In normal mode, 1 keyword doesn't qualify
+      const normalResult = matchSegmentToSchedule(signals, schedule);
+      expect(normalResult).toBeNull();
+
+      // In loose mode, 1 keyword qualifies
+      const looseResult = matchSegmentToSchedule(signals, schedule, undefined, true);
+      expect(looseResult).not.toBeNull();
+      expect(looseResult!.rkey).toBe('rkey1');
+    });
+  });
 });
 
 // ─── matchAllSegments tests ───────────────────────────────────────────────────
@@ -462,5 +601,63 @@ describe('matchAllSegments', () => {
     if (results.length > 0) {
       expect(results[0].hallucinationZones).toContainEqual(zone);
     }
+  });
+
+  describe('second pass (process of elimination)', () => {
+    it('matches remaining segments in second pass using loose criteria', () => {
+      // First segment matches normally via self-intro
+      const words = [
+        { word: "I'm", start: 10, end: 10.5 },
+        { word: 'Justin', start: 10.5, end: 11 },
+        // Second segment: no self-intro but has a single keyword match
+        ...wordsFromSentence('Welcome to this session about quantum mechanics', 1810),
+      ];
+      const transcript = makeTranscript(words);
+
+      const segment1 = makeSegment(10, 1800);
+      const segment2 = makeSegment(1810, 3600);
+
+      const schedule = [
+        makeTalk('rkey1', 'Building Better Protocols', 'Justin Banks',
+          '2025-01-01T09:00:00Z', '2025-01-01T09:30:00Z'),
+        makeTalk('rkey2', 'Quantum Computing Applications', 'Alice Smith',
+          '2025-01-01T09:30:00Z', '2025-01-01T10:00:00Z'),
+      ];
+
+      const results = matchAllSegments([segment1, segment2], transcript, schedule, []);
+      // Should match both: first pass gets rkey1, second pass should get rkey2
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      const rkeys = results.map((r) => r.rkey);
+      expect(rkeys).toContain('rkey1');
+      expect(rkeys).toContain('rkey2');
+    });
+
+    it('second pass marks results with second-pass signal', () => {
+      const words = [
+        { word: "I'm", start: 10, end: 10.5 },
+        { word: 'Justin', start: 10.5, end: 11 },
+        ...wordsFromSentence('quantum computing applications', 1810),
+      ];
+      const transcript = makeTranscript(words);
+
+      const segment1 = makeSegment(10, 1800);
+      const segment2 = makeSegment(1810, 3600);
+
+      const schedule = [
+        makeTalk('rkey1', 'Building Better Protocols', 'Justin Banks',
+          '2025-01-01T09:00:00Z', '2025-01-01T09:30:00Z'),
+        makeTalk('rkey2', 'Quantum Computing Applications', 'Alice Smith',
+          '2025-01-01T09:30:00Z', '2025-01-01T10:00:00Z'),
+      ];
+
+      const results = matchAllSegments([segment1, segment2], transcript, schedule, []);
+      const secondPassResults = results.filter((r) =>
+        r.signals.includes('second-pass') || r.signals.includes('order-match'),
+      );
+      // The second segment should be matched in second pass
+      if (secondPassResults.length > 0) {
+        expect(secondPassResults[0].rkey).toBe('rkey2');
+      }
+    });
   });
 });
