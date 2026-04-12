@@ -1,0 +1,14 @@
+[project]
+name = "ionosphere-nlp"
+version = "0.1.0"
+description = "NLP enrichment pipeline for ionosphere transcripts"
+requires-python = ">=3.12"
+dependencies = [
+    "spacy>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
