@@ -175,8 +175,8 @@ function indexTalk(
 
   db.prepare(
     `INSERT OR REPLACE INTO talks
-     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration, document)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     did,
@@ -193,7 +193,8 @@ function indexTalk(
     (record.talkType as string) || null,
     (record.startsAt as string) || null,
     (record.endsAt as string) || null,
-    (record.duration as number) || 0
+    (record.duration as number) || 0,
+    (record.document as string) ? JSON.stringify(record.document) : null
   );
 
   // Update speaker join table

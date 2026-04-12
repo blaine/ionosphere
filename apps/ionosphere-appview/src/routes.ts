@@ -6,57 +6,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import {
   decodeToDocument,
-  type Document,
-  type DocumentFacet,
 } from "@ionosphere/format/transcript-encoding";
-
-/**
- * Overlay concept-ref facets onto a document from annotation records.
- * Reads pre-computed annotations from the DB — no text matching at serve time.
- */
-function overlayAnnotations(
-  doc: Document,
-  annotations: Array<{
-    concept_uri: string;
-    byte_start: number;
-    byte_end: number;
-    text: string | null;
-    concept_name: string;
-    concept_rkey: string;
-  }>
-): Document {
-  const facets: DocumentFacet[] = annotations.map((a) => {
-    // Find nearest timestamp facet for temporal position
-    let nearestTime = 0;
-    for (const f of doc.facets) {
-      const ts = f.features.find(
-        (feat) => feat.$type === "tv.ionosphere.facet#timestamp"
-      );
-      if (ts && Math.abs(f.index.byteStart - a.byte_start) < 50) {
-        nearestTime = ts.startTime;
-        break;
-      }
-    }
-
-    return {
-      index: { byteStart: a.byte_start, byteEnd: a.byte_end },
-      features: [
-        {
-          $type: "tv.ionosphere.facet#concept-ref",
-          conceptUri: a.concept_uri,
-          conceptRkey: a.concept_rkey,
-          conceptName: a.concept_name,
-          startTime: nearestTime,
-        },
-      ],
-    };
-  });
-
-  return {
-    text: doc.text,
-    facets: [...doc.facets, ...facets],
-  };
-}
 
 export function createRoutes(db: Database.Database): Hono {
   const app = new Hono();
@@ -156,41 +106,30 @@ export function createRoutes(db: Database.Database): Hono {
       )
       .all((talk as any).uri);
 
-    // Decode compact transcript into full document
-    const transcript = db
-      .prepare("SELECT * FROM transcripts WHERE talk_uri = ?")
-      .get((talk as any).uri) as any;
-
     let document = null;
-    if (transcript) {
-      const compact = {
-        text: transcript.text,
-        startMs: transcript.start_ms,
-        timings: JSON.parse(transcript.timings),
-      };
-      let doc = decodeToDocument(compact);
+    // Prefer pre-assembled document from talk record
+    if ((talk as any).document) {
+      document = JSON.parse((talk as any).document);
+    } else {
+      // Fallback: decode from compact transcript (no structural facets)
+      const transcript = db
+        .prepare("SELECT * FROM transcripts WHERE talk_uri = ?")
+        .get((talk as any).uri) as any;
 
-      // Overlay concept annotations from the DB
-      const annotations = db
-        .prepare(
-          `SELECT a.*, c.name as concept_name, c.rkey as concept_rkey
-           FROM annotations a
-           JOIN concepts c ON c.uri = a.concept_uri
-           WHERE a.transcript_uri = ?`
-        )
-        .all(transcript.uri) as any[];
-
-      if (annotations.length > 0) {
-        doc = overlayAnnotations(doc, annotations);
+      if (transcript) {
+        const compact = {
+          text: transcript.text,
+          startMs: transcript.start_ms,
+          timings: JSON.parse(transcript.timings),
+        };
+        document = decodeToDocument(compact);
       }
-
-      document = doc;
     }
 
     return c.json({
       talk: {
         ...(talk as any),
-        document: document ? JSON.stringify(document) : null,
+        document: document ?? null,
       },
       speakers,
       concepts,
