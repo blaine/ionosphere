@@ -1,7 +1,7 @@
 "use client";
 
 import { useTimestamp } from "./TimestampProvider";
-import { useRef, useEffect, useMemo, useCallback, forwardRef, useState } from "react";
+import React, { useRef, useEffect, useMemo, useCallback, forwardRef, useState } from "react";
 import {
   extractData,
   brightnessAtTime,
@@ -10,6 +10,7 @@ import {
   type WordSpan,
   type ConceptSpan,
   type ParagraphSpan,
+  type EntitySpan,
 } from "@/lib/transcript";
 import { useAuth } from "@/lib/auth";
 import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
@@ -81,7 +82,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   const scrollScrubbing = useRef(false);
   const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map());
 
-  const { words, wordConcepts, paragraphs } = useMemo(
+  const { words, wordConcepts, paragraphs, entities, topicBreaks } = useMemo(
     () => extractData(document),
     [document]
   );
@@ -100,6 +101,20 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     }
     return map;
   }, [paragraphs]);
+
+  // Map each word index to its overlapping entity (if any)
+  const wordEntities = useMemo(() => {
+    const map = new Map<number, EntitySpan>();
+    for (const entity of entities) {
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        if (w.byteStart >= entity.byteStart && w.byteEnd <= entity.byteEnd) {
+          if (!map.has(i)) map.set(i, entity);
+        }
+      }
+    }
+    return map;
+  }, [words, entities]);
 
   // Find the active word index
   const activeIndex = useMemo(() => {
@@ -524,26 +539,42 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
       {paragraphs.map((para, pi) => (
-        <div key={pi} className="mb-4">
-          {para.sentences.map((sent, si) => (
-            <span key={si} className="sentence" style={{ display: "block", marginBottom: "0.25em" }}>
-              {sent.words.map((word) => {
-                const idx = wordToGlobalIndex.get(word) ?? 0;
-                return (
-                  <WordSpanComponent
-                    key={idx}
-                    ref={(el) => setWordRef(idx, el)}
-                    word={word}
-                    concept={wordConcepts[idx]?.[0] || null}
-                    currentTimeNs={currentTimeNs}
-                    onSeek={handleSeek}
-                    hasComment={wordHasComment.has(idx)}
-                  />
-                );
-              })}
-            </span>
-          ))}
-        </div>
+        <React.Fragment key={pi}>
+          {topicBreaks.has(pi) && (
+            <hr className="border-neutral-800 my-6" />
+          )}
+          <div className="mb-4">
+            {para.sentences.map((sent, si) => (
+              <span key={si} className="sentence" style={{ display: "block", marginBottom: "0.25em" }}>
+                {sent.words.map((word) => {
+                  const idx = wordToGlobalIndex.get(word) ?? 0;
+                  const entityForWord = wordEntities.get(idx);
+                  const entityClass = entityForWord
+                    ? entityForWord.speakerDid
+                      ? "underline decoration-blue-400/40 underline-offset-2"
+                      : entityForWord.conceptUri
+                      ? "" // Already handled by concept prop
+                      : "underline decoration-dotted decoration-neutral-500/40 underline-offset-2"
+                    : "";
+                  const wordEl = (
+                    <WordSpanComponent
+                      key={idx}
+                      ref={(el) => setWordRef(idx, el)}
+                      word={word}
+                      concept={wordConcepts[idx]?.[0] || null}
+                      currentTimeNs={currentTimeNs}
+                      onSeek={handleSeek}
+                      hasComment={wordHasComment.has(idx)}
+                    />
+                  );
+                  return entityClass ? (
+                    <span key={idx} className={entityClass}>{wordEl}</span>
+                  ) : wordEl;
+                })}
+              </span>
+            ))}
+          </div>
+        </React.Fragment>
       ))}
       {/* Reaction margin indicators */}
       {[...reactionGroups.entries()].map(([key, group]) => {
