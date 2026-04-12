@@ -526,7 +526,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       {paragraphs.map((para, pi) => (
         <div key={pi} className="mb-4">
           {para.sentences.map((sent, si) => (
-            <span key={si} className="sentence">
+            <span key={si} className="sentence" style={{ display: "block", marginBottom: "0.25em" }}>
               {sent.words.map((word) => {
                 const idx = wordToGlobalIndex.get(word) ?? 0;
                 return (
