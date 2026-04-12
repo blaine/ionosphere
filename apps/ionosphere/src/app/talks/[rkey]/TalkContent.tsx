@@ -54,7 +54,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
   const durationMin = talk.duration ? (talk.duration / 1e9 / 60).toFixed(0) : null;
   const document = useMemo(() => {
     if (!talk.document) return null;
-    const doc = JSON.parse(talk.document);
+    const doc = typeof talk.document === "string" ? JSON.parse(talk.document) : talk.document;
     return doc?.facets?.length > 0 ? doc : null;
   }, [talk.document]);
 
