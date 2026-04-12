@@ -1,0 +1,151 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "pub.layers.defs",
+  "revision": 1,
+  "description": "Shared type definitions for the layers.pub v0.5.0 lexicon family. Covers spans, temporal spans, anchors, token references, annotation metadata, and feature maps.",
+  "defs": {
+    "span": {
+      "type": "object",
+      "description": "A byte-offset span into a text string, with optional character offsets.",
+      "required": ["byteStart", "byteEnd"],
+      "properties": {
+        "byteStart": {
+          "type": "integer",
+          "description": "Inclusive start byte offset."
+        },
+        "byteEnd": {
+          "type": "integer",
+          "description": "Exclusive end byte offset."
+        },
+        "charStart": {
+          "type": "integer",
+          "description": "Inclusive start Unicode character offset (optional)."
+        },
+        "charEnd": {
+          "type": "integer",
+          "description": "Exclusive end Unicode character offset (optional)."
+        }
+      }
+    },
+    "temporalSpan": {
+      "type": "object",
+      "description": "A time range in milliseconds, e.g. within a media stream.",
+      "required": ["start", "ending"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "description": "Start time in milliseconds."
+        },
+        "ending": {
+          "type": "integer",
+          "description": "End time in milliseconds."
+        }
+      }
+    },
+    "uuid": {
+      "type": "object",
+      "description": "A UUID value wrapper.",
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "UUID string (e.g. RFC 4122)."
+        }
+      }
+    },
+    "tokenRef": {
+      "type": "object",
+      "description": "A reference to a specific token within a named tokenization.",
+      "required": ["tokenizationId", "tokenIndex"],
+      "properties": {
+        "tokenizationId": {
+          "type": "ref",
+          "ref": "pub.layers.defs#uuid",
+          "description": "UUID identifying the tokenization this token belongs to."
+        },
+        "tokenIndex": {
+          "type": "integer",
+          "description": "Zero-based index of the token within the tokenization."
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "description": "Polymorphic anchor pointing to a text span, a token, or a temporal position. At least one field should be set.",
+      "properties": {
+        "textSpan": {
+          "type": "ref",
+          "ref": "pub.layers.defs#span",
+          "description": "Byte-offset span into the expression text."
+        },
+        "tokenRef": {
+          "type": "ref",
+          "ref": "pub.layers.defs#tokenRef",
+          "description": "Reference to a specific token in a tokenization."
+        },
+        "temporalSpan": {
+          "type": "ref",
+          "ref": "pub.layers.defs#temporalSpan",
+          "description": "Time range within a media stream."
+        }
+      }
+    },
+    "annotationMetadata": {
+      "type": "object",
+      "description": "Provenance metadata for an annotation or layer.",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of the agent (DID or account) that produced this annotation."
+        },
+        "tool": {
+          "type": "string",
+          "description": "Name or identifier of the tool or model used."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "datetime",
+          "description": "ISO 8601 datetime when the annotation was produced."
+        },
+        "confidence": {
+          "type": "integer",
+          "description": "Confidence score in the range 0–1000 (0 = none, 1000 = certain).",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "description": "A key-value linguistic feature entry.",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Feature name (e.g. POS, Gender, Number)."
+        },
+        "value": {
+          "type": "string",
+          "description": "Feature value (e.g. NOUN, Masc, Sing)."
+        }
+      }
+    },
+    "featureMap": {
+      "type": "object",
+      "description": "A set of linguistic feature key-value pairs.",
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "pub.layers.defs#feature"
+          },
+          "description": "List of feature entries."
+        }
+      }
+    }
+  }
+}

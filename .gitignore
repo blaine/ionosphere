@@ -17,3 +17,9 @@ package-lock.json
 *.DS_Store
 .sprite
 .claude/worktrees
+
+# Python NLP pipeline
+pipeline/.venv/
+pipeline/data/
+__pycache__/
+*.pyc

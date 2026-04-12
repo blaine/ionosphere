@@ -1,0 +1,101 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "pub.layers.segmentation.segmentation",
+  "revision": 1,
+  "description": "A segmentation record attaching one or more tokenizations to a pub.layers.expression. Each tokenization defines a scheme (whitespace, BPE, etc.) and a sequence of indexed tokens with text spans and optional temporal spans.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["expression", "tokenizations", "createdAt"],
+        "properties": {
+          "expression": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the pub.layers.expression.expression this segmentation applies to."
+          },
+          "tokenizations": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "pub.layers.segmentation.segmentation#tokenization"
+            },
+            "description": "One or more tokenization schemes over the expression text."
+          },
+          "metadata": {
+            "type": "ref",
+            "ref": "pub.layers.defs#annotationMetadata",
+            "description": "Provenance metadata for this segmentation."
+          },
+          "features": {
+            "type": "ref",
+            "ref": "pub.layers.defs#featureMap",
+            "description": "Linguistic features associated with this segmentation."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "ISO 8601 datetime when this record was created."
+          }
+        }
+      }
+    },
+    "tokenization": {
+      "type": "object",
+      "description": "A single tokenization scheme with its token sequence.",
+      "required": ["tokens"],
+      "properties": {
+        "uuid": {
+          "type": "ref",
+          "ref": "pub.layers.defs#uuid",
+          "description": "Stable UUID identifying this tokenization, for use in tokenRef anchors."
+        },
+        "kindUri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of a record formally defining the tokenization kind."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Tokenization scheme: whitespace, bpe, sentencepiece, character, etc."
+        },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "pub.layers.segmentation.segmentation#token"
+          },
+          "description": "Ordered sequence of tokens produced by this tokenization."
+        }
+      }
+    },
+    "token": {
+      "type": "object",
+      "description": "A single token within a tokenization.",
+      "required": ["tokenIndex", "text", "textSpan"],
+      "properties": {
+        "tokenIndex": {
+          "type": "integer",
+          "description": "Zero-based index of this token in the tokenization sequence."
+        },
+        "text": {
+          "type": "string",
+          "description": "Surface text of this token."
+        },
+        "textSpan": {
+          "type": "ref",
+          "ref": "pub.layers.defs#span",
+          "description": "Byte-offset span of this token in the parent expression text."
+        },
+        "temporalSpan": {
+          "type": "ref",
+          "ref": "pub.layers.defs#temporalSpan",
+          "description": "Time range of this token within the associated media (optional)."
+        }
+      }
+    }
+  }
+}
