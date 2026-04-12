@@ -58,11 +58,11 @@ Each layer includes `metadata` (agent, tool, confidence, timestamp) for provenan
 
 A separate annotation layer with `sourceMethod: "manual-native"` and higher `rank`. The merge step prefers higher-ranked layers. Example: correcting "Blue Sky" to link to the Bluesky concept record is an annotation in this layer that supersedes the auto-detected concept. Published as first-class AT Protocol records — auditable, attributable, and preservable across pipeline re-runs.
 
-### Relationship to existing `tv.ionosphere.annotation`
+### Replacing `tv.ionosphere.annotation`
 
-The existing `tv.ionosphere.annotation` record type (concept mentions anchored to byte ranges) continues to work as-is for Phase 1. The NLP pipeline produces layers.pub annotation layers for structural annotations (sentences, paragraphs) — these are a different concern and do not conflict.
+The existing `tv.ionosphere.annotation` record type (concept mentions anchored to byte ranges) is replaced wholesale by layers.pub annotation layers. Since the entire pipeline rebuilds from raw transcripts, there is no migration burden — the next pipeline run produces layers.pub records instead of `tv.ionosphere.annotation` records, and the old records are deleted.
 
-In Phase 2, when we add NLP-based concept/entity detection, the layers.pub annotation system becomes the canonical source for all enrichment annotations. At that point, existing `tv.ionosphere.annotation` records are migrated to layers.pub annotation layers via a panproto migration. The appview indexer reads both formats during the transition period.
+The existing concept data is re-derived by the NLP pipeline as a concept annotation layer (Phase 2), which will produce better results than the current approach. The `tv.ionosphere.annotation` lexicon and related code (`enrich.ts`, `enrich-all.ts`, `overlayAnnotations` in the appview) are removed in Phase 1.
 
 ### Panproto Integration
 
@@ -252,20 +252,23 @@ Both `TranscriptView` and `WindowedTranscriptView` must account for paragraph wh
 
 ## Phase Roadmap
 
-### Phase 1 — Structural formatting (this work)
+### Phase 1 — Structural formatting + layers.pub migration (this work)
 
+- Vendor layers.pub lexicon definitions into `lexicons/pub/layers/`
 - Python NLP pipeline: sentence detection (spaCy) + paragraph segmentation (pause + sentence alignment)
 - layers.pub expression + segmentation records for each transcript
 - Sentence and paragraph annotation layers
 - Panproto lenses: compact transcript <-> layers.pub expression + segmentation
 - Document assembly reads annotation layers, emits structural facets
 - Renderer: sentences as inline spans, paragraphs as block elements
-- **Goal:** Transcripts read as paragraphed prose
+- Remove `tv.ionosphere.annotation` records, `enrich.ts`/`enrich-all.ts`, `overlayAnnotations` — fully replaced by layers.pub
+- **Goal:** Transcripts read as paragraphed prose; all enrichment flows through layers.pub
 
 ### Phase 2 — Entity recognition + record linking
 
 - spaCy NER pass in the pipeline
 - AT Protocol record resolver: people -> Bluesky profiles (DID resolution via handle/display name lookup), projects -> `tv.ionosphere.concept` records
+- Concept annotation layer replaces the old `tv.ionosphere.annotation`-based concept system with richer, NLP-derived results
 - Entity annotation layer with `knowledgeRefs` to resolved records
 - Renderer: entity spans as links/tooltips to profiles and concept pages
 - **Goal:** People and projects mentioned in talks are clickable, linked to real AT Protocol identities
