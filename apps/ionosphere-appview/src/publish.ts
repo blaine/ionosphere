@@ -111,12 +111,16 @@ async function main() {
       const nlpData = JSON.parse(readFileSync(nlpPath, "utf-8")) as {
         sentences: NlpAnnotations["sentences"];
         paragraphs: NlpAnnotations["paragraphs"];
+        entities: NlpAnnotations["entities"];
+        topicBreaks: NlpAnnotations["topicBreaks"];
       };
       const transcriptData = JSON.parse(readFileSync(transcriptPath, "utf-8"));
       const compact = encode(transcriptData);
       document = decodeToDocumentWithStructure(compact, {
         sentences: nlpData.sentences,
         paragraphs: nlpData.paragraphs,
+        entities: nlpData.entities,
+        topicBreaks: nlpData.topicBreaks,
       });
       docCount++;
     }
