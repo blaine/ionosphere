@@ -145,3 +145,37 @@ export function decodeToDocument(compact: CompactTranscript): Document {
 
   return { text: compact.text, facets };
 }
+
+export interface NlpAnnotations {
+  sentences: Array<{ byteStart: number; byteEnd: number }>;
+  paragraphs: Array<{ byteStart: number; byteEnd: number }>;
+}
+
+/**
+ * Decode compact format into a RelationalText document with timestamp facets
+ * plus sentence and paragraph structural facets from NLP pipeline output.
+ */
+export function decodeToDocumentWithStructure(
+  compact: CompactTranscript,
+  annotations: NlpAnnotations | null,
+): Document {
+  const doc = decodeToDocument(compact);
+
+  if (!annotations) return doc;
+
+  for (const s of annotations.sentences) {
+    doc.facets.push({
+      index: { byteStart: s.byteStart, byteEnd: s.byteEnd },
+      features: [{ $type: "tv.ionosphere.facet#sentence" }],
+    });
+  }
+
+  for (const p of annotations.paragraphs) {
+    doc.facets.push({
+      index: { byteStart: p.byteStart, byteEnd: p.byteEnd },
+      features: [{ $type: "tv.ionosphere.facet#paragraph" }],
+    });
+  }
+
+  return doc;
+}
