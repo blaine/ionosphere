@@ -68,6 +68,7 @@ interface LineEntry {
   timeEnd: number;    // ns
   wordStartIdx: number;
   wordEndIdx: number; // exclusive
+  isParagraphStart: boolean;
 }
 
 /**
@@ -80,13 +81,14 @@ function computeMonospaceLayout(
   containerWidthPx: number,
   charWidthPx: number,
   lineHeightPx: number,
+  paragraphStarts: Set<number> = new Set(),
 ): LineEntry[] {
   if (words.length === 0 || containerWidthPx < charWidthPx) return [];
 
   const maxCharsPerLine = Math.floor(containerWidthPx / charWidthPx);
   const lines: LineEntry[] = [];
 
-  let lineIdx = 0;
+  let currentY = 0;
   let col = 0; // current column position in characters
   let lineWordStart = 0;
 
@@ -96,15 +98,20 @@ function computeMonospaceLayout(
 
     if (col > 0 && col + wordLen > maxCharsPerLine) {
       // This word doesn't fit — flush current line
+      const isParaStart = paragraphStarts.has(lineWordStart);
+      if (isParaStart) {
+        currentY += lineHeightPx; // add paragraph gap
+      }
       lines.push({
-        yTop: lineIdx * lineHeightPx,
-        yBottom: (lineIdx + 1) * lineHeightPx,
+        yTop: currentY,
+        yBottom: currentY + lineHeightPx,
         timeStart: words[lineWordStart].startTime,
         timeEnd: words[i - 1].endTime,
         wordStartIdx: lineWordStart,
         wordEndIdx: i,
+        isParagraphStart: isParaStart,
       });
-      lineIdx++;
+      currentY += lineHeightPx;
       col = 0;
       lineWordStart = i;
     }
@@ -114,13 +121,18 @@ function computeMonospaceLayout(
 
   // Flush last line
   if (lineWordStart < words.length) {
+    const isParaStart = paragraphStarts.has(lineWordStart);
+    if (isParaStart) {
+      currentY += lineHeightPx; // add paragraph gap
+    }
     lines.push({
-      yTop: lineIdx * lineHeightPx,
-      yBottom: (lineIdx + 1) * lineHeightPx,
+      yTop: currentY,
+      yBottom: currentY + lineHeightPx,
       timeStart: words[lineWordStart].startTime,
       timeEnd: words[words.length - 1].endTime,
       wordStartIdx: lineWordStart,
       wordEndIdx: words.length,
+      isParagraphStart: isParaStart,
     });
   }
 
@@ -138,7 +150,24 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  const { words, wordConcepts } = useMemo(() => extractData(document), [document]);
+  const { words, wordConcepts, paragraphs } = useMemo(() => extractData(document), [document]);
+
+  // Compute paragraph start word indices for gap insertion
+  const paragraphStartIndices = useMemo(() => {
+    const set = new Set<number>();
+    let globalIdx = 0;
+    for (const para of paragraphs) {
+      const firstWordIdx = globalIdx;
+      for (const sent of para.sentences) {
+        globalIdx += sent.words.length;
+      }
+      // Don't mark the very first paragraph — no gap before the first one
+      if (firstWordIdx > 0) {
+        set.add(firstWordIdx);
+      }
+    }
+    return set;
+  }, [paragraphs]);
 
   // Measure container width
   useEffect(() => {
@@ -171,8 +200,8 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
   // Compute layout — pure computation, no DOM/canvas needed
   const lines = useMemo(() => {
     if (containerWidth < 50) return [];
-    return computeMonospaceLayout(words, containerWidth, charWidth, LINE_HEIGHT);
-  }, [words, containerWidth, charWidth]);
+    return computeMonospaceLayout(words, containerWidth, charWidth, LINE_HEIGHT, paragraphStartIndices);
+  }, [words, containerWidth, charWidth, paragraphStartIndices]);
 
   const totalHeight = lines.length > 0 ? lines[lines.length - 1].yBottom : 0;
 
