@@ -8,6 +8,7 @@ import {
   WINDOW_NS,
   type TranscriptDocument,
   type ConceptSpan,
+  type EntitySpan,
   type ParagraphSpan,
   type SentenceSpan,
 } from "./transcript";
@@ -337,5 +338,108 @@ describe("extractData — hierarchical structure", () => {
     expect(result.paragraphs[0].sentences).toHaveLength(2);
     expect(result.paragraphs[1].sentences).toHaveLength(1);
     expect(result.words).toHaveLength(6); // flat access still works
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractData — entities and topic breaks
+// ---------------------------------------------------------------------------
+
+describe("extractData — entities and topic breaks", () => {
+  it("extracts entity spans from facets", () => {
+    const doc = makeDoc([
+      { text: "Matt", startNs: 1000, endNs: 2000 },
+      { text: "presented.", startNs: 2000, endNs: 3000 },
+    ]);
+    const encoder = new TextEncoder();
+    doc.facets.push({
+      index: { byteStart: 0, byteEnd: encoder.encode("Matt").length },
+      features: [{
+        $type: "tv.ionosphere.facet#speaker-ref",
+        speakerDid: "did:plc:matt123",
+        label: "Matt",
+      }],
+    });
+
+    const result = extractData(doc);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].speakerDid).toBe("did:plc:matt123");
+    expect(result.entities[0].byteStart).toBe(0);
+  });
+
+  it("extracts concept-ref entities", () => {
+    const doc = makeDoc([
+      { text: "AT", startNs: 1000, endNs: 2000 },
+      { text: "Protocol", startNs: 2000, endNs: 3000 },
+    ]);
+    const encoder = new TextEncoder();
+    doc.facets.push({
+      index: { byteStart: 0, byteEnd: encoder.encode("AT Protocol").length },
+      features: [{
+        $type: "tv.ionosphere.facet#concept-ref",
+        conceptUri: "at://did:example/concept/atp",
+        conceptRkey: "atp",
+        conceptName: "AT Protocol",
+      }],
+    });
+
+    const result = extractData(doc);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].conceptUri).toBe("at://did:example/concept/atp");
+    expect(result.entities[0].conceptName).toBe("AT Protocol");
+    expect(result.entities[0].label).toBe("AT Protocol");
+  });
+
+  it("extracts #entity facets with nerType", () => {
+    const doc = makeDoc([
+      { text: "London", startNs: 1000, endNs: 2000 },
+      { text: "is", startNs: 2000, endNs: 3000 },
+      { text: "great.", startNs: 3000, endNs: 4000 },
+    ]);
+    const encoder = new TextEncoder();
+    doc.facets.push({
+      index: { byteStart: 0, byteEnd: encoder.encode("London").length },
+      features: [{
+        $type: "tv.ionosphere.facet#entity",
+        label: "London",
+        nerType: "GPE",
+      }],
+    });
+
+    const result = extractData(doc);
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].label).toBe("London");
+    expect(result.entities[0].nerType).toBe("GPE");
+  });
+
+  it("extracts topic breaks as paragraph indices", () => {
+    const doc = makeDoc([
+      { text: "A.", startNs: 1000, endNs: 2000 },
+      { text: "B.", startNs: 3000, endNs: 4000 },
+    ]);
+    const encoder = new TextEncoder();
+    const text = "A. B.";
+    const s1End = encoder.encode("A.").length;
+    const s2Start = encoder.encode("A. ").length;
+    const s2End = encoder.encode(text).length;
+
+    doc.facets.push({ index: { byteStart: 0, byteEnd: s1End }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
+    doc.facets.push({ index: { byteStart: s2Start, byteEnd: s2End }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
+    doc.facets.push({ index: { byteStart: s2Start, byteEnd: s2Start }, features: [{ $type: "tv.ionosphere.facet#topic-break" }] });
+    doc.facets.push({ index: { byteStart: 0, byteEnd: s1End }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
+    doc.facets.push({ index: { byteStart: s2Start, byteEnd: s2End }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
+
+    const result = extractData(doc);
+    expect(result.topicBreaks.has(1)).toBe(true);
+    expect(result.topicBreaks.has(0)).toBe(false);
+  });
+
+  it("returns empty entities and topicBreaks when no such facets exist", () => {
+    const doc = makeDoc([
+      { text: "Hello", startNs: 1000, endNs: 2000 },
+    ]);
+    const result = extractData(doc);
+    expect(result.entities).toHaveLength(0);
+    expect(result.topicBreaks.size).toBe(0);
   });
 });

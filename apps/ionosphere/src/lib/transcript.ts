@@ -36,6 +36,16 @@ export interface ConceptSpan {
   conceptName: string;
 }
 
+export interface EntitySpan {
+  byteStart: number;
+  byteEnd: number;
+  label: string;
+  nerType?: string;
+  speakerDid?: string;
+  conceptUri?: string;
+  conceptName?: string;
+}
+
 export interface SentenceSpan {
   byteStart: number;
   byteEnd: number;
@@ -55,6 +65,8 @@ export function extractData(doc: TranscriptDocument) {
 
   const words: WordSpan[] = [];
   const concepts: ConceptSpan[] = [];
+  const entities: EntitySpan[] = [];
+  const topicBreakPositions: number[] = [];
 
   for (const f of doc.facets) {
     for (const feat of f.features) {
@@ -78,6 +90,29 @@ export function extractData(doc: TranscriptDocument) {
           conceptRkey: feat.conceptRkey!,
           conceptName: feat.conceptName!,
         });
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.conceptName!,
+          conceptUri: feat.conceptUri,
+          conceptName: feat.conceptName,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#speaker-ref") {
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.label!,
+          speakerDid: feat.speakerDid,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#entity") {
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.label!,
+          nerType: feat.nerType,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#topic-break") {
+        topicBreakPositions.push(f.index.byteStart);
       }
     }
   }
@@ -209,7 +244,18 @@ export function extractData(doc: TranscriptDocument) {
     paragraphs.push(catchAll);
   }
 
-  return { words, concepts, wordConcepts, paragraphs };
+  // Map topic break byte positions to paragraph indices
+  const topicBreaks = new Set<number>();
+  for (const pos of topicBreakPositions) {
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      if (pos >= paragraphs[pi].byteStart && pos <= paragraphs[pi].byteEnd) {
+        topicBreaks.add(pi);
+        break;
+      }
+    }
+  }
+
+  return { words, concepts, wordConcepts, paragraphs, entities, topicBreaks };
 }
 
 // --- Brightness ---
