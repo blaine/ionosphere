@@ -8,6 +8,8 @@ import {
   WINDOW_NS,
   type TranscriptDocument,
   type ConceptSpan,
+  type ParagraphSpan,
+  type SentenceSpan,
 } from "./transcript";
 
 // ---------------------------------------------------------------------------
@@ -244,5 +246,96 @@ describe("toColor", () => {
     // so all channels should be close together
     expect(Math.abs(r - g)).toBeLessThan(10);
     expect(Math.abs(g - b)).toBeLessThan(15);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractData — hierarchical structure
+// ---------------------------------------------------------------------------
+
+describe("extractData — hierarchical structure", () => {
+  it("groups words into sentences and paragraphs when facets present", () => {
+    const doc = makeDoc([
+      { text: "Hello", startNs: 1000, endNs: 2000 },
+      { text: "world.", startNs: 2000, endNs: 3000 },
+      { text: "New", startNs: 4000, endNs: 5000 },
+      { text: "sentence.", startNs: 5000, endNs: 6000 },
+    ]);
+    const encoder = new TextEncoder();
+    const text = "Hello world. New sentence.";
+    // Add sentence facets
+    doc.facets.push({
+      index: {
+        byteStart: 0,
+        byteEnd: encoder.encode("Hello world.").length,
+      },
+      features: [{ $type: "tv.ionosphere.facet#sentence" }],
+    });
+    doc.facets.push({
+      index: {
+        byteStart: encoder.encode("Hello world. ").length,
+        byteEnd: encoder.encode(text).length,
+      },
+      features: [{ $type: "tv.ionosphere.facet#sentence" }],
+    });
+    // Add paragraph facet covering everything
+    doc.facets.push({
+      index: { byteStart: 0, byteEnd: encoder.encode(text).length },
+      features: [{ $type: "tv.ionosphere.facet#paragraph" }],
+    });
+
+    const result = extractData(doc);
+    expect(result.paragraphs).toHaveLength(1);
+    expect(result.paragraphs[0].sentences).toHaveLength(2);
+    expect(result.paragraphs[0].sentences[0].words).toHaveLength(2);
+    expect(result.paragraphs[0].sentences[1].words).toHaveLength(2);
+  });
+
+  it("gracefully degrades to singleton paragraph/sentence when no structural facets", () => {
+    const doc = makeDoc([
+      { text: "Hello", startNs: 1000, endNs: 2000 },
+      { text: "world", startNs: 2000, endNs: 3000 },
+    ]);
+
+    const result = extractData(doc);
+    expect(result.paragraphs).toHaveLength(1);
+    expect(result.paragraphs[0].sentences).toHaveLength(1);
+    expect(result.paragraphs[0].sentences[0].words).toHaveLength(2);
+    // Legacy flat access still works
+    expect(result.words).toHaveLength(2);
+  });
+
+  it("handles multiple paragraphs with multiple sentences each", () => {
+    const doc = makeDoc([
+      { text: "A", startNs: 1000, endNs: 2000 },
+      { text: "B.", startNs: 2000, endNs: 3000 },
+      { text: "C", startNs: 4000, endNs: 5000 },
+      { text: "D.", startNs: 5000, endNs: 6000 },
+      { text: "E", startNs: 7000, endNs: 8000 },
+      { text: "F.", startNs: 8000, endNs: 9000 },
+    ]);
+    const encoder = new TextEncoder();
+    const text = "A B. C D. E F.";
+
+    // 3 sentences
+    const s1End = encoder.encode("A B.").length;
+    const s2Start = encoder.encode("A B. ").length;
+    const s2End = encoder.encode("A B. C D.").length;
+    const s3Start = encoder.encode("A B. C D. ").length;
+    const s3End = encoder.encode(text).length;
+
+    doc.facets.push({ index: { byteStart: 0, byteEnd: s1End }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
+    doc.facets.push({ index: { byteStart: s2Start, byteEnd: s2End }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
+    doc.facets.push({ index: { byteStart: s3Start, byteEnd: s3End }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
+
+    // 2 paragraphs: first has sentences 1-2, second has sentence 3
+    doc.facets.push({ index: { byteStart: 0, byteEnd: s2End }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
+    doc.facets.push({ index: { byteStart: s3Start, byteEnd: s3End }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
+
+    const result = extractData(doc);
+    expect(result.paragraphs).toHaveLength(2);
+    expect(result.paragraphs[0].sentences).toHaveLength(2);
+    expect(result.paragraphs[1].sentences).toHaveLength(1);
+    expect(result.words).toHaveLength(6); // flat access still works
   });
 });
