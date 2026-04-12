@@ -51,6 +51,18 @@
       "featureClass": "block",
       "expandStart": false,
       "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#topic-break",
+      "featureClass": "block",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#entity",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
     }
   ]
 }
