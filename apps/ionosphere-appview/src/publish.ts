@@ -11,7 +11,7 @@ import { PdsClient, slugToRkey } from "./pds-client.js";
 import { openDb } from "./db.js";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { encode } from "@ionosphere/format/transcript-encoding";
+import { encode, decodeToDocumentWithStructure, type NlpAnnotations } from "@ionosphere/format/transcript-encoding";
 
 const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
 const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
@@ -86,6 +86,10 @@ async function main() {
     ? `at://${did}/tv.ionosphere.event/${event.rkey}`
     : undefined;
 
+  const transcriptsDir = path.resolve(import.meta.dirname, "../../data/transcripts");
+  const nlpDir = path.resolve(import.meta.dirname, "../../../pipeline/data/nlp");
+  let docCount = 0;
+
   for (const talk of talks) {
     const speakerRkeys = db
       .prepare(
@@ -98,9 +102,29 @@ async function main() {
       (s: any) => `at://${did}/tv.ionosphere.speaker/${s.rkey}`
     );
 
+    // Try to assemble a document with NLP structural annotations
+    let document = undefined;
+    const nlpPath = path.join(nlpDir, `${talk.rkey}.json`);
+    const transcriptPath = path.join(transcriptsDir, `${talk.rkey}.json`);
+
+    if (existsSync(nlpPath) && existsSync(transcriptPath)) {
+      const nlpData = JSON.parse(readFileSync(nlpPath, "utf-8")) as {
+        sentences: NlpAnnotations["sentences"];
+        paragraphs: NlpAnnotations["paragraphs"];
+      };
+      const transcriptData = JSON.parse(readFileSync(transcriptPath, "utf-8"));
+      const compact = encode(transcriptData);
+      document = decodeToDocumentWithStructure(compact, {
+        sentences: nlpData.sentences,
+        paragraphs: nlpData.paragraphs,
+      });
+      docCount++;
+    }
+
     await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
       $type: "tv.ionosphere.talk",
       title: talk.title,
+      ...(document && { document }),
       ...(eventUri && { eventUri }),
       ...(speakerUris.length > 0 && { speakerUris }),
       ...(talk.video_uri && { videoUri: talk.video_uri }),
@@ -115,10 +139,10 @@ async function main() {
       ...(talk.description && { description: talk.description }),
     });
   }
+  console.log(`  ${docCount} talks with assembled documents.`);
   console.log(`  Done.`);
 
   // 4. Publish transcripts from cached files
-  const transcriptsDir = path.resolve(import.meta.dirname, "../../data/transcripts");
   let transcriptCount = 0;
 
   for (const talk of talks) {
