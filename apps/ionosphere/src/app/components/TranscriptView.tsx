@@ -9,6 +9,7 @@ import {
   type TranscriptDocument,
   type WordSpan,
   type ConceptSpan,
+  type ParagraphSpan,
 } from "@/lib/transcript";
 import { useAuth } from "@/lib/auth";
 import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
@@ -80,10 +81,25 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   const scrollScrubbing = useRef(false);
   const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map());
 
-  const { words, wordConcepts } = useMemo(
+  const { words, wordConcepts, paragraphs } = useMemo(
     () => extractData(document),
     [document]
   );
+
+  // Map each word object in the paragraph hierarchy to its flat index,
+  // so the nested render can look up wordConcepts, wordRefs, comments, etc.
+  const wordToGlobalIndex = useMemo(() => {
+    const map = new Map<WordSpan, number>();
+    let idx = 0;
+    for (const para of paragraphs) {
+      for (const sent of para.sentences) {
+        for (const word of sent.words) {
+          map.set(word, idx++);
+        }
+      }
+    }
+    return map;
+  }, [paragraphs]);
 
   // Find the active word index
   const activeIndex = useMemo(() => {
@@ -507,16 +523,27 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       </div>
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
-      {words.map((word, i) => (
-        <WordSpanComponent
-          key={i}
-          ref={(el) => setWordRef(i, el)}
-          word={word}
-          concept={wordConcepts[i]?.[0] || null}
-          currentTimeNs={currentTimeNs}
-          onSeek={handleSeek}
-          hasComment={wordHasComment.has(i)}
-        />
+      {paragraphs.map((para, pi) => (
+        <div key={pi} className="mb-4">
+          {para.sentences.map((sent, si) => (
+            <span key={si} className="sentence">
+              {sent.words.map((word) => {
+                const idx = wordToGlobalIndex.get(word) ?? 0;
+                return (
+                  <WordSpanComponent
+                    key={idx}
+                    ref={(el) => setWordRef(idx, el)}
+                    word={word}
+                    concept={wordConcepts[idx]?.[0] || null}
+                    currentTimeNs={currentTimeNs}
+                    onSeek={handleSeek}
+                    hasComment={wordHasComment.has(idx)}
+                  />
+                );
+              })}
+            </span>
+          ))}
+        </div>
       ))}
       {/* Reaction margin indicators */}
       {[...reactionGroups.entries()].map(([key, group]) => {
