@@ -356,17 +356,28 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Scroll
+  // Scroll animation
+  const [scrollDir, setScrollDir] = useState<"none" | "forward" | "back">("none");
+  const animating = useRef(false);
+
   const canScrollForward = filled.length > 0 && filled[filled.length - 1].endIndex < flowItems.length;
   const canScrollBack = startIndex > 0;
 
   const scrollForward = useCallback(() => {
+    if (animating.current) return;
     if (visibleFilled.length > 0 && visibleFilled[0].endIndex < flowItems.length) {
-      setStartIndex(visibleFilled[0].endIndex);
+      animating.current = true;
+      setScrollDir("forward");
+      setTimeout(() => {
+        setStartIndex(visibleFilled[0].endIndex);
+        setScrollDir("none");
+        animating.current = false;
+      }, 250);
     }
   }, [visibleFilled, flowItems.length]);
 
   const scrollBack = useCallback(() => {
+    if (animating.current) return;
     if (startIndex <= 0) return;
     let idx = startIndex - 1;
     let used = 0;
@@ -376,7 +387,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       used += h;
       idx--;
     }
-    setStartIndex(Math.max(0, idx + 1));
+    animating.current = true;
+    setScrollDir("back");
+    setTimeout(() => {
+      setStartIndex(Math.max(0, idx + 1));
+      setScrollDir("none");
+      animating.current = false;
+    }, 250);
   }, [startIndex, flowItems, columnHeight]);
 
   // Wheel handler
@@ -594,7 +611,15 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         {numCols <= 1 ? (
           <MobileDiscussion ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
         ) : (
-          <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
+          <div
+            ref={columnsRef}
+            className="flex gap-6 flex-1 min-h-0"
+            style={{
+              transition: scrollDir !== "none" ? "transform 250ms ease-out, opacity 200ms ease-out" : undefined,
+              transform: scrollDir === "forward" ? "translateX(-40px)" : scrollDir === "back" ? "translateX(40px)" : undefined,
+              opacity: scrollDir !== "none" ? 0.3 : 1,
+            }}
+          >
             {visibleFilled.map((col, colIdx) => (
               <div key={`${startIndex}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
                 {col.items.map((item) => renderItem(item, col.extraSpacing))}
