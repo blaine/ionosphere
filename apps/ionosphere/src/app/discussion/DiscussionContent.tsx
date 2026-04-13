@@ -171,6 +171,7 @@ const SECTION_NAV: Record<FilterKey, { key: string; label: string }[]> = {
     { key: "Recaps & Blog Posts", label: "R" },
     { key: "Photos", label: "P" },
     { key: "Videos & VOD Sites", label: "V" },
+    { key: "More Posts", label: "+" },
   ],
   posts: [{ key: "Top Posts", label: "T" }],
   blogs: [{ key: "Recaps & Blog Posts", label: "R" }],
@@ -234,10 +235,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     // Stats card at the beginning
     items.push({ type: "stats", stats: data.stats });
 
+    const TOP_POSTS_COUNT = 30;
+
     if (filter === "all" || filter === "posts") {
       if (data.posts.length > 0) {
         items.push({ type: "heading", label: "Top Posts" });
-        for (const post of data.posts) {
+        const topSlice = filter === "all" ? data.posts.slice(0, TOP_POSTS_COUNT) : data.posts;
+        for (const post of topSlice) {
           items.push({ type: "item", item: post });
         }
       }
@@ -270,6 +274,14 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       }
       if (data.vodSites.length > 0) {
         items.push({ type: "vodDirectory", sites: data.vodSites });
+      }
+    }
+
+    // Remaining posts (after the top slice) in "all" view
+    if (filter === "all" && data.posts.length > TOP_POSTS_COUNT) {
+      items.push({ type: "heading", label: "More Posts" });
+      for (const post of data.posts.slice(TOP_POSTS_COUNT)) {
+        items.push({ type: "item", item: post });
       }
     }
 
