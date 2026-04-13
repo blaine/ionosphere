@@ -1,14 +1,22 @@
 /**
- * Lens transforms from tv.ionosphere records to pub.layers records.
+ * Lens transforms between tv.ionosphere records and pub.layers records.
  *
  * Lens 1: transcriptToLayersPub
  *   tv.ionosphere.transcript → pub.layers.expression.expression
  *                             + pub.layers.segmentation.segmentation
  *
+ * Lens 2: nlpToAnnotationLayers
+ *   NLP annotations → 4 pub.layers.annotation.annotationLayer records
+ *
+ * Lens 3: layersPubToDocument (reverse)
+ *   pub.layers records → tv.ionosphere document with facets
+ *
  * The timings replay algorithm matches decodeToDocument() in
  * transcript-encoding.ts — uses TextEncoder for correct UTF-8 byte offsets,
  * and indexOf with searchFrom for word position tracking.
  */
+
+import type { Document, DocumentFacet } from './transcript-encoding.js';
 
 export interface TranscriptRecord {
   $type: string;
@@ -288,4 +296,114 @@ export async function nlpToAnnotationLayers(
   };
 
   return { sentences, paragraphs, entities, topics };
+}
+
+/**
+ * Lens 3 (reverse): Transform pub.layers records back into an ionosphere
+ * RelationalText document with facets.
+ *
+ * This is the materialized view builder — used by the appview indexer to
+ * rebuild the talk document when layers.pub records arrive via Jetstream.
+ *
+ * Round-trip property:
+ *   transcriptToLayersPub + nlpToAnnotationLayers + layersPubToDocument
+ *   should produce the SAME document as decodeToDocumentWithStructure.
+ */
+export async function layersPubToDocument(
+  expression: ExpressionRecord,
+  segmentation: SegmentationRecord,
+  annotationLayers: AnnotationLayersResult,
+): Promise<Document> {
+  const facets: DocumentFacet[] = [];
+
+  // 1. Timestamp facets from segmentation tokens
+  for (const token of segmentation.tokenizations[0].tokens) {
+    facets.push({
+      index: {
+        byteStart: token.textSpan.byteStart,
+        byteEnd: token.textSpan.byteEnd,
+      },
+      features: [
+        {
+          $type: 'tv.ionosphere.facet#timestamp',
+          startTime: token.temporalSpan.start * 1_000_000, // ms → ns
+          endTime: token.temporalSpan.ending * 1_000_000,
+        },
+      ],
+    });
+  }
+
+  // 2. Sentence facets
+  for (const ann of annotationLayers.sentences.annotations) {
+    facets.push({
+      index: {
+        byteStart: ann.anchor.textSpan.byteStart,
+        byteEnd: ann.anchor.textSpan.byteEnd,
+      },
+      features: [{ $type: 'tv.ionosphere.facet#sentence' }],
+    });
+  }
+
+  // 3. Paragraph facets
+  for (const ann of annotationLayers.paragraphs.annotations) {
+    facets.push({
+      index: {
+        byteStart: ann.anchor.textSpan.byteStart,
+        byteEnd: ann.anchor.textSpan.byteEnd,
+      },
+      features: [{ $type: 'tv.ionosphere.facet#paragraph' }],
+    });
+  }
+
+  // 4. Entity facets — route based on features entries
+  //    conceptUri → #concept-ref, else → #entity
+  //    (speakerDid routing not needed — zero instances in actual data)
+  for (const ann of annotationLayers.entities.annotations) {
+    const entries = ann.features?.entries ?? [];
+    const conceptUriEntry = entries.find((e) => e.key === 'conceptUri');
+    const nerTypeEntry = entries.find((e) => e.key === 'nerType');
+
+    if (conceptUriEntry) {
+      facets.push({
+        index: {
+          byteStart: ann.anchor.textSpan.byteStart,
+          byteEnd: ann.anchor.textSpan.byteEnd,
+        },
+        features: [
+          {
+            $type: 'tv.ionosphere.facet#concept-ref',
+            conceptUri: conceptUriEntry.value,
+            conceptName: ann.label,
+          },
+        ],
+      });
+    } else {
+      facets.push({
+        index: {
+          byteStart: ann.anchor.textSpan.byteStart,
+          byteEnd: ann.anchor.textSpan.byteEnd,
+        },
+        features: [
+          {
+            $type: 'tv.ionosphere.facet#entity',
+            label: ann.label,
+            nerType: nerTypeEntry?.value,
+          },
+        ],
+      });
+    }
+  }
+
+  // 5. Topic break facets
+  for (const ann of annotationLayers.topics.annotations) {
+    facets.push({
+      index: {
+        byteStart: ann.anchor.textSpan.byteStart,
+        byteEnd: ann.anchor.textSpan.byteEnd,
+      },
+      features: [{ $type: 'tv.ionosphere.facet#topic-break' }],
+    });
+  }
+
+  return { text: expression.text, facets };
 }

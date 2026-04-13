@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transcriptToLayersPub, nlpToAnnotationLayers } from '../../../../formats/tv.ionosphere/ts/layers-pub.js';
+import { transcriptToLayersPub, nlpToAnnotationLayers, layersPubToDocument } from '../../../../formats/tv.ionosphere/ts/layers-pub.js';
 
 describe('Lens 1: transcript → expression + segmentation', () => {
   const transcript = {
@@ -172,5 +172,75 @@ describe('Stage 6 integration: full record production', () => {
     expect(segmentation.tokenizations[0].tokens.length).toBeGreaterThan(100);
     expect(layers.sentences.annotations.length).toBeGreaterThan(10);
     expect(layers.entities.annotations.length).toBeGreaterThan(10);
+  });
+});
+
+describe('Lens 3: round-trip correctness', () => {
+  it('layers.pub → document matches decodeToDocumentWithStructure output', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const transcriptsDir = path.resolve(import.meta.dirname, '../../../data/transcripts');
+    const nlpDir = path.resolve(import.meta.dirname, '../../../../pipeline/data/nlp');
+
+    const rkey = 'ats26-keynote';
+    const transcriptPath = path.join(transcriptsDir, `${rkey}.json`);
+    const nlpPath = path.join(nlpDir, `${rkey}.json`);
+
+    if (!fs.existsSync(transcriptPath) || !fs.existsSync(nlpPath)) {
+      console.log('Skipping: fixture data not available');
+      return;
+    }
+
+    const { encode, decodeToDocumentWithStructure } = await import(
+      '../../../../formats/tv.ionosphere/ts/transcript-encoding.js'
+    );
+
+    const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, 'utf-8'));
+    const nlpData = JSON.parse(fs.readFileSync(nlpPath, 'utf-8'));
+    const compact = encode(transcriptData);
+
+    // Path A: existing direct path
+    const directDoc = decodeToDocumentWithStructure(compact, nlpData);
+
+    // Path B: through lenses
+    const did = 'did:plc:test';
+    const transcriptRecord = {
+      $type: 'tv.ionosphere.transcript' as const,
+      text: compact.text,
+      startMs: compact.startMs,
+      timings: compact.timings,
+      talkUri: `at://${did}/tv.ionosphere.talk/${rkey}`,
+    };
+    const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, rkey);
+    const expressionUri = `at://${did}/pub.layers.expression.expression/${rkey}-expression`;
+    const layers = await nlpToAnnotationLayers(nlpData, did, rkey, expressionUri);
+    const lensDoc = await layersPubToDocument(expression, segmentation, layers);
+
+    // Compare text
+    expect(lensDoc.text).toBe(directDoc.text);
+
+    // Compare facet counts
+    expect(lensDoc.facets.length).toBe(directDoc.facets.length);
+
+    // Sort both facet arrays by byteStart then by $type for deterministic comparison
+    const sortFacets = (facets: typeof directDoc.facets) =>
+      [...facets].sort((a, b) => {
+        const posA = a.index.byteStart;
+        const posB = b.index.byteStart;
+        if (posA !== posB) return posA - posB;
+        const typeA = a.features[0]?.$type ?? '';
+        const typeB = b.features[0]?.$type ?? '';
+        return typeA.localeCompare(typeB);
+      });
+
+    const sortedDirect = sortFacets(directDoc.facets);
+    const sortedLens = sortFacets(lensDoc.facets);
+
+    // Check each facet matches
+    for (let i = 0; i < sortedDirect.length; i++) {
+      expect(sortedLens[i].index).toEqual(sortedDirect[i].index);
+      expect(sortedLens[i].features[0].$type).toBe(sortedDirect[i].features[0].$type);
+    }
   });
 });
