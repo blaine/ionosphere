@@ -275,19 +275,22 @@ export function createRoutes(db: Database.Database): Hono {
     const talkRkey = c.req.query("talkRkey");
     if (!talkRkey) return c.json({ mentions: [], total: 0 });
 
-    const talk = db.prepare("SELECT uri FROM talks WHERE rkey = ?").get(talkRkey) as any;
-    if (!talk) return c.json({ mentions: [], total: 0 });
+    // Get all talk URIs for this rkey (may be multiple DIDs)
+    const talkRows = db.prepare("SELECT uri FROM talks WHERE rkey = ?").all(talkRkey) as any[];
+    if (!talkRows.length) return c.json({ mentions: [], total: 0 });
+    const talkUris = talkRows.map((r: any) => r.uri);
+    const talkPlaceholders = talkUris.map(() => "?").join(",");
 
     const topLevel = db.prepare(
       `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
        FROM mentions m
        LEFT JOIN profiles p ON m.author_did = p.did
-       WHERE m.talk_uri = ? AND m.parent_uri IS NULL
+       WHERE m.talk_uri IN (${talkPlaceholders}) AND m.parent_uri IS NULL
        ORDER BY
          CASE m.mention_type WHEN 'during_talk' THEN 0 ELSE 1 END,
          m.talk_offset_ms ASC,
          m.created_at ASC`
-    ).all(talk.uri);
+    ).all(...talkUris);
 
     const replyStmt = db.prepare(
       `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
