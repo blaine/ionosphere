@@ -47,8 +47,10 @@ describe('Lens 1: transcript → expression + segmentation', () => {
     expect(tok.tokens[0].temporalSpan.start).toBe(1000);
     expect(tok.tokens[0].temporalSpan.ending).toBe(1200);
 
-    // Check third token (after gap)
+    // Check third token (after gap) — byte offsets and temporal span
     expect(tok.tokens[2].text).toBe('foo');
+    expect(tok.tokens[2].textSpan.byteStart).toBe(12); // "Hello world " = 12 bytes
+    expect(tok.tokens[2].textSpan.byteEnd).toBe(15);
     expect(tok.tokens[2].temporalSpan.start).toBe(1600); // 1000+200+300+100gap
     expect(tok.tokens[2].temporalSpan.ending).toBe(1750);
   });
