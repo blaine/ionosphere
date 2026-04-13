@@ -8,6 +8,8 @@ from nlp.paragraphs import detect_paragraphs
 from nlp.entities import detect_entities
 from nlp.speaker_lookup import build_speaker_lookup
 from nlp.topics import detect_topic_breaks
+from nlp.llm_concepts import detect_llm_concepts, resolve_llm_concepts
+from nlp.entities import _build_concept_lookup
 
 
 def process_transcript(
@@ -56,6 +58,16 @@ def process_transcript(
         sent_text = text.encode("utf-8")[s["byteStart"]:s["byteEnd"]].decode("utf-8")
         sentences_with_text.append({**s, "text": sent_text})
     topic_breaks = detect_topic_breaks(sentences_with_text)
+
+    # Pass 5: LLM concept detection (optional — requires ANTHROPIC_API_KEY)
+    if concept_rows:
+        concept_lookup = _build_concept_lookup(concept_rows)
+        known_names = [c["name"] for c in concept_rows]
+        llm_concepts = detect_llm_concepts(text, known_names)
+        if llm_concepts:
+            occupied = {(e["byteStart"], e["byteEnd"]) for e in entities}
+            llm_entities = resolve_llm_concepts(text, llm_concepts, concept_lookup, occupied)
+            entities.extend(llm_entities)
 
     return {
         "talkRkey": talk_rkey,
