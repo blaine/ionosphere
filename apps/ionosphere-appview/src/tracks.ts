@@ -328,22 +328,14 @@ export function getTrackData(db: Database.Database, slug: string) {
   let transcript = getStreamTranscriptFromDb(db, streamRecordUri)
     ?? (hardcoded ? loadTranscriptFromFile(hardcoded.dirName) : null);
 
-  // Overlay NLP structural facets if available
+  // Overlay NLP paragraph facets for structural gaps (no entities/concepts — no sidebar to contextualize them)
   if (transcript) {
     const nlpPath = path.join(path.resolve(import.meta.dirname, "../../../pipeline/data/stream-nlp"), `stream-${slug}.json`);
     if (existsSync(nlpPath)) {
       try {
         const nlp = JSON.parse(readFileSync(nlpPath, "utf-8"));
-        for (const s of nlp.sentences || []) {
-          transcript.facets.push({ index: { byteStart: s.byteStart, byteEnd: s.byteEnd }, features: [{ $type: "tv.ionosphere.facet#sentence" }] });
-        }
         for (const p of nlp.paragraphs || []) {
           transcript.facets.push({ index: { byteStart: p.byteStart, byteEnd: p.byteEnd }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
-        }
-        for (const e of nlp.entities || []) {
-          if (e.conceptUri) {
-            transcript.facets.push({ index: { byteStart: e.byteStart, byteEnd: e.byteEnd }, features: [{ $type: "tv.ionosphere.facet#concept-ref", conceptUri: e.conceptUri, conceptName: e.label }] });
-          }
         }
         for (const tb of nlp.topicBreaks || []) {
           transcript.facets.push({ index: { byteStart: tb.byteStart, byteEnd: tb.byteStart }, features: [{ $type: "tv.ionosphere.facet#topic-break" }] });
