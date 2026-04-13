@@ -350,6 +350,9 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       // Reset the "hand back to auto-scroll" timer
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
+        // Anchor auto-scroll to current position so it resumes
+        // smoothly from where the user left off — no jump
+        scrollTarget.current = container.scrollTop;
         userScrolling.current = false;
       }, paused ? 999999 : 800);
 
