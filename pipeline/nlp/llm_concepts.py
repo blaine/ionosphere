@@ -47,7 +47,7 @@ def detect_llm_concepts(
         print("  Warning: ANTHROPIC_API_KEY not set, skipping LLM concept pass")
         return []
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=30.0)
 
     # Build a concise concept list (top 200 by name length — shorter names are more common)
     sorted_concepts = sorted(known_concept_names, key=len)[:200]

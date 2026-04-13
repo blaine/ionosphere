@@ -138,7 +138,7 @@ def main():
         out_path.write_text(json.dumps(result, indent=2))
         entity_count = len(result.get("entities", []))
         topic_count = len(result.get("topicBreaks", []))
-        print(f"  {talk_rkey}: {len(result['sentences'])} sentences, {len(result['paragraphs'])} paragraphs, {entity_count} entities, {topic_count} topics")
+        print(f"  {talk_rkey}: {len(result['sentences'])} sentences, {len(result['paragraphs'])} paragraphs, {entity_count} entities, {topic_count} topics", flush=True)
 
     print("Done.")
 
