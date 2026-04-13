@@ -17,6 +17,7 @@ package-lock.json
 *.DS_Store
 .sprite
 .claude/worktrees
+.superpowers/
 
 # Python NLP pipeline
 pipeline/.venv/
