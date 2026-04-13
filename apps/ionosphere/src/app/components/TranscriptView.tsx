@@ -228,7 +228,8 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     const container = containerRef.current;
     if (!container) return;
 
-    const LERP = 0.15; // easing factor — higher = snappier
+    const LERP = 0.25; // easing factor — higher = snappier
+    const SNAP_THRESHOLD = 2; // px — snap to target below this to avoid float
 
     const animate = () => {
       // Check selection state directly every frame — more reliable than selectionchange event
@@ -237,8 +238,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
 
       if (!userScrolling.current && !hasSelection && scrollTarget.current !== null) {
         const diff = scrollTarget.current - container.scrollTop;
-        if (Math.abs(diff) > 0.5) {
+        if (Math.abs(diff) > SNAP_THRESHOLD) {
           container.scrollTop += diff * LERP;
+        } else if (Math.abs(diff) > 0.5) {
+          // Snap to exact target — no more visible floating
+          container.scrollTop = scrollTarget.current;
         }
       }
       animFrameId.current = requestAnimationFrame(animate);
@@ -347,7 +351,7 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
         userScrolling.current = false;
-      }, paused ? 999999 : 2000);
+      }, paused ? 999999 : 800);
 
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
