@@ -592,7 +592,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
           <div
             ref={scrollContainerRef}
             className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex gap-6 [&::-webkit-scrollbar]:hidden"
-            style={{ scrollbarWidth: "none", willChange: "scroll-position" }}
+            style={{ scrollbarWidth: "none", willChange: "scroll-position", scrollBehavior: "smooth" }}
           >
             {allCols.map((col, colIdx) => (
               <div key={colIdx} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
