@@ -1,0 +1,30 @@
+[workspace]
+name = "project"
+exclude = [
+    "target",
+    "node_modules",
+    "__pycache__",
+    "build",
+    "dist",
+    ".git",
+]
+
+[[package]]
+name = "ionosphere-workspace"
+path = ""
+protocol = "typescript"
+
+[[package]]
+name = "ionosphere"
+path = "apps/ionosphere"
+protocol = "typescript"
+
+[[package]]
+name = "ionosphere-appview"
+path = "apps/ionosphere-appview"
+protocol = "typescript"
+
+[[package]]
+name = "ionosphere-nlp"
+path = "pipeline"
+protocol = "python"
