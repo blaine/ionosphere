@@ -32,8 +32,24 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
         // Select AAC audio track before playback starts to avoid mid-play rebuffer.
         // Streamplace serves both original + AAC renditions — switching after
         // playback begins causes a visible stall.
+        //
+        // Strategy: wait for MANIFEST_PARSED, then select the audio track
+        // before any playback begins. Only auto-play after the track is set
+        // and the first fragment is buffered — this avoids the reload cycle
+        // caused by switching tracks mid-stream.
         let audioSettled = false;
+        let seekSettled = offsetS <= 0; // no seek needed if no offset
+        let hasAutoPlayed = false;
+
+        const tryAutoPlay = () => {
+          if (!hasAutoPlayed && video!.paused && audioSettled && seekSettled) {
+            hasAutoPlayed = true;
+            video!.play().catch(() => {});
+          }
+        };
+
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+          if (audioSettled) return; // only run once
           const tracks = hls!.audioTracks;
           if (tracks.length > 1) {
             const aacTrack = tracks.findIndex((t: any) =>
@@ -44,63 +60,55 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
             }
           }
           audioSettled = true;
+          tryAutoPlay();
         });
 
-        // Auto-play once audio track is settled and first fragment is buffered
-        let hasAutoPlayed = false;
-        hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          if (!hasAutoPlayed && video!.paused && audioSettled) {
-            hasAutoPlayed = true;
-            video!.play().catch(() => {});
-          }
-        });
-
-        // Fallback: if audio tracks never fire (single track), play after manifest
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          // Give AUDIO_TRACKS_UPDATED a chance to fire first
-          setTimeout(() => { audioSettled = true; }, 100);
-        });
+          // If no audio tracks event fires within 200ms, consider audio settled
+          setTimeout(() => {
+            if (!audioSettled) {
+              audioSettled = true;
+              tryAutoPlay();
+            }
+          }, 200);
 
-        // Error recovery with logging
-        let mediaErrorRecoveries = 0;
-        hls.on(Hls.Events.ERROR, (_: any, data: any) => {
-          console.warn("[HLS]", data.type, data.details, data.fatal ? "FATAL" : "");
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            if (mediaErrorRecoveries < 5) {
-              mediaErrorRecoveries++;
-              hls!.recoverMediaError();
-              return;
-            }
-            const tracks = hls!.audioTracks;
-            if (tracks.length > 1) {
-              const next = (hls!.audioTrack + 1) % tracks.length;
-              console.warn("[HLS] Swapping to audio track", next);
-              hls!.audioTrack = next;
-              mediaErrorRecoveries = 0;
-              return;
-            }
-          }
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                hls!.startLoad();
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                hls!.recoverMediaError();
-                break;
-              default:
-                hls!.destroy();
-                break;
-            }
-          }
-        });
-
-        // Seek to offset once media is loaded
-        if (offsetS > 0) {
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // Seek to offset before playback starts
+          if (offsetS > 0) {
             video!.currentTime = offsetS;
-          });
-        }
+            // Wait for seek to complete before allowing auto-play
+            video!.addEventListener("seeked", () => {
+              seekSettled = true;
+              tryAutoPlay();
+            }, { once: true });
+          }
+        });
+
+        // Auto-play once audio is settled, seek is done, and we have buffered data
+        hls.on(Hls.Events.FRAG_BUFFERED, () => {
+          tryAutoPlay();
+        });
+
+        // Error recovery — conservative approach to avoid reload cycles.
+        // Only recover from fatal errors; non-fatal errors are handled by HLS.js internally.
+        hls.on(Hls.Events.ERROR, (_: any, data: any) => {
+          if (!data.fatal) return;
+
+          console.warn("[HLS] Fatal error:", data.type, data.details);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              // Network errors: retry loading
+              hls!.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              // Media errors: single recovery attempt
+              hls!.recoverMediaError();
+              break;
+            default:
+              // Unrecoverable: destroy and give up
+              hls!.destroy();
+              break;
+          }
+        });
       } else if (video!.canPlayType("application/vnd.apple.mpegurl")) {
         video!.src = playlistUrl;
         if (offsetS > 0) {
@@ -115,24 +123,46 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
     return () => { if (hls) hls.destroy(); };
   }, [playlistUrl, offsetS]);
 
-  // Broadcast current time and play/pause state
+  // Broadcast current time at 60fps via RAF (instead of ~4Hz timeupdate).
+  // This eliminates up to 250ms of stale time data and makes the
+  // transcript highlight track the audio much more tightly.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const onTime = () => {
+    let rafId = 0;
+    let isPlaying = false;
+
+    const pollTime = () => {
+      setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
+      if (isPlaying) rafId = requestAnimationFrame(pollTime);
+    };
+
+    const onPlay = () => {
+      isPlaying = true;
+      setPaused(false);
+      rafId = requestAnimationFrame(pollTime);
+    };
+    const onPause = () => {
+      isPlaying = false;
+      setPaused(true);
+      cancelAnimationFrame(rafId);
+      // One final update to capture exact pause position
       setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
     };
-    const onPlay = () => setPaused(false);
-    const onPause = () => setPaused(true);
+    // Also update on seek (click-to-seek while paused)
+    const onSeeked = () => {
+      setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
+    };
 
-    video.addEventListener("timeupdate", onTime);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeeked);
     return () => {
-      video.removeEventListener("timeupdate", onTime);
+      cancelAnimationFrame(rafId);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeeked);
     };
   }, [setCurrentTimeNs, setPaused, offsetS]);
 

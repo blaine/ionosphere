@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encode, decode, decodeToDocument, type CompactTranscript } from "./transcript-encoding.js";
+import { encode, decode, decodeToDocument, decodeToDocumentWithStructure, type CompactTranscript } from "./transcript-encoding.js";
 import type { TranscriptResult } from "./index.js";
 
 describe("transcript encoding", () => {
@@ -117,6 +117,87 @@ describe("transcript encoding", () => {
 
       console.log(`Compact: ${compactSize} bytes, Full: ${fullSize} bytes, Ratio: ${(fullSize / compactSize).toFixed(1)}x`);
       expect(compactSize).toBeLessThan(fullSize);
+    });
+  });
+
+  describe("decodeToDocumentWithStructure", () => {
+    it("adds sentence and paragraph facets from NLP annotations", () => {
+      const compact = encode(contiguous);
+      const annotations = {
+        sentences: [
+          { byteStart: 0, byteEnd: 11 },  // "hello world"
+          { byteStart: 12, byteEnd: 26 },  // "this is a test"
+        ],
+        paragraphs: [
+          { byteStart: 0, byteEnd: 26 },
+        ],
+      };
+      const doc = decodeToDocumentWithStructure(compact, annotations);
+
+      const sentenceFacets = doc.facets.filter(f =>
+        f.features.some(feat => feat.$type === "tv.ionosphere.facet#sentence")
+      );
+      const paragraphFacets = doc.facets.filter(f =>
+        f.features.some(feat => feat.$type === "tv.ionosphere.facet#paragraph")
+      );
+      expect(sentenceFacets).toHaveLength(2);
+      expect(paragraphFacets).toHaveLength(1);
+      // Original timestamp facets still present
+      const tsFacets = doc.facets.filter(f =>
+        f.features.some(feat => feat.$type === "tv.ionosphere.facet#timestamp")
+      );
+      expect(tsFacets).toHaveLength(6);
+    });
+
+    it("produces valid document without annotations (backward compatible)", () => {
+      const compact = encode(contiguous);
+      const doc = decodeToDocumentWithStructure(compact, null);
+      // Same as decodeToDocument — just timestamp facets
+      expect(doc.facets.length).toBe(6);
+    });
+
+    it("adds entity, speaker-segment, and topic-break facets", () => {
+      const compact = encode(contiguous);
+      const annotations = {
+        sentences: [{ byteStart: 0, byteEnd: 26 }],
+        paragraphs: [{ byteStart: 0, byteEnd: 26 }],
+        entities: [
+          { byteStart: 0, byteEnd: 5, label: "hello", nerType: "PERSON", speakerDid: "did:plc:abc123" },
+          { byteStart: 6, byteEnd: 11, label: "world", nerType: "ORG", conceptUri: "at://did:plc:xyz/tv.ionosphere.concept/test" },
+          { byteStart: 12, byteEnd: 16, label: "this", nerType: "PRODUCT" },
+        ],
+        speakerSegments: [
+          { byteStart: 0, byteEnd: 26, speakerDid: "did:plc:abc123", speakerName: "Test Speaker" },
+        ],
+        topicBreaks: [{ byteStart: 12 }],
+      };
+      const doc = decodeToDocumentWithStructure(compact, annotations);
+
+      const speakerRefs = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#speaker-ref"));
+      const conceptRefs = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#concept-ref"));
+      const entities = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#entity"));
+      const speakerSegs = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#speaker-segment"));
+      const topicBreaks = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#topic-break"));
+
+      expect(speakerRefs).toHaveLength(1);
+      expect(speakerRefs[0].features[0].speakerDid).toBe("did:plc:abc123");
+      expect(conceptRefs).toHaveLength(1);
+      expect(conceptRefs[0].features[0].conceptUri).toBe("at://did:plc:xyz/tv.ionosphere.concept/test");
+      expect(entities).toHaveLength(1);
+      expect(entities[0].features[0].label).toBe("this");
+      expect(speakerSegs).toHaveLength(1);
+      expect(topicBreaks).toHaveLength(1);
+    });
+
+    it("handles missing optional annotation fields gracefully", () => {
+      const compact = encode(contiguous);
+      const annotations = {
+        sentences: [{ byteStart: 0, byteEnd: 26 }],
+        paragraphs: [{ byteStart: 0, byteEnd: 26 }],
+      };
+      const doc = decodeToDocumentWithStructure(compact, annotations);
+      const tsFacets = doc.facets.filter(f => f.features.some(feat => feat.$type === "tv.ionosphere.facet#timestamp"));
+      expect(tsFacets).toHaveLength(6);
     });
   });
 });

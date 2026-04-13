@@ -1,0 +1,12 @@
+{
+  "source": "tv.ionosphere.nlpAnnotations",
+  "target": ["pub.layers.annotation.annotationLayer"],
+  "version": 1,
+  "description": "NLP annotations to 4 annotation layer records (sentences, paragraphs, entities, topics)",
+  "fanOut": {
+    "sentences": { "subkind": "sentence-boundary", "from": "sentences" },
+    "paragraphs": { "subkind": "paragraph-boundary", "from": "paragraphs" },
+    "entities": { "subkind": "ner", "from": "entities" },
+    "topics": { "subkind": "topic-segment", "from": "topicBreaks" }
+  }
+}

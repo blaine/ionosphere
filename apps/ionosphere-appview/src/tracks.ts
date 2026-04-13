@@ -325,8 +325,24 @@ export function getTrackData(db: Database.Database, slug: string) {
     || (hardcoded ? loadDiarizationFromFile(hardcoded.dirName) : []);
 
   const streamRecordUri = dbStream ? `at://${dbStream.did}/tv.ionosphere.stream/${slug}` : "";
-  const transcript = getStreamTranscriptFromDb(db, streamRecordUri)
+  let transcript = getStreamTranscriptFromDb(db, streamRecordUri)
     ?? (hardcoded ? loadTranscriptFromFile(hardcoded.dirName) : null);
+
+  // Overlay NLP paragraph facets for structural gaps (no entities/concepts — no sidebar to contextualize them)
+  if (transcript) {
+    const nlpPath = path.join(path.resolve(import.meta.dirname, "../../../pipeline/data/stream-nlp"), `stream-${slug}.json`);
+    if (existsSync(nlpPath)) {
+      try {
+        const nlp = JSON.parse(readFileSync(nlpPath, "utf-8"));
+        for (const p of nlp.paragraphs || []) {
+          transcript.facets.push({ index: { byteStart: p.byteStart, byteEnd: p.byteEnd }, features: [{ $type: "tv.ionosphere.facet#paragraph" }] });
+        }
+        for (const tb of nlp.topicBreaks || []) {
+          transcript.facets.push({ index: { byteStart: tb.byteStart, byteEnd: tb.byteStart }, features: [{ $type: "tv.ionosphere.facet#topic-break" }] });
+        }
+      } catch {}
+    }
+  }
   const words = getStreamWordsFromDb(db, streamRecordUri).length > 0
     ? getStreamWordsFromDb(db, streamRecordUri)
     : (hardcoded ? loadWordsFromFile(hardcoded.dirName) : []);

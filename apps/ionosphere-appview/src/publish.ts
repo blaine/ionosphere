@@ -11,7 +11,8 @@ import { PdsClient, slugToRkey } from "./pds-client.js";
 import { openDb } from "./db.js";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import { encode } from "@ionosphere/format/transcript-encoding";
+import { encode, decodeToDocumentWithStructure, type NlpAnnotations } from "@ionosphere/format/transcript-encoding";
+import { transcriptToLayersPub, nlpToAnnotationLayers } from "@ionosphere/format/layers-pub";
 
 const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
 const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
@@ -26,7 +27,7 @@ async function main() {
   // 0. Publish lens records
   console.log("Publishing lens records...");
   const lensDir = path.resolve(import.meta.dirname, "../../../formats/tv.ionosphere/lenses");
-  for (const file of ["schedule-to-talk.lens.json", "vod-to-talk.lens.json", "openai-whisper-to-transcript.lens.json", "transcript-to-document.lens.json"]) {
+  for (const file of ["schedule-to-talk.lens.json", "vod-to-talk.lens.json", "openai-whisper-to-transcript.lens.json", "transcript-to-document.lens.json", "transcript-to-expression.lens.json", "nlp-to-annotation-layers.lens.json", "layers-to-document.lens.json"]) {
     const lensPath = path.join(lensDir, file);
     if (!existsSync(lensPath)) continue;
     const spec = JSON.parse(readFileSync(lensPath, "utf-8"));
@@ -86,6 +87,10 @@ async function main() {
     ? `at://${did}/tv.ionosphere.event/${event.rkey}`
     : undefined;
 
+  const transcriptsDir = path.resolve(import.meta.dirname, "../../data/transcripts");
+  const nlpDir = path.resolve(import.meta.dirname, "../../../pipeline/data/nlp");
+  let docCount = 0;
+
   for (const talk of talks) {
     const speakerRkeys = db
       .prepare(
@@ -98,27 +103,75 @@ async function main() {
       (s: any) => `at://${did}/tv.ionosphere.speaker/${s.rkey}`
     );
 
-    await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
-      $type: "tv.ionosphere.talk",
-      title: talk.title,
-      ...(eventUri && { eventUri }),
-      ...(speakerUris.length > 0 && { speakerUris }),
-      ...(talk.video_uri && { videoUri: talk.video_uri }),
-      ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
-      ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
-      ...(talk.room && { room: talk.room }),
-      ...(talk.category && { category: talk.category }),
-      ...(talk.talk_type && { talkType: talk.talk_type }),
-      ...(talk.starts_at && { startsAt: talk.starts_at }),
-      ...(talk.ends_at && { endsAt: talk.ends_at }),
-      ...(talk.duration && { duration: talk.duration }),
-      ...(talk.description && { description: talk.description }),
-    });
+    // Try to assemble a document with NLP structural annotations
+    let document = undefined;
+    const nlpPath = path.join(nlpDir, `${talk.rkey}.json`);
+    const transcriptPath = path.join(transcriptsDir, `${talk.rkey}.json`);
+
+    if (existsSync(nlpPath) && existsSync(transcriptPath)) {
+      const nlpData = JSON.parse(readFileSync(nlpPath, "utf-8")) as {
+        sentences: NlpAnnotations["sentences"];
+        paragraphs: NlpAnnotations["paragraphs"];
+        entities: NlpAnnotations["entities"];
+        topicBreaks: NlpAnnotations["topicBreaks"];
+      };
+      const transcriptData = JSON.parse(readFileSync(transcriptPath, "utf-8"));
+      const compact = encode(transcriptData);
+      document = decodeToDocumentWithStructure(compact, {
+        sentences: nlpData.sentences,
+        paragraphs: nlpData.paragraphs,
+        entities: nlpData.entities,
+        topicBreaks: nlpData.topicBreaks,
+      });
+      docCount++;
+    }
+
+    try {
+      await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
+        $type: "tv.ionosphere.talk",
+        title: talk.title,
+        ...(document && { document }),
+        ...(eventUri && { eventUri }),
+        ...(speakerUris.length > 0 && { speakerUris }),
+        ...(talk.video_uri && { videoUri: talk.video_uri }),
+        ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
+        ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
+        ...(talk.room && { room: talk.room }),
+        ...(talk.category && { category: talk.category }),
+        ...(talk.talk_type && { talkType: talk.talk_type }),
+        ...(talk.starts_at && { startsAt: talk.starts_at }),
+        ...(talk.ends_at && { endsAt: talk.ends_at }),
+        ...(talk.duration && { duration: talk.duration }),
+        ...(talk.description && { description: talk.description }),
+      });
+    } catch (err: any) {
+      if (err?.status === 413) {
+        console.warn(`  ⚠ Talk ${talk.rkey}: payload too large, publishing without document`);
+        await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
+          $type: "tv.ionosphere.talk",
+          title: talk.title,
+          ...(eventUri && { eventUri }),
+          ...(speakerUris.length > 0 && { speakerUris }),
+          ...(talk.video_uri && { videoUri: talk.video_uri }),
+          ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
+          ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
+          ...(talk.room && { room: talk.room }),
+          ...(talk.category && { category: talk.category }),
+          ...(talk.talk_type && { talkType: talk.talk_type }),
+          ...(talk.starts_at && { startsAt: talk.starts_at }),
+          ...(talk.ends_at && { endsAt: talk.ends_at }),
+          ...(talk.duration && { duration: talk.duration }),
+          ...(talk.description && { description: talk.description }),
+        });
+      } else {
+        throw err;
+      }
+    }
   }
+  console.log(`  ${docCount} talks with assembled documents.`);
   console.log(`  Done.`);
 
   // 4. Publish transcripts from cached files
-  const transcriptsDir = path.resolve(import.meta.dirname, "../../data/transcripts");
   let transcriptCount = 0;
 
   for (const talk of talks) {
@@ -140,41 +193,57 @@ async function main() {
   }
   console.log(`\nPublished ${transcriptCount} transcripts.`);
 
-  // 5. Publish concepts
-  const concepts = db.prepare("SELECT * FROM concepts").all() as any[];
-  console.log(`\nPublishing ${concepts.length} concepts...`);
-  for (const concept of concepts) {
-    await pds.putRecord("tv.ionosphere.concept", concept.rkey, {
-      $type: "tv.ionosphere.concept",
-      name: concept.name,
-      ...(concept.aliases && { aliases: JSON.parse(concept.aliases) }),
-      ...(concept.description && { description: concept.description }),
-      ...(concept.wikidata_id && { wikidataId: concept.wikidata_id }),
-      ...(concept.url && { url: concept.url }),
-    });
-  }
-  console.log(`  Done.`);
+  // 5. Publish layers.pub records
+  console.log("\n=== Stage 6: layers.pub records ===");
+  let layersCount = 0;
 
-  // 6. Publish annotations
-  const annotations = db.prepare("SELECT * FROM annotations").all() as any[];
-  console.log(`\nPublishing ${annotations.length} annotations...`);
-  for (const ann of annotations) {
-    const talkUri = ann.talk_uri
-      ? ann.talk_uri.replace(/^at:\/\/[^/]+/, `at://${did}`)
-      : null;
-    const transcriptUri = ann.transcript_uri.replace(/^at:\/\/[^/]+/, `at://${did}`);
-    const conceptUri = ann.concept_uri.replace(/^at:\/\/[^/]+/, `at://${did}`);
-    await pds.putRecord("tv.ionosphere.annotation", ann.rkey, {
-      $type: "tv.ionosphere.annotation",
-      transcriptUri,
-      ...(talkUri && { talkUri }),
-      conceptUri,
-      byteStart: ann.byte_start,
-      byteEnd: ann.byte_end,
-      ...(ann.text && { text: ann.text }),
-    });
+  for (const talk of talks) {
+    const transcriptPath = path.join(transcriptsDir, `${talk.rkey}.json`);
+    const nlpPath = path.join(nlpDir, `${talk.rkey}.json`);
+    if (!existsSync(transcriptPath) || !existsSync(nlpPath)) continue;
+
+    const transcriptData = JSON.parse(readFileSync(transcriptPath, "utf-8"));
+    const nlpData = JSON.parse(readFileSync(nlpPath, "utf-8"));
+    const compact = encode(transcriptData);
+
+    const transcriptRecord = {
+      $type: "tv.ionosphere.transcript" as const,
+      text: compact.text,
+      startMs: compact.startMs,
+      timings: compact.timings,
+      talkUri: `at://${did}/tv.ionosphere.talk/${talk.rkey}`,
+    };
+
+    const { expression, segmentations, temporals } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
+    const expressionUri = `at://${did}/pub.layers.expression.expression/${talk.rkey}-expression`;
+    const layers = await nlpToAnnotationLayers(nlpData, did, talk.rkey, expressionUri);
+
+    const segPuts = segmentations.map((seg, i) =>
+      pds.putRecord("pub.layers.segmentation.segmentation",
+        segmentations.length === 1 ? `${talk.rkey}-segmentation` : `${talk.rkey}-segmentation-${i}`,
+        seg)
+    );
+    const temporalPuts = temporals.map((temp, i) =>
+      pds.putRecord("pub.layers.segmentation.segmentation",
+        temporals.length === 1 ? `${talk.rkey}-temporal` : `${talk.rkey}-temporal-${i}`,
+        temp)
+    );
+
+    await Promise.all([
+      pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
+      ...segPuts,
+      ...temporalPuts,
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
+    ]);
+
+    const totalRecords = 1 + segmentations.length + temporals.length + 4;
+    console.log(`  layers.pub: ${talk.rkey} (${totalRecords} records${segmentations.length > 1 ? `, ${segmentations.length} seg chunks` : ''})`);
+    layersCount++;
   }
-  console.log(`  Done.`);
+  console.log(`Published layers.pub records for ${layersCount} talks.`);
 
   console.log(`\nAll records published to ${PDS_URL}`);
   console.log(`DID: ${did}`);

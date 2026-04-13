@@ -1,12 +1,33 @@
 "use client";
 
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
-import { TimestampProvider } from "@/app/components/TimestampProvider";
+import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
 import ReactionBar from "@/app/components/ReactionBar";
 import MentionsSidebar from "@/app/components/MentionsSidebar";
+
+function ConceptSidebar({ concepts }: { concepts: Array<{ rkey: string; name: string; timeNs?: number }> }) {
+  const { seekTo } = useTimestamp();
+  return (
+    <section>
+      <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Concepts</h2>
+      <div className="flex flex-wrap gap-1.5">
+        {concepts.map((c) => (
+          <button
+            key={c.rkey}
+            onClick={() => c.timeNs ? seekTo(c.timeNs) : undefined}
+            className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors cursor-pointer"
+            title={c.timeNs ? `Jump to ${Math.floor(c.timeNs / 1e9 / 60)}:${String(Math.floor((c.timeNs / 1e9) % 60)).padStart(2, "0")}` : c.name}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 interface TalkContentProps {
   talk: any;
@@ -57,9 +78,51 @@ export default function TalkContent({ talk, speakers, concepts, mentions }: Talk
   const durationMin = talk.duration ? (talk.duration / 1e9 / 60).toFixed(0) : null;
   const document = useMemo(() => {
     if (!talk.document) return null;
-    const doc = JSON.parse(talk.document);
+    const doc = typeof talk.document === "string" ? JSON.parse(talk.document) : talk.document;
     return doc?.facets?.length > 0 ? doc : null;
   }, [talk.document]);
+
+  // Derive concepts from document facets (concept-ref entities)
+  // For each concept, find the timestamp of its first mention
+  const docConcepts = useMemo(() => {
+    if (!document) return [];
+
+    // Build a byte→time lookup from timestamp facets
+    const byteToTime: Array<{ byteStart: number; byteEnd: number; startTime: number }> = [];
+    for (const f of document.facets) {
+      for (const feat of f.features) {
+        if (feat.$type === "tv.ionosphere.facet#timestamp" && feat.startTime != null) {
+          byteToTime.push({ byteStart: f.index.byteStart, byteEnd: f.index.byteEnd, startTime: feat.startTime });
+        }
+      }
+    }
+
+    const seen = new Map<string, { name: string; uri: string; rkey: string; timeNs: number }>();
+    for (const f of document.facets) {
+      for (const feat of f.features) {
+        if (feat.$type === "tv.ionosphere.facet#concept-ref" && feat.conceptUri) {
+          if (!seen.has(feat.conceptUri)) {
+            const rkey = feat.conceptUri.split("/").pop() || "";
+            // Find the nearest timestamp facet overlapping this byte range
+            let timeNs = 0;
+            for (const ts of byteToTime) {
+              if (ts.byteStart < f.index.byteEnd && ts.byteEnd > f.index.byteStart) {
+                timeNs = ts.startTime;
+                break;
+              }
+            }
+            seen.set(feat.conceptUri, {
+              name: feat.conceptName || feat.label || rkey,
+              uri: feat.conceptUri,
+              rkey,
+              timeNs,
+            });
+          }
+        }
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [document]);
 
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [videoWidth, setVideoWidth] = useState<number | null>(null);
@@ -207,7 +270,7 @@ export default function TalkContent({ talk, speakers, concepts, mentions }: Talk
                   : "text-neutral-500 hover:text-neutral-300"
               }`}
             >
-              Concepts ({concepts.length})
+              Concepts ({(concepts.length > 0 ? concepts : docConcepts).length})
             </button>
             <button
               onClick={() => setSidebarTab("mentions")}
@@ -224,23 +287,7 @@ export default function TalkContent({ talk, speakers, concepts, mentions }: Talk
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto p-4">
             {sidebarTab === "concepts" && (
-              <>
-                {concepts.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {concepts.map((c: any) => (
-                      <a
-                        key={c.rkey}
-                        href={`/concepts/${c.rkey}`}
-                        className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors"
-                      >
-                        {c.name}
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-neutral-500">No concepts extracted yet.</div>
-                )}
-              </>
+              <ConceptSidebar concepts={concepts.length > 0 ? concepts : docConcepts} />
             )}
             {sidebarTab === "mentions" && (
               <MentionsSidebar mentions={mentions} words={[]} />

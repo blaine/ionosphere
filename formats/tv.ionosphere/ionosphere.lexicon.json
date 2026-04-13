@@ -39,6 +39,30 @@
       "featureClass": "meta",
       "expandStart": false,
       "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#sentence",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#paragraph",
+      "featureClass": "block",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#topic-break",
+      "featureClass": "block",
+      "expandStart": false,
+      "expandEnd": false
+    },
+    {
+      "typeId": "tv.ionosphere.facet#entity",
+      "featureClass": "inline",
+      "expandStart": false,
+      "expandEnd": false
     }
   ]
 }

@@ -145,3 +145,83 @@ export function decodeToDocument(compact: CompactTranscript): Document {
 
   return { text: compact.text, facets };
 }
+
+export interface NlpAnnotations {
+  sentences: Array<{ byteStart: number; byteEnd: number }>;
+  paragraphs: Array<{ byteStart: number; byteEnd: number }>;
+  entities?: Array<{
+    byteStart: number; byteEnd: number;
+    label: string; nerType: string;
+    speakerDid?: string; conceptUri?: string;
+  }>;
+  speakerSegments?: Array<{
+    byteStart: number; byteEnd: number;
+    speakerDid: string; speakerName: string;
+  }>;
+  topicBreaks?: Array<{ byteStart: number }>;
+}
+
+/**
+ * Decode compact format into a RelationalText document with timestamp facets
+ * plus sentence and paragraph structural facets from NLP pipeline output.
+ */
+export function decodeToDocumentWithStructure(
+  compact: CompactTranscript,
+  annotations: NlpAnnotations | null,
+): Document {
+  const doc = decodeToDocument(compact);
+
+  if (!annotations) return doc;
+
+  for (const s of annotations.sentences) {
+    doc.facets.push({
+      index: { byteStart: s.byteStart, byteEnd: s.byteEnd },
+      features: [{ $type: "tv.ionosphere.facet#sentence" }],
+    });
+  }
+
+  for (const p of annotations.paragraphs) {
+    doc.facets.push({
+      index: { byteStart: p.byteStart, byteEnd: p.byteEnd },
+      features: [{ $type: "tv.ionosphere.facet#paragraph" }],
+    });
+  }
+
+  // Entity facets — route to speaker-ref, concept-ref, or generic entity
+  for (const e of annotations.entities ?? []) {
+    if (e.speakerDid) {
+      doc.facets.push({
+        index: { byteStart: e.byteStart, byteEnd: e.byteEnd },
+        features: [{ $type: "tv.ionosphere.facet#speaker-ref", speakerDid: e.speakerDid, label: e.label }],
+      });
+    } else if (e.conceptUri) {
+      doc.facets.push({
+        index: { byteStart: e.byteStart, byteEnd: e.byteEnd },
+        features: [{ $type: "tv.ionosphere.facet#concept-ref", conceptUri: e.conceptUri, conceptName: e.label }],
+      });
+    } else {
+      doc.facets.push({
+        index: { byteStart: e.byteStart, byteEnd: e.byteEnd },
+        features: [{ $type: "tv.ionosphere.facet#entity", label: e.label, nerType: e.nerType }],
+      });
+    }
+  }
+
+  // Speaker segment facets
+  for (const seg of annotations.speakerSegments ?? []) {
+    doc.facets.push({
+      index: { byteStart: seg.byteStart, byteEnd: seg.byteEnd },
+      features: [{ $type: "tv.ionosphere.facet#speaker-segment", speakerDid: seg.speakerDid, speakerName: seg.speakerName }],
+    });
+  }
+
+  // Topic break facets
+  for (const tb of annotations.topicBreaks ?? []) {
+    doc.facets.push({
+      index: { byteStart: tb.byteStart, byteEnd: tb.byteStart },
+      features: [{ $type: "tv.ionosphere.facet#topic-break" }],
+    });
+  }
+
+  return doc;
+}

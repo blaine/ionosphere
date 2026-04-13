@@ -28,33 +28,22 @@ export default async function TracksPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">Full-Day Streams</h1>
-      <p className="text-neutral-400 text-sm mb-8">
-        Browse complete conference recordings by room and day. Each track shows
-        the full stream with talk segments, speaker diarization, and transcript.
-      </p>
-
+    <div className="max-w-5xl mx-auto px-4 py-6">
       {DAY_ORDER.filter((d) => byDay.has(d)).map((day) => (
-        <div key={day} className="mb-8">
-          <h2 className="text-lg font-semibold text-neutral-300 mb-3 border-b border-neutral-800 pb-1">
+        <div key={day} className="mb-6">
+          <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-3">
             {day}
           </h2>
-          <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {byDay.get(day)!.map((track) => (
               <Link
                 key={track.slug}
                 href={`/tracks/${track.slug}`}
-                className="block p-4 rounded-lg border border-neutral-800 hover:border-neutral-600 transition-colors"
+                className="block p-3 rounded-lg bg-neutral-900/50 hover:bg-neutral-800/70 transition-colors"
               >
-                <div className="flex items-baseline justify-between">
-                  <span className="font-medium">{track.room}</span>
-                  <span className="text-sm text-neutral-500">
-                    {formatDuration(track.durationSeconds)}
-                  </span>
-                </div>
-                <div className="text-sm text-neutral-400 mt-1">
-                  {track.talkCount} talks
+                <div className="font-medium text-sm">{track.room}</div>
+                <div className="text-xs text-neutral-500 mt-1">
+                  {track.talkCount} talks · {formatDuration(track.durationSeconds)}
                 </div>
               </Link>
             ))}

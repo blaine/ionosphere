@@ -19,5 +19,11 @@ package-lock.json
 .claude/worktrees
 .superpowers/
 docs/superpowers/
-__pycache__/
 Trace-*.json.gz
+
+# Python NLP pipeline
+pipeline/.venv/
+pipeline/data/
+pipeline/*.egg-info/
+__pycache__/
+*.pyc

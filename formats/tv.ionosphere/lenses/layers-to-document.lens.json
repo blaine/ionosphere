@@ -1,0 +1,6 @@
+{
+  "source": ["pub.layers.expression.expression", "pub.layers.segmentation.segmentation", "pub.layers.annotation.annotationLayer"],
+  "target": "tv.ionosphere.document",
+  "version": 1,
+  "description": "Layers.pub records to ionosphere RelationalText document with facets (materialized view builder)"
+}

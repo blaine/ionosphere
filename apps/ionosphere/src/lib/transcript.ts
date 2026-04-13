@@ -36,6 +36,28 @@ export interface ConceptSpan {
   conceptName: string;
 }
 
+export interface EntitySpan {
+  byteStart: number;
+  byteEnd: number;
+  label: string;
+  nerType?: string;
+  speakerDid?: string;
+  conceptUri?: string;
+  conceptName?: string;
+}
+
+export interface SentenceSpan {
+  byteStart: number;
+  byteEnd: number;
+  words: WordSpan[];
+}
+
+export interface ParagraphSpan {
+  byteStart: number;
+  byteEnd: number;
+  sentences: SentenceSpan[];
+}
+
 export function extractData(doc: TranscriptDocument) {
   const encoder = new TextEncoder();
   const textBytes = encoder.encode(doc.text);
@@ -43,6 +65,8 @@ export function extractData(doc: TranscriptDocument) {
 
   const words: WordSpan[] = [];
   const concepts: ConceptSpan[] = [];
+  const entities: EntitySpan[] = [];
+  const topicBreakPositions: number[] = [];
 
   for (const f of doc.facets) {
     for (const feat of f.features) {
@@ -66,6 +90,29 @@ export function extractData(doc: TranscriptDocument) {
           conceptRkey: feat.conceptRkey!,
           conceptName: feat.conceptName!,
         });
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.conceptName!,
+          conceptUri: feat.conceptUri,
+          conceptName: feat.conceptName,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#speaker-ref") {
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.label!,
+          speakerDid: feat.speakerDid,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#entity") {
+        entities.push({
+          byteStart: f.index.byteStart,
+          byteEnd: f.index.byteEnd,
+          label: feat.label!,
+          nerType: feat.nerType,
+        });
+      } else if (feat.$type === "tv.ionosphere.facet#topic-break") {
+        topicBreakPositions.push(f.index.byteStart);
       }
     }
   }
@@ -91,7 +138,124 @@ export function extractData(doc: TranscriptDocument) {
     )
   );
 
-  return { words, concepts, wordConcepts };
+  // --- Build hierarchical structure: paragraphs > sentences > words ---
+
+  // Extract sentence facets
+  const sentenceRanges: Array<{ byteStart: number; byteEnd: number }> = [];
+  const paragraphRanges: Array<{ byteStart: number; byteEnd: number }> = [];
+
+  for (const f of doc.facets) {
+    for (const feat of f.features) {
+      if (feat.$type === "tv.ionosphere.facet#sentence") {
+        sentenceRanges.push({ byteStart: f.index.byteStart, byteEnd: f.index.byteEnd });
+      } else if (feat.$type === "tv.ionosphere.facet#paragraph") {
+        paragraphRanges.push({ byteStart: f.index.byteStart, byteEnd: f.index.byteEnd });
+      }
+    }
+  }
+
+  sentenceRanges.sort((a, b) => a.byteStart - b.byteStart);
+  paragraphRanges.sort((a, b) => a.byteStart - b.byteStart);
+
+  // If no sentence facets, wrap all words in one singleton sentence
+  if (sentenceRanges.length === 0 && words.length > 0) {
+    sentenceRanges.push({
+      byteStart: 0,
+      byteEnd: textBytes.length,
+    });
+  }
+
+  // If no paragraph facets, wrap all sentences in one singleton paragraph
+  if (paragraphRanges.length === 0 && sentenceRanges.length > 0) {
+    paragraphRanges.push({
+      byteStart: 0,
+      byteEnd: textBytes.length,
+    });
+  }
+
+  // Assign words to sentences
+  const sentences: SentenceSpan[] = sentenceRanges.map((s) => ({
+    byteStart: s.byteStart,
+    byteEnd: s.byteEnd,
+    words: [],
+  }));
+
+  // Track unassigned words for catch-all sentence
+  const assignedWords = new Set<number>();
+
+  for (let wi = 0; wi < words.length; wi++) {
+    const w = words[wi];
+    for (const s of sentences) {
+      if (w.byteStart >= s.byteStart && w.byteEnd <= s.byteEnd) {
+        s.words.push(w);
+        assignedWords.add(wi);
+        break;
+      }
+    }
+  }
+
+  // Words not covered by any sentence go into a catch-all sentence
+  if (assignedWords.size < words.length) {
+    const catchAll: SentenceSpan = {
+      byteStart: 0,
+      byteEnd: textBytes.length,
+      words: [],
+    };
+    for (let wi = 0; wi < words.length; wi++) {
+      if (!assignedWords.has(wi)) {
+        catchAll.words.push(words[wi]);
+      }
+    }
+    sentences.push(catchAll);
+  }
+
+  // Assign sentences to paragraphs
+  const paragraphs: ParagraphSpan[] = paragraphRanges.map((p) => ({
+    byteStart: p.byteStart,
+    byteEnd: p.byteEnd,
+    sentences: [],
+  }));
+
+  const assignedSentences = new Set<number>();
+
+  for (let si = 0; si < sentences.length; si++) {
+    const s = sentences[si];
+    for (const p of paragraphs) {
+      if (s.byteStart >= p.byteStart && s.byteEnd <= p.byteEnd) {
+        p.sentences.push(s);
+        assignedSentences.add(si);
+        break;
+      }
+    }
+  }
+
+  // Sentences not covered by any paragraph go into a catch-all paragraph
+  if (assignedSentences.size < sentences.length) {
+    const catchAll: ParagraphSpan = {
+      byteStart: 0,
+      byteEnd: textBytes.length,
+      sentences: [],
+    };
+    for (let si = 0; si < sentences.length; si++) {
+      if (!assignedSentences.has(si)) {
+        catchAll.sentences.push(sentences[si]);
+      }
+    }
+    paragraphs.push(catchAll);
+  }
+
+  // Map topic break byte positions to paragraph indices
+  const topicBreaks = new Set<number>();
+  for (const pos of topicBreakPositions) {
+    for (let pi = 0; pi < paragraphs.length; pi++) {
+      if (pos >= paragraphs[pi].byteStart && pos <= paragraphs[pi].byteEnd) {
+        topicBreaks.add(pi);
+        break;
+      }
+    }
+  }
+
+  return { words, concepts, wordConcepts, paragraphs, entities, topicBreaks };
 }
 
 // --- Brightness ---

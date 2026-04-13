@@ -1,0 +1,114 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "pub.layers.annotation.annotationLayer",
+  "revision": 1,
+  "description": "An annotation layer attaching typed annotations to a pub.layers.expression. Covers token-tag, span, relation, tree, and other layer kinds. Each annotation has an anchor, a label, and optional confidence and features.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["expression", "kind", "subkind", "sourceMethod", "annotations"],
+        "properties": {
+          "expression": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of the pub.layers.expression.expression this layer annotates."
+          },
+          "kindUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of a record formally defining the annotation layer kind."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Layer kind: token-tag, span, relation, tree, etc."
+          },
+          "subkindUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of a record formally defining the annotation subkind (e.g. a specific tag set)."
+          },
+          "subkind": {
+            "type": "string",
+            "description": "More specific categorisation within the layer kind (e.g. POS, NER, dependency)."
+          },
+          "sourceMethodUri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT URI of a record formally defining the source method."
+          },
+          "sourceMethod": {
+            "type": "string",
+            "description": "How annotations were produced: manual-native, automatic, converted, etc."
+          },
+          "annotations": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "pub.layers.annotation.annotationLayer#annotation"
+            },
+            "description": "The individual annotations that make up this layer."
+          },
+          "tokenizationId": {
+            "type": "ref",
+            "ref": "pub.layers.defs#uuid",
+            "description": "UUID of the tokenization this layer is aligned to (for token-tag layers)."
+          },
+          "rank": {
+            "type": "integer",
+            "description": "Ordering rank when multiple layers of the same kind exist on the same expression."
+          },
+          "metadata": {
+            "type": "ref",
+            "ref": "pub.layers.defs#annotationMetadata",
+            "description": "Provenance metadata for this layer."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "ISO 8601 datetime when this record was created."
+          }
+        }
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "description": "A single annotation within an annotation layer.",
+      "required": ["label"],
+      "properties": {
+        "uuid": {
+          "type": "ref",
+          "ref": "pub.layers.defs#uuid",
+          "description": "Stable UUID for this annotation."
+        },
+        "anchor": {
+          "type": "ref",
+          "ref": "pub.layers.defs#anchor",
+          "description": "Position this annotation targets (text span, token, or temporal span)."
+        },
+        "label": {
+          "type": "string",
+          "description": "The annotation label (e.g. a POS tag, NER type, sentiment class)."
+        },
+        "text": {
+          "type": "string",
+          "description": "The surface text covered by this annotation (optional, for readability)."
+        },
+        "confidence": {
+          "type": "integer",
+          "description": "Confidence score in the range 0–1000 (0 = none, 1000 = certain).",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "features": {
+          "type": "ref",
+          "ref": "pub.layers.defs#featureMap",
+          "description": "Additional linguistic features for this annotation."
+        }
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTimestamp } from "./TimestampProvider";
-import { useRef, useEffect, useMemo, useCallback, forwardRef, useState } from "react";
+import React, { useRef, useEffect, useMemo, useCallback, forwardRef, useState } from "react";
 import {
   extractData,
   brightnessAtTime,
@@ -9,6 +9,8 @@ import {
   type TranscriptDocument,
   type WordSpan,
   type ConceptSpan,
+  type ParagraphSpan,
+  type EntitySpan,
 } from "@/lib/transcript";
 import { useAuth } from "@/lib/auth";
 import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
@@ -80,10 +82,39 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
   const scrollScrubbing = useRef(false);
   const wordRefsMap = useRef<Map<number, HTMLSpanElement>>(new Map());
 
-  const { words, wordConcepts } = useMemo(
+  const { words, wordConcepts, paragraphs, entities, topicBreaks } = useMemo(
     () => extractData(document),
     [document]
   );
+
+  // Map each word object in the paragraph hierarchy to its flat index,
+  // so the nested render can look up wordConcepts, wordRefs, comments, etc.
+  const wordToGlobalIndex = useMemo(() => {
+    const map = new Map<WordSpan, number>();
+    let idx = 0;
+    for (const para of paragraphs) {
+      for (const sent of para.sentences) {
+        for (const word of sent.words) {
+          map.set(word, idx++);
+        }
+      }
+    }
+    return map;
+  }, [paragraphs]);
+
+  // Map each word index to its overlapping entity (if any)
+  const wordEntities = useMemo(() => {
+    const map = new Map<number, EntitySpan>();
+    for (const entity of entities) {
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        if (w.byteStart >= entity.byteStart && w.byteEnd <= entity.byteEnd) {
+          if (!map.has(i)) map.set(i, entity);
+        }
+      }
+    }
+    return map;
+  }, [words, entities]);
 
   // Find the active word index
   const activeIndex = useMemo(() => {
@@ -197,7 +228,8 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
     const container = containerRef.current;
     if (!container) return;
 
-    const LERP = 0.15; // easing factor — higher = snappier
+    const LERP = 0.25; // easing factor — higher = snappier
+    const SNAP_THRESHOLD = 2; // px — snap to target below this to avoid float
 
     const animate = () => {
       // Check selection state directly every frame — more reliable than selectionchange event
@@ -206,8 +238,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
 
       if (!userScrolling.current && !hasSelection && scrollTarget.current !== null) {
         const diff = scrollTarget.current - container.scrollTop;
-        if (Math.abs(diff) > 0.5) {
+        if (Math.abs(diff) > SNAP_THRESHOLD) {
           container.scrollTop += diff * LERP;
+        } else if (Math.abs(diff) > 0.5) {
+          // Snap to exact target — no more visible floating
+          container.scrollTop = scrollTarget.current;
         }
       }
       animFrameId.current = requestAnimationFrame(animate);
@@ -315,8 +350,11 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       // Reset the "hand back to auto-scroll" timer
       clearTimeout(userScrollTimer.current);
       userScrollTimer.current = setTimeout(() => {
+        // Anchor auto-scroll to current position so it resumes
+        // smoothly from where the user left off — no jump
+        scrollTarget.current = container.scrollTop;
         userScrolling.current = false;
-      }, paused ? 999999 : 2000);
+      }, paused ? 999999 : 800);
 
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
@@ -507,16 +545,43 @@ export default function TranscriptView({ document, comments, transcriptUri, onCo
       </div>
       {/* Top spacer: pushes first word down to the playhead (33% mark) */}
       <div style={{ height: "calc(33% + 1rem)" }} />
-      {words.map((word, i) => (
-        <WordSpanComponent
-          key={i}
-          ref={(el) => setWordRef(i, el)}
-          word={word}
-          concept={wordConcepts[i]?.[0] || null}
-          currentTimeNs={currentTimeNs}
-          onSeek={handleSeek}
-          hasComment={wordHasComment.has(i)}
-        />
+      {paragraphs.map((para, pi) => (
+        <React.Fragment key={pi}>
+          {topicBreaks.has(pi) && (
+            <hr className="border-neutral-800 my-6" />
+          )}
+          <div className="mb-4">
+            {para.sentences.map((sent, si) => (
+              <span key={si} className="sentence" style={{ display: "block", marginBottom: "0.25em" }}>
+                {sent.words.map((word) => {
+                  const idx = wordToGlobalIndex.get(word) ?? 0;
+                  const entityForWord = wordEntities.get(idx);
+                  const entityClass = entityForWord
+                    ? entityForWord.speakerDid
+                      ? "underline decoration-blue-400/40 underline-offset-2"
+                      : entityForWord.conceptUri
+                      ? "" // Already handled by concept prop
+                      : "underline decoration-dotted decoration-neutral-500/40 underline-offset-2"
+                    : "";
+                  const wordEl = (
+                    <WordSpanComponent
+                      key={idx}
+                      ref={(el) => setWordRef(idx, el)}
+                      word={word}
+                      concept={wordConcepts[idx]?.[0] || null}
+                      currentTimeNs={currentTimeNs}
+                      onSeek={handleSeek}
+                      hasComment={wordHasComment.has(idx)}
+                    />
+                  );
+                  return entityClass ? (
+                    <span key={idx} className={entityClass}>{wordEl}</span>
+                  ) : wordEl;
+                })}
+              </span>
+            ))}
+          </div>
+        </React.Fragment>
       ))}
       {/* Reaction margin indicators */}
       {[...reactionGroups.entries()].map(([key, group]) => {

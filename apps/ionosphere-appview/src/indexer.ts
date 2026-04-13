@@ -1,5 +1,14 @@
 import type Database from "better-sqlite3";
 import { ensureProfile } from "./profiles.js";
+import {
+  indexExpression,
+  indexSegmentation,
+  indexAnnotationLayer,
+  deleteExpression,
+  deleteSegmentation,
+  deleteAnnotationLayer,
+  rebuildDocument,
+} from "./layers-indexer.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +26,15 @@ export interface JetstreamEvent {
   time_us: number;
 }
 
+// ─── Bot DID filter ──────────────────────────────────────────────────────────
+
+let _botDid = "";
+
+/** Set the bot DID for filtering layers.pub records. Called from appview.ts. */
+export function setBotDid(did: string): void {
+  _botDid = did;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const IONOSPHERE_COLLECTIONS = [
@@ -25,15 +43,23 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.speaker",
   "tv.ionosphere.concept",
   "tv.ionosphere.transcript",
-  "tv.ionosphere.annotation",
   "tv.ionosphere.comment",
   "tv.ionosphere.stream",
   "tv.ionosphere.streamTranscript",
   "tv.ionosphere.diarization",
   "org.relationaltext.lens",
+  "pub.layers.expression.expression",
+  "pub.layers.segmentation.segmentation",
+  "pub.layers.annotation.annotationLayer",
 ];
 
 const COLLECTIONS_SET = new Set(IONOSPHERE_COLLECTIONS);
+
+const LAYERS_PUB_COLLECTIONS = new Set([
+  "pub.layers.expression.expression",
+  "pub.layers.segmentation.segmentation",
+  "pub.layers.annotation.annotationLayer",
+]);
 
 // ─── Event processor ──────────────────────────────────────────────────────────
 
@@ -44,6 +70,11 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
   if (!COLLECTIONS_SET.has(collection)) return;
 
   const uri = `at://${event.did}/${collection}/${rkey}`;
+
+  // Only process layers.pub records from the bot DID
+  if (LAYERS_PUB_COLLECTIONS.has(collection) && _botDid && event.did !== _botDid) {
+    return;
+  }
 
   // ── Deletes ───────────────────────────────────────────────────────────────
 
@@ -69,11 +100,6 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       case "tv.ionosphere.transcript":
         db.prepare("DELETE FROM transcripts WHERE uri = ?").run(uri);
         break;
-      case "tv.ionosphere.annotation":
-        db.prepare("DELETE FROM annotations WHERE uri = ?").run(uri);
-        // Recompute talk_concepts for affected talk
-        rebuildTalkConcepts(db, uri);
-        break;
       case "tv.ionosphere.comment":
         db.prepare("DELETE FROM comments WHERE uri = ?").run(uri);
         break;
@@ -88,6 +114,15 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
         break;
       case "org.relationaltext.lens":
         db.prepare("DELETE FROM lenses WHERE uri = ?").run(uri);
+        break;
+      case "pub.layers.expression.expression":
+        deleteExpression(db, uri);
+        break;
+      case "pub.layers.segmentation.segmentation":
+        deleteSegmentation(db, uri);
+        break;
+      case "pub.layers.annotation.annotationLayer":
+        deleteAnnotationLayer(db, uri);
         break;
     }
     return;
@@ -113,9 +148,6 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
     case "tv.ionosphere.transcript":
       indexTranscript(db, event.did, rkey, uri, record);
       break;
-    case "tv.ionosphere.annotation":
-      indexAnnotation(db, event.did, rkey, uri, record);
-      break;
     case "tv.ionosphere.comment":
       indexUserComment(db, event.did, rkey, uri, record);
       break;
@@ -130,6 +162,24 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "org.relationaltext.lens":
       indexLens(db, event.did, rkey, uri, record);
+      break;
+    case "pub.layers.expression.expression":
+      indexExpression(db, event.did, rkey, uri, record);
+      rebuildDocument(db, uri).catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
+      break;
+    case "pub.layers.segmentation.segmentation":
+      indexSegmentation(db, event.did, rkey, uri, record);
+      rebuildDocument(db, (record.expression as string) || "").catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
+      break;
+    case "pub.layers.annotation.annotationLayer":
+      indexAnnotationLayer(db, event.did, rkey, uri, record);
+      rebuildDocument(db, (record.expression as string) || "").catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
       break;
   }
 }
@@ -175,8 +225,8 @@ function indexTalk(
 
   db.prepare(
     `INSERT OR REPLACE INTO talks
-     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (uri, did, rkey, title, description, video_uri, video_offset_ns, video_segments, schedule_uri, event_uri, room, category, talk_type, starts_at, ends_at, duration, document)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     uri,
     did,
@@ -193,7 +243,8 @@ function indexTalk(
     (record.talkType as string) || null,
     (record.startsAt as string) || null,
     (record.endsAt as string) || null,
-    (record.duration as number) || 0
+    (record.duration as number) || 0,
+    (record.document as string) ? JSON.stringify(record.document) : null
   );
 
   // Update speaker join table
@@ -275,51 +326,6 @@ function indexTranscript(
     record.startMs as number,
     JSON.stringify(record.timings)
   );
-}
-
-function indexAnnotation(
-  db: Database.Database,
-  did: string,
-  rkey: string,
-  uri: string,
-  record: Record<string, unknown>
-): void {
-  const talkUri = (record.talkUri as string) || null;
-  const transcriptUri = record.transcriptUri as string;
-  const conceptUri = record.conceptUri as string;
-
-  db.prepare(
-    `INSERT OR REPLACE INTO annotations
-     (uri, did, rkey, transcript_uri, talk_uri, concept_uri, byte_start, byte_end, text)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    uri,
-    did,
-    rkey,
-    transcriptUri,
-    talkUri,
-    conceptUri,
-    record.byteStart as number,
-    record.byteEnd as number,
-    (record.text as string) || null
-  );
-
-  // Maintain talk_concepts join: if this annotation links a concept to a talk,
-  // ensure there's a row in talk_concepts
-  if (talkUri && conceptUri) {
-    db.prepare(
-      `INSERT OR IGNORE INTO talk_concepts (talk_uri, concept_uri, mention_count)
-       VALUES (?, ?, 1)`
-    ).run(talkUri, conceptUri);
-
-    // Update mention count
-    db.prepare(
-      `UPDATE talk_concepts SET mention_count = (
-        SELECT COUNT(*) FROM annotations
-        WHERE talk_uri = ? AND concept_uri = ?
-      ) WHERE talk_uri = ? AND concept_uri = ?`
-    ).run(talkUri, conceptUri, talkUri, conceptUri);
-  }
 }
 
 function indexLens(
@@ -434,13 +440,3 @@ function indexDiarization(
   );
 }
 
-function rebuildTalkConcepts(db: Database.Database, _deletedUri: string): void {
-  // Full rebuild — simple and correct for now
-  db.prepare("DELETE FROM talk_concepts").run();
-  db.prepare(
-    `INSERT INTO talk_concepts (talk_uri, concept_uri, mention_count)
-     SELECT talk_uri, concept_uri, COUNT(*) FROM annotations
-     WHERE talk_uri IS NOT NULL
-     GROUP BY talk_uri, concept_uri`
-  ).run();
-}
