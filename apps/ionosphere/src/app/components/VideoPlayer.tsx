@@ -38,7 +38,15 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
         // and the first fragment is buffered — this avoids the reload cycle
         // caused by switching tracks mid-stream.
         let audioSettled = false;
+        let seekSettled = offsetS <= 0; // no seek needed if no offset
         let hasAutoPlayed = false;
+
+        const tryAutoPlay = () => {
+          if (!hasAutoPlayed && video!.paused && audioSettled && seekSettled) {
+            hasAutoPlayed = true;
+            video!.play().catch(() => {});
+          }
+        };
 
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
           if (audioSettled) return; // only run once
@@ -52,27 +60,32 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
             }
           }
           audioSettled = true;
+          tryAutoPlay();
         });
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           // If no audio tracks event fires within 200ms, consider audio settled
-          // (single-track streams don't fire AUDIO_TRACKS_UPDATED)
           setTimeout(() => {
-            if (!audioSettled) audioSettled = true;
+            if (!audioSettled) {
+              audioSettled = true;
+              tryAutoPlay();
+            }
           }, 200);
 
           // Seek to offset before playback starts
           if (offsetS > 0) {
             video!.currentTime = offsetS;
+            // Wait for seek to complete before allowing auto-play
+            video!.addEventListener("seeked", () => {
+              seekSettled = true;
+              tryAutoPlay();
+            }, { once: true });
           }
         });
 
-        // Auto-play once audio is settled and we have buffered data
+        // Auto-play once audio is settled, seek is done, and we have buffered data
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          if (!hasAutoPlayed && video!.paused && audioSettled) {
-            hasAutoPlayed = true;
-            video!.play().catch(() => {});
-          }
+          tryAutoPlay();
         });
 
         // Error recovery — conservative approach to avoid reload cycles.
