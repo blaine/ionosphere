@@ -52,7 +52,6 @@ export interface TemporalSpan {
 
 export interface TextToken {
   tokenIndex: number;
-  text: string;
   textSpan: TokenSpan;
 }
 
@@ -85,10 +84,13 @@ export interface TemporalSegmentationRecord {
   createdAt: string;
 }
 
+/** Maximum tokens per segmentation record to stay under PDS body limits (~200KB CBOR) */
+const MAX_TOKENS_PER_RECORD = 2000;
+
 export interface LayersPubResult {
   expression: ExpressionRecord;
-  segmentation: SegmentationRecord;
-  temporal: TemporalSegmentationRecord;
+  segmentations: SegmentationRecord[];
+  temporals: TemporalSegmentationRecord[];
 }
 
 /**
@@ -153,7 +155,6 @@ export async function transcriptToLayersPub(
 
           textTokens.push({
             tokenIndex: wordIndex,
-            text: word,
             textSpan: { byteStart, byteEnd },
           });
 
@@ -172,21 +173,30 @@ export async function transcriptToLayersPub(
 
   const expressionUri = `at://${did}/pub.layers.expression.expression/${talkRkey}-expression`;
 
-  const segmentation: SegmentationRecord = {
-    $type: 'pub.layers.segmentation.segmentation',
-    expression: expressionUri,
-    tokenizations: [{ kind: 'word', tokens: textTokens }],
-    createdAt: now,
-  };
+  // Chunk tokens to stay under PDS body limits
+  const segmentations: SegmentationRecord[] = [];
+  const temporals: TemporalSegmentationRecord[] = [];
 
-  const temporal: TemporalSegmentationRecord = {
-    $type: 'pub.layers.segmentation.segmentation',
-    expression: expressionUri,
-    tokenizations: [{ kind: 'word-temporal', tokens: temporalTokens }],
-    createdAt: now,
-  };
+  for (let i = 0; i < textTokens.length; i += MAX_TOKENS_PER_RECORD) {
+    const textChunk = textTokens.slice(i, i + MAX_TOKENS_PER_RECORD);
+    const temporalChunk = temporalTokens.slice(i, i + MAX_TOKENS_PER_RECORD);
 
-  return { expression, segmentation, temporal };
+    segmentations.push({
+      $type: 'pub.layers.segmentation.segmentation',
+      expression: expressionUri,
+      tokenizations: [{ kind: 'word', tokens: textChunk }],
+      createdAt: now,
+    });
+
+    temporals.push({
+      $type: 'pub.layers.segmentation.segmentation',
+      expression: expressionUri,
+      tokenizations: [{ kind: 'word-temporal', tokens: temporalChunk }],
+      createdAt: now,
+    });
+  }
+
+  return { expression, segmentations, temporals };
 }
 
 /**
@@ -343,17 +353,20 @@ export async function nlpToAnnotationLayers(
  */
 export async function layersPubToDocument(
   expression: ExpressionRecord,
-  segmentation: SegmentationRecord,
+  segmentations: SegmentationRecord | SegmentationRecord[],
   annotationLayers: AnnotationLayersResult,
   compact?: CompactTranscript,
 ): Promise<Document> {
   const facets: DocumentFacet[] = [];
 
+  // Merge all segmentation chunks into a single token list
+  const segArray = Array.isArray(segmentations) ? segmentations : [segmentations];
+  const allTokens = segArray.flatMap((s) => s.tokenizations[0].tokens);
+
   // 1. Timestamp facets from compact transcript timings
   //    Uses the same replay algorithm as decodeToDocument() — the segmentation
   //    provides byte offsets, the compact transcript provides timing.
   if (compact) {
-    const tokens = segmentation.tokenizations[0].tokens;
     let cursor = compact.startMs;
     let tokenIdx = 0;
 
@@ -361,8 +374,8 @@ export async function layersPubToDocument(
       if (value < 0) {
         cursor += Math.abs(value);
       } else {
-        if (tokenIdx < tokens.length) {
-          const token = tokens[tokenIdx];
+        if (tokenIdx < allTokens.length) {
+          const token = allTokens[tokenIdx];
           facets.push({
             index: {
               byteStart: token.textSpan.byteStart,

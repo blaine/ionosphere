@@ -214,21 +214,33 @@ async function main() {
       talkUri: `at://${did}/tv.ionosphere.talk/${talk.rkey}`,
     };
 
-    const { expression, segmentation, temporal } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
+    const { expression, segmentations, temporals } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
     const expressionUri = `at://${did}/pub.layers.expression.expression/${talk.rkey}-expression`;
     const layers = await nlpToAnnotationLayers(nlpData, did, talk.rkey, expressionUri);
 
+    const segPuts = segmentations.map((seg, i) =>
+      pds.putRecord("pub.layers.segmentation.segmentation",
+        segmentations.length === 1 ? `${talk.rkey}-segmentation` : `${talk.rkey}-segmentation-${i}`,
+        seg)
+    );
+    const temporalPuts = temporals.map((temp, i) =>
+      pds.putRecord("pub.layers.segmentation.segmentation",
+        temporals.length === 1 ? `${talk.rkey}-temporal` : `${talk.rkey}-temporal-${i}`,
+        temp)
+    );
+
     await Promise.all([
       pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
-      pds.putRecord("pub.layers.segmentation.segmentation", `${talk.rkey}-segmentation`, segmentation),
-      pds.putRecord("pub.layers.segmentation.segmentation", `${talk.rkey}-temporal`, temporal),
+      ...segPuts,
+      ...temporalPuts,
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
     ]);
 
-    console.log(`  layers.pub: ${talk.rkey} (7 records)`);
+    const totalRecords = 1 + segmentations.length + temporals.length + 4;
+    console.log(`  layers.pub: ${talk.rkey} (${totalRecords} records${segmentations.length > 1 ? `, ${segmentations.length} seg chunks` : ''})`);
     layersCount++;
   }
   console.log(`Published layers.pub records for ${layersCount} talks.`);

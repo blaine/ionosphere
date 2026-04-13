@@ -113,11 +113,11 @@ export async function rebuildDocument(
     .get(expressionUri) as any;
   if (!expr) return;
 
-  // 2. Look up segmentation
-  const seg = db
-    .prepare("SELECT * FROM layers_segmentations WHERE expression_uri = ?")
-    .get(expressionUri) as any;
-  if (!seg) return;
+  // 2. Look up segmentation chunks (may be multiple for large transcripts)
+  const segRows = db
+    .prepare("SELECT * FROM layers_segmentations WHERE expression_uri = ? AND rkey NOT LIKE '%-temporal%' ORDER BY rkey")
+    .all(expressionUri) as any[];
+  if (segRows.length === 0) return;
 
   // 3. Look up all annotation layers
   const annRows = db
@@ -164,12 +164,12 @@ export async function rebuildDocument(
     createdAt: expr.created_at,
   };
 
-  const segmentationRecord: SegmentationRecord = {
-    $type: "pub.layers.segmentation.segmentation",
+  const segmentationRecords: SegmentationRecord[] = segRows.map((seg: any) => ({
+    $type: "pub.layers.segmentation.segmentation" as const,
     expression: expressionUri,
     tokenizations: JSON.parse(seg.tokens_json),
     createdAt: seg.created_at,
-  };
+  }));
 
   // Fill missing layers with empty annotations so layersPubToDocument gets
   // the full AnnotationLayersResult shape it expects
@@ -206,7 +206,7 @@ export async function rebuildDocument(
 
   const document = await layersPubToDocument(
     expressionRecord,
-    segmentationRecord,
+    segmentationRecords,
     fullLayers,
     compact,
   );
