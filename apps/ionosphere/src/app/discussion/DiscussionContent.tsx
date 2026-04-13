@@ -64,10 +64,11 @@ interface Stats {
 
 interface Project {
   name: string;
-  url: string | null;
-  handle: string | null;
-  description: string;
-  talkRkey: string | null;
+  talkRkey: string;
+  talkType: string | null;
+  category: string | null;
+  speakers: string;
+  handles: string | null;
 }
 
 interface DiscussionData {
@@ -84,7 +85,7 @@ type FlowItem =
   | { type: "item"; item: DiscussionItem }
   | { type: "stats"; stats: Stats }
   | { type: "vodDirectory"; sites: string[] }
-  | { type: "projectDirectory"; projects: Project[] };
+  | { type: "project"; project: Project };
 
 type FilterKey = "all" | "posts" | "blogs" | "photos" | "projects" | "videos";
 
@@ -94,7 +95,7 @@ function estimateItemHeight(item: FlowItem, columnWidth?: number): number {
   if (item.type === "stats") return 76;
   if (item.type === "heading") return 32;
   if (item.type === "vodDirectory") return 86;
-  if (item.type === "projectDirectory") return Math.ceil((item.projects.length / 3) * 24) + 30;
+  if (item.type === "project") return 22;
   if (item.type === "item" && item.item.image_url) {
     const imgWidth = (columnWidth || 240) - 18; // 18px left padding
     const aspect = item.item.image_aspect || 1.33; // default 4:3
@@ -272,7 +273,9 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     if (filter === "all" || filter === "projects") {
       if (data.projects?.length > 0) {
         items.push({ type: "heading", label: "Projects" });
-        items.push({ type: "projectDirectory", projects: data.projects });
+        for (const proj of data.projects) {
+          items.push({ type: "project", project: proj });
+        }
       }
     }
 
@@ -474,32 +477,19 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       );
     }
 
-    if (item.type === "projectDirectory") {
+    if (item.type === "project") {
+      const proj = item.project;
       return (
-        <div key="project-dir" className="mb-2" style={style}>
-          <div className="flex flex-wrap gap-1.5">
-            {item.projects.map((proj) => (
-              <span key={proj.name} className="inline-flex items-center gap-1">
-                {proj.url ? (
-                  <a href={proj.url} target="_blank" rel="noopener"
-                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                    title={proj.description}>
-                    {proj.name}
-                  </a>
-                ) : (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400"
-                    title={proj.description}>
-                    {proj.name}
-                  </span>
-                )}
-                {proj.talkRkey && (
-                  <button onClick={() => handleSelect(proj.talkRkey!)}
-                    className="text-[9px] text-neutral-600 hover:text-neutral-300"
-                    title="Watch talk">&#9654;</button>
-                )}
-              </span>
-            ))}
-          </div>
+        <div key={proj.talkRkey} className="flex items-baseline gap-1 text-[11px] leading-[20px] truncate" style={style}>
+          <button
+            onClick={() => handleSelect(proj.talkRkey)}
+            className="text-amber-300/80 hover:text-amber-200 truncate text-left"
+          >
+            {proj.name}
+          </button>
+          <span className="text-neutral-600 shrink-0 text-[10px]">
+            {proj.speakers?.split(",")[0]}
+          </span>
         </div>
       );
     }
