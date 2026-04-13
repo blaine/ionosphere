@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
   revalidatePath("/speakers", "page");
   revalidatePath("/concepts", "page");
   revalidatePath("/concordance", "page");
+  revalidatePath("/discussion", "page");
+  revalidatePath("/highlights", "page");
   // Dynamic routes
   revalidatePath("/talks/[rkey]", "page");
   revalidatePath("/speakers/[rkey]", "page");

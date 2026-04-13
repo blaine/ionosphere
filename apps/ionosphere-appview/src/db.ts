@@ -242,6 +242,7 @@ export function migrate(db: Database.Database): void {
   try { db.exec("ALTER TABLE mentions ADD COLUMN og_title TEXT"); } catch {}
   try { db.exec("ALTER TABLE mentions ADD COLUMN talk_rkey TEXT"); } catch {}
   try { db.exec("ALTER TABLE mentions ADD COLUMN image_url TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN image_aspect REAL"); } catch {}
   try { db.exec("ALTER TABLE mentions ADD COLUMN has_images INTEGER DEFAULT 0"); } catch {}
 
   db.exec(`

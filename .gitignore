@@ -18,6 +18,8 @@ package-lock.json
 .sprite
 .claude/worktrees
 .superpowers/
+docs/superpowers/
+Trace-*.json.gz
 
 # Python NLP pipeline
 pipeline/.venv/

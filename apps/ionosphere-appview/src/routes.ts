@@ -258,10 +258,28 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   app.get("/xrpc/tv.ionosphere.getDiscussion", (c) => {
+    const BLOCKED_HANDLES = new Set(['nowbreezing.ntw.app']);
+    const filterBlocked = (rows: any[]) => rows.filter((r: any) => !BLOCKED_HANDLES.has(r.author_handle));
+
+    // Projects: curated list from JSON (flat array)
+    let projects: any[] = [];
+    try {
+      const projectsPath = path.resolve(import.meta.dirname, "../../data/atmosphere-projects.json");
+      const raw = JSON.parse(readFileSync(projectsPath, "utf-8"));
+      // Enrich with talk titles
+      const talkTitles = new Map<string, string>();
+      const talkRows = db.prepare("SELECT rkey, title FROM talks").all() as any[];
+      for (const t of talkRows) talkTitles.set(t.rkey, t.title);
+      projects = raw.map((p: any) => ({
+        ...p,
+        talkTitle: talkTitles.get(p.talkRkey) || p.name,
+      }));
+    } catch {}
+
     // Posts: content_type = 'post' or NULL, top-level only, sorted by likes DESC
     const posts = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url, m.image_aspect,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -271,12 +289,13 @@ export function createRoutes(db: Database.Database): Hono {
        WHERE (m.content_type IS NULL OR m.content_type = 'post') AND m.parent_uri IS NULL
        ORDER BY m.likes DESC
        LIMIT 200`
-    ).all();
+    ).all() as any[];
+    const filteredPosts = filterBlocked(posts);
 
     // Blogs: content_type = 'blog', top-level only
     const blogs = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url, m.image_aspect,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -285,12 +304,13 @@ export function createRoutes(db: Database.Database): Hono {
        LEFT JOIN profiles p ON m.author_did = p.did
        WHERE m.content_type = 'blog' AND m.parent_uri IS NULL
        ORDER BY m.likes DESC`
-    ).all();
+    ).all() as any[];
+    const filteredBlogs = filterBlocked(blogs);
 
     // Videos: content_type = 'video', top-level only
     const videos = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url, m.image_aspect,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -299,12 +319,13 @@ export function createRoutes(db: Database.Database): Hono {
        LEFT JOIN profiles p ON m.author_did = p.did
        WHERE m.content_type = 'video' AND m.parent_uri IS NULL
        ORDER BY m.likes DESC`
-    ).all();
+    ).all() as any[];
+    const filteredVideos = filterBlocked(videos);
 
     // Photos: posts with images
     const photos = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url, m.image_aspect,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -312,8 +333,10 @@ export function createRoutes(db: Database.Database): Hono {
        FROM mentions m
        LEFT JOIN profiles p ON m.author_did = p.did
        WHERE m.content_type = 'photo' AND m.parent_uri IS NULL
-       ORDER BY m.likes DESC`
-    ).all();
+       ORDER BY m.likes DESC
+       LIMIT 200`
+    ).all() as any[];
+    const filteredPhotos = filterBlocked(photos);
 
     // VOD sites: unique domains from video external_urls
     const vodRows = db.prepare(
@@ -337,20 +360,42 @@ export function createRoutes(db: Database.Database): Hono {
     ).get() as any;
 
     return c.json({
-      posts,
-      blogs,
-      videos,
-      photos,
+      posts: filteredPosts,
+      blogs: filteredBlogs,
+      videos: filteredVideos,
+      photos: filteredPhotos,
+      projects,
       vodSites,
       stats: {
         totalPosts: statsRow?.totalPosts || 0,
-        blogCount: blogs.length,
-        videoCount: videos.length,
-        photoCount: photos.length,
+        blogCount: filteredBlogs.length,
+        videoCount: filteredVideos.length,
+        photoCount: filteredPhotos.length,
         vodSiteCount: vodSites.length,
         uniqueAuthors: statsRow?.uniqueAuthors || 0,
       },
     });
+  });
+
+  app.get("/xrpc/tv.ionosphere.getHighlights", (c) => {
+    try {
+      const highlightsPath = path.resolve(import.meta.dirname, "../../data/highlights.json");
+      const raw = JSON.parse(readFileSync(highlightsPath, "utf-8")) as any[];
+
+      // Enrich with talk titles from DB
+      const talkTitles = new Map<string, string>();
+      const talkRows = db.prepare("SELECT rkey, title FROM talks").all() as any[];
+      for (const t of talkRows) talkTitles.set(t.rkey, t.title);
+
+      const highlights = raw.map((h: any) => ({
+        ...h,
+        talkTitle: talkTitles.get(h.talkRkey) || h.talkTitle || "Unknown Talk",
+      }));
+
+      return c.json({ highlights });
+    } catch {
+      return c.json({ highlights: [] });
+    }
   });
 
   app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {

@@ -10,7 +10,8 @@ const NAV_ITEMS = [
   { href: "/speakers", label: "Speakers" },
   { href: "/concepts", label: "Concepts" },
   { href: "/concordance", label: "Index" },
-  { href: "/discussion", label: "Discussion" },
+  { href: "/highlights", label: "Highlights" },
+  { href: "/discussion", label: "Community" },
 ];
 
 export default function NavHeader() {

@@ -6,8 +6,10 @@ export default async function DiscussionPage() {
     posts: [],
     blogs: [],
     videos: [],
+    photos: [],
+    projects: [],
     vodSites: [],
-    stats: { totalPosts: 0, blogCount: 0, vodSiteCount: 0, uniqueAuthors: 0 },
+    stats: { totalPosts: 0, blogCount: 0, videoCount: 0, photoCount: 0, vodSiteCount: 0, uniqueAuthors: 0 },
   }));
   return <DiscussionContent data={data} />;
 }

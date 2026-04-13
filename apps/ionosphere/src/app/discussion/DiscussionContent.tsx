@@ -50,6 +50,7 @@ interface DiscussionItem {
   author_avatar_url: string | null;
   talk_title: string | null;
   image_url: string | null;
+  image_aspect: number | null;
 }
 
 interface Stats {
@@ -61,10 +62,19 @@ interface Stats {
   uniqueAuthors: number;
 }
 
+interface Project {
+  name: string;
+  url: string | null;
+  talkRkey: string;
+  talkTitle: string;
+  speakers: string;
+}
+
 interface DiscussionData {
   posts: DiscussionItem[];
   blogs: DiscussionItem[];
   videos: DiscussionItem[];
+  projects: Project[];
   vodSites: string[];
   stats: Stats;
 }
@@ -73,19 +83,30 @@ type FlowItem =
   | { type: "heading"; label: string }
   | { type: "item"; item: DiscussionItem }
   | { type: "stats"; stats: Stats }
-  | { type: "vodDirectory"; sites: string[] };
+  | { type: "vodDirectory"; sites: string[] }
+  | { type: "project"; project: Project };
 
-type FilterKey = "all" | "posts" | "blogs" | "videos" | "photos";
+type FilterKey = "all" | "posts" | "blogs" | "photos" | "projects" | "videos";
 
 // --- Height estimation ---
 
-function estimateItemHeight(item: FlowItem): number {
-  if (item.type === "stats") return 70;
-  if (item.type === "heading") return 28;
-  if (item.type === "vodDirectory") return 80;
-  // item — photos are taller due to thumbnail
-  if (item.type === "item" && item.item.image_url) return 150;
-  return 58;
+function estimateItemHeight(item: FlowItem, columnWidth?: number): number {
+  if (item.type === "stats") return 76;
+  if (item.type === "heading") return 32;
+  if (item.type === "vodDirectory") return 86;
+  if (item.type === "project") return 22;
+  if (item.type === "item" && item.item.image_url) {
+    const imgWidth = (columnWidth || 240) - 18; // 18px left padding
+    const aspect = item.item.image_aspect || 1.33; // default 4:3
+    const imgHeight = Math.min(Math.round(imgWidth / aspect), 200); // cap at 200px
+    return 44 + imgHeight + 28; // header + image + text/links + margin
+  }
+  // Text items: header(20) + text 2 lines(36) + links(16) + margin(6) = 78
+  if (item.type === "item") {
+    const hasLinks = item.item.talk_rkey || item.item.external_url || item.item.author_handle;
+    return hasLinks ? 78 : 62;
+  }
+  return 62;
 }
 
 // --- Greedy column fill ---
@@ -97,13 +118,13 @@ interface FilledColumn {
   extraSpacing: number;
 }
 
-function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: number): FilledColumn {
+function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: number, columnWidth?: number): FilledColumn {
   const items: FlowItem[] = [];
   let used = 0;
   let i = startIndex;
 
   while (i < flowItems.length) {
-    const h = estimateItemHeight(flowItems[i]);
+    const h = estimateItemHeight(flowItems[i], columnWidth);
     if (used + h > columnHeight && items.length > 0) break;
     items.push(flowItems[i]);
     used += h;
@@ -159,11 +180,14 @@ const SECTION_NAV: Record<FilterKey, { key: string; label: string }[]> = {
   all: [
     { key: "Top Posts", label: "T" },
     { key: "Recaps & Blog Posts", label: "R" },
+    { key: "Projects", label: "J" },
     { key: "Photos", label: "P" },
     { key: "Videos & VOD Sites", label: "V" },
+    { key: "More Posts", label: "+" },
   ],
   posts: [{ key: "Top Posts", label: "T" }],
   blogs: [{ key: "Recaps & Blog Posts", label: "R" }],
+  projects: [{ key: "Projects", label: "J" }],
   photos: [{ key: "Photos", label: "P" }],
   videos: [{ key: "Videos & VOD Sites", label: "V" }],
 };
@@ -224,10 +248,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     // Stats card at the beginning
     items.push({ type: "stats", stats: data.stats });
 
+    const TOP_POSTS_COUNT = 20;
+
     if (filter === "all" || filter === "posts") {
       if (data.posts.length > 0) {
         items.push({ type: "heading", label: "Top Posts" });
-        for (const post of data.posts) {
+        const topSlice = filter === "all" ? data.posts.slice(0, TOP_POSTS_COUNT) : data.posts;
+        for (const post of topSlice) {
           items.push({ type: "item", item: post });
         }
       }
@@ -238,6 +265,15 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         items.push({ type: "heading", label: "Recaps & Blog Posts" });
         for (const blog of data.blogs) {
           items.push({ type: "item", item: blog });
+        }
+      }
+    }
+
+    if (filter === "all" || filter === "projects") {
+      if (data.projects?.length > 0) {
+        items.push({ type: "heading", label: "Projects" });
+        for (const proj of data.projects) {
+          items.push({ type: "project", project: proj });
         }
       }
     }
@@ -263,6 +299,14 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       }
     }
 
+    // Remaining posts (after the top slice) in "all" view
+    if (filter === "all" && data.posts.length > TOP_POSTS_COUNT) {
+      items.push({ type: "heading", label: "More Posts" });
+      for (const post of data.posts.slice(TOP_POSTS_COUNT)) {
+        items.push({ type: "item", item: post });
+      }
+    }
+
     return items;
   }, [data, filter]);
 
@@ -284,26 +328,24 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   // Reset on filter change
   useEffect(() => { setStartIndex(0); }, [filter]);
 
-  // Greedy-fill columns
-  const filled = useMemo(() => {
+  // Fill ALL columns from the start of the data — render everything, use native scroll
+  const allCols = useMemo(() => {
     if (numCols <= 1 || columnHeight <= 0) return [];
     const cols: FilledColumn[] = [];
-    let idx = startIndex;
-    for (let c = 0; c < numCols + 1; c++) {
-      if (idx >= flowItems.length) {
-        cols.push({ items: [], endIndex: idx, usedHeight: 0, extraSpacing: 0 });
-      } else {
-        const col = fillColumn(flowItems, idx, columnHeight);
-        cols.push(col);
-        idx = col.endIndex;
-      }
+    let idx = 0;
+    while (idx < flowItems.length) {
+      const col = fillColumn(flowItems, idx, columnHeight, columnWidth);
+      cols.push(col);
+      idx = col.endIndex;
+      if (col.items.length === 0) break; // safety
     }
     return cols;
-  }, [startIndex, numCols, columnHeight, flowItems]);
+  }, [numCols, columnHeight, flowItems, columnWidth]);
 
-  const visibleFilled = filled.slice(0, numCols);
+  const scrollColWidth = columnWidth + 24;
+  const visibleFilled = allCols.slice(0, numCols); // for section nav
 
-  // Current section for nav highlighting
+  // Current section for nav highlighting (based on scroll position)
   const currentSection = useMemo(() => {
     let section = "";
     for (let i = 0; i <= startIndex && i < flowItems.length; i++) {
@@ -312,54 +354,44 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Scroll
-  const canScrollForward = filled.length > 0 && filled[filled.length - 1].endIndex < flowItems.length;
-  const canScrollBack = startIndex > 0;
+  // Track startIndex from scroll position for section nav highlighting (debounced to avoid re-renders during scroll)
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollDebounce = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || numCols <= 1) return;
+    const onScroll = () => {
+      clearTimeout(scrollDebounce.current);
+      scrollDebounce.current = setTimeout(() => {
+        const colIdx = Math.round(el.scrollLeft / scrollColWidth);
+        const itemIdx = allCols.slice(0, colIdx).reduce((sum, c) => c.endIndex, 0);
+        setStartIndex(itemIdx);
+      }, 200);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => { el.removeEventListener("scroll", onScroll); clearTimeout(scrollDebounce.current); };
+  }, [numCols, scrollColWidth, allCols]);
 
-  const scrollForward = useCallback(() => {
-    if (visibleFilled.length > 0 && visibleFilled[0].endIndex < flowItems.length) {
-      setStartIndex(visibleFilled[0].endIndex);
-    }
-  }, [visibleFilled, flowItems.length]);
-
-  const scrollBack = useCallback(() => {
-    if (startIndex <= 0) return;
-    let idx = startIndex - 1;
-    let used = 0;
-    while (idx >= 0) {
-      const h = estimateItemHeight(flowItems[idx]);
-      if (used + h > columnHeight && used > 0) break;
-      used += h;
-      idx--;
-    }
-    setStartIndex(Math.max(0, idx + 1));
-  }, [startIndex, flowItems, columnHeight]);
-
-  // Wheel handler
-  // Debounced wheel scroll — accumulate deltaY, advance when threshold reached
-  const wheelAccum = useRef(0);
-  const wheelTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Wheel → horizontal scroll
+  // Wheel → horizontal native scroll (just remap Y to X, let OS handle physics)
   useEffect(() => {
     if (numCols <= 1) return;
-    const el = containerRef.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
-    const THRESHOLD = 160;
+
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      wheelAccum.current += e.deltaY;
-      clearTimeout(wheelTimer.current);
-      wheelTimer.current = setTimeout(() => { wheelAccum.current = 0; }, 150);
-      if (wheelAccum.current > THRESHOLD) {
-        scrollForward();
-        wheelAccum.current = 0;
-      } else if (wheelAccum.current < -THRESHOLD) {
-        scrollBack();
-        wheelAccum.current = 0;
+      // Only remap if scrolling vertically (not already horizontal trackpad gesture)
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        // Use scrollBy without smooth — the OS wheel event stream already
+        // provides momentum/inertia on macOS trackpads
+        el.scrollLeft += e.deltaY;
       }
     };
+
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [numCols, scrollForward, scrollBack]);
+  }, [numCols]);
 
   const handleSelect = useCallback(
     async (rkey: string) => {
@@ -388,7 +420,16 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       if (el) el.scrollIntoView({ behavior: "instant", block: "start" });
     } else {
       const idx = sectionToIndex.get(sectionLabel);
-      if (idx !== undefined) setStartIndex(idx);
+      if (idx !== undefined) {
+        // Find which column this item is in
+        let colIdx = 0;
+        for (let c = 0; c < allCols.length; c++) {
+          const col = allCols[c];
+          const colStart = c === 0 ? 0 : allCols.slice(0, c).reduce((_, cc) => cc.endIndex, 0);
+          if (idx < col.endIndex) { colIdx = c; break; }
+        }
+        scrollContainerRef.current?.scrollTo({ left: colIdx * scrollColWidth, behavior: "smooth" });
+      }
     }
   }, [sectionToIndex, numCols]);
 
@@ -423,10 +464,35 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       return (
         <div key="vod-dir" className="mb-2 flex flex-wrap gap-1.5" style={style}>
           {item.sites.map((site) => (
-            <span key={site} className="text-[10px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400">
+            <a key={site} href={`https://${site}`} target="_blank" rel="noopener"
+              className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 hover:bg-purple-500/20">
               {site}
-            </span>
+            </a>
           ))}
+        </div>
+      );
+    }
+
+    if (item.type === "project") {
+      const proj = item.project;
+      return (
+        <div key={`${proj.talkRkey}-${proj.name}`} className="flex items-baseline gap-1 text-[11px] leading-[20px] truncate" style={style}>
+          {proj.url ? (
+            <a href={proj.url} target="_blank" rel="noopener"
+              className="text-amber-300/80 hover:text-amber-200 truncate">
+              {proj.name}
+            </a>
+          ) : (
+            <span className="text-amber-300/60 truncate">{proj.name}</span>
+          )}
+          <button
+            onClick={() => handleSelect(proj.talkRkey)}
+            className="text-neutral-600 hover:text-neutral-300 shrink-0 text-[10px]"
+            title={proj.talkTitle}
+          >▶</button>
+          <span className="text-neutral-700 shrink-0 text-[10px] truncate">
+            {proj.speakers?.split(",")[0]}
+          </span>
         </div>
       );
     }
@@ -446,7 +512,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         </div>
         {di.image_url && (
           <div className="pl-[18px] mt-1 mb-1">
-            <img src={di.image_url} alt="" className="rounded w-full max-h-24 object-cover" loading="lazy" />
+            <img
+              src={di.image_url}
+              alt=""
+              className="rounded w-full object-contain bg-neutral-900"
+              style={di.image_aspect ? { aspectRatio: di.image_aspect, maxHeight: 200 } : { maxHeight: 200 }}
+              loading="lazy"
+            />
           </div>
         )}
         <div className="text-neutral-400 pl-[18px] line-clamp-2 -mt-px">
@@ -501,6 +573,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
             { key: "all" as FilterKey, label: "All" },
             { key: "posts" as FilterKey, label: "Top Posts" },
             { key: "blogs" as FilterKey, label: "Recaps & Blog Posts" },
+            { key: "projects" as FilterKey, label: "Projects" },
             { key: "photos" as FilterKey, label: "Photos" },
             { key: "videos" as FilterKey, label: "Videos & VOD Sites" },
           ]).map((f) => (
@@ -518,9 +591,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         {numCols <= 1 ? (
           <MobileDiscussion ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
         ) : (
-          <div ref={columnsRef} className="flex gap-6 flex-1 min-h-0">
-            {visibleFilled.map((col, colIdx) => (
-              <div key={`${startIndex}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex gap-6 [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: "none", willChange: "scroll-position" }}
+          >
+            {allCols.map((col, colIdx) => (
+              <div key={colIdx} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
                 {col.items.map((item) => renderItem(item, col.extraSpacing))}
               </div>
             ))}
