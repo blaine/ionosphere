@@ -6,6 +6,7 @@ import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
 import ReactionBar from "@/app/components/ReactionBar";
+import MentionsSidebar from "@/app/components/MentionsSidebar";
 
 interface TalkContentProps {
   talk: any;
@@ -24,6 +25,7 @@ interface VideoSource {
 
 export default function TalkContent({ talk, speakers, concepts, mentions }: TalkContentProps) {
   const [comments, setComments] = useState<CommentData[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<"concepts" | "mentions">(mentions.length > 0 ? "mentions" : "concepts");
 
   // Parse video sources
   const videoSources: VideoSource[] = useMemo(() => {
@@ -193,27 +195,60 @@ export default function TalkContent({ talk, speakers, concepts, mentions }: Talk
           </div>
         </div>
 
-        {/* Right sidebar — concepts + cross-refs (hidden on mobile, scrollable on desktop) */}
-        <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-y-auto p-4 gap-5">
-          {concepts.length > 0 && (
-            <section>
-              <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Concepts</h2>
-              <div className="flex flex-wrap gap-1.5">
-                {concepts.map((c: any) => (
-                  <a
-                    key={c.rkey}
-                    href={`/concepts/${c.rkey}`}
-                    className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors"
-                  >
-                    {c.name}
-                  </a>
-                ))}
-              </div>
-            </section>
-          )}
+        {/* Right sidebar — tabbed concepts/mentions (hidden on mobile, scrollable on desktop) */}
+        <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-hidden">
+          {/* Tab bar */}
+          <div className="flex border-b border-neutral-800 shrink-0">
+            <button
+              onClick={() => setSidebarTab("concepts")}
+              className={`flex-1 text-[10px] font-semibold uppercase tracking-wide py-2 transition-colors ${
+                sidebarTab === "concepts"
+                  ? "text-amber-400 border-b-2 border-amber-400"
+                  : "text-neutral-500 hover:text-neutral-300"
+              }`}
+            >
+              Concepts ({concepts.length})
+            </button>
+            <button
+              onClick={() => setSidebarTab("mentions")}
+              className={`flex-1 text-[10px] font-semibold uppercase tracking-wide py-2 transition-colors ${
+                sidebarTab === "mentions"
+                  ? "text-blue-400 border-b-2 border-blue-400"
+                  : "text-neutral-500 hover:text-neutral-300"
+              }`}
+            >
+              Mentions ({mentions.length})
+            </button>
+          </div>
+
+          {/* Tab content */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {sidebarTab === "concepts" && (
+              <>
+                {concepts.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {concepts.map((c: any) => (
+                      <a
+                        key={c.rkey}
+                        href={`/concepts/${c.rkey}`}
+                        className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors"
+                      >
+                        {c.name}
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-neutral-500">No concepts extracted yet.</div>
+                )}
+              </>
+            )}
+            {sidebarTab === "mentions" && (
+              <MentionsSidebar mentions={mentions} words={[]} />
+            )}
+          </div>
 
           {/* Mobile speakers (shown below transcript on small screens) */}
-          <section className="lg:hidden">
+          <section className="lg:hidden p-4">
             <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1">Speakers</h2>
             {speakers.map((s: any) => (
               <a key={s.rkey} href={`/speakers/${s.rkey}`} className="block text-sm text-neutral-200 hover:text-white">
