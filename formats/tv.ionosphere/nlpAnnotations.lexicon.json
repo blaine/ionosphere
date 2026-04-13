@@ -1,0 +1,148 @@
+{
+  "lexicon": 1,
+  "$type": "com.atproto.lexicon.schema",
+  "id": "tv.ionosphere.nlpAnnotations",
+  "revision": 1,
+  "description": "NLP pipeline output for a conference talk transcript. Formalizes the JSON shape produced by the ionosphere NLP pipeline so panproto can use it as a lens source schema. Not published to PDS.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["talkRkey", "sentences", "paragraphs", "entities", "topicBreaks", "metadata"],
+        "properties": {
+          "talkRkey": {
+            "type": "string",
+            "description": "The rkey of the tv.ionosphere.talk record this annotation set covers."
+          },
+          "sentences": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "tv.ionosphere.nlpAnnotations#nlpSentence"
+            },
+            "description": "Sentence-boundary spans detected in the transcript text."
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "tv.ionosphere.nlpAnnotations#nlpParagraph"
+            },
+            "description": "Paragraph-boundary spans detected in the transcript text."
+          },
+          "entities": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "tv.ionosphere.nlpAnnotations#nlpEntity"
+            },
+            "description": "Named entities detected in the transcript text."
+          },
+          "topicBreaks": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "tv.ionosphere.nlpAnnotations#nlpTopicBreak"
+            },
+            "description": "Byte positions where a topic shift was detected."
+          },
+          "metadata": {
+            "type": "ref",
+            "ref": "tv.ionosphere.nlpAnnotations#nlpMetadata",
+            "description": "Provenance and configuration metadata for this annotation run."
+          }
+        }
+      }
+    },
+    "nlpSentence": {
+      "type": "object",
+      "description": "A sentence span identified by the NLP pipeline.",
+      "required": ["byteStart", "byteEnd"],
+      "properties": {
+        "byteStart": {
+          "type": "integer",
+          "description": "Inclusive start byte offset into the transcript text."
+        },
+        "byteEnd": {
+          "type": "integer",
+          "description": "Exclusive end byte offset into the transcript text."
+        }
+      }
+    },
+    "nlpParagraph": {
+      "type": "object",
+      "description": "A paragraph span identified by the NLP pipeline.",
+      "required": ["byteStart", "byteEnd"],
+      "properties": {
+        "byteStart": {
+          "type": "integer",
+          "description": "Inclusive start byte offset into the transcript text."
+        },
+        "byteEnd": {
+          "type": "integer",
+          "description": "Exclusive end byte offset into the transcript text."
+        }
+      }
+    },
+    "nlpEntity": {
+      "type": "object",
+      "description": "A named entity span identified by the NLP pipeline.",
+      "required": ["byteStart", "byteEnd", "label", "nerType"],
+      "properties": {
+        "byteStart": {
+          "type": "integer",
+          "description": "Inclusive start byte offset into the transcript text."
+        },
+        "byteEnd": {
+          "type": "integer",
+          "description": "Exclusive end byte offset into the transcript text."
+        },
+        "label": {
+          "type": "string",
+          "description": "Surface text of the named entity (e.g. 'Matt')."
+        },
+        "nerType": {
+          "type": "string",
+          "description": "NER category label (e.g. PERSON, ORG, GPE)."
+        },
+        "conceptUri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT URI of a canonical concept record for this entity, if resolved."
+        }
+      }
+    },
+    "nlpTopicBreak": {
+      "type": "object",
+      "description": "A position in the transcript text where the NLP pipeline detected a topic shift.",
+      "required": ["byteStart"],
+      "properties": {
+        "byteStart": {
+          "type": "integer",
+          "description": "Byte offset at which the topic shift begins."
+        }
+      }
+    },
+    "nlpMetadata": {
+      "type": "object",
+      "description": "Provenance and configuration metadata for an NLP annotation run.",
+      "required": ["tool"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Name and version of the NLP tool used (e.g. 'spacy/en_core_web_sm')."
+        },
+        "pauseThresholdMs": {
+          "type": "integer",
+          "description": "Silence duration in milliseconds used to delimit paragraphs."
+        },
+        "proximityWords": {
+          "type": "integer",
+          "description": "Word-window radius used when linking entity mentions to concepts."
+        }
+      }
+    }
+  }
+}
