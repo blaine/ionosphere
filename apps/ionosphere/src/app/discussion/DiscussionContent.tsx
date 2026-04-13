@@ -321,14 +321,26 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   }, [startIndex, flowItems, columnHeight]);
 
   // Wheel handler
+  // Debounced wheel scroll — accumulate deltaY, advance when threshold reached
+  const wheelAccum = useRef(0);
+  const wheelTimer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     if (numCols <= 1) return;
     const el = containerRef.current;
     if (!el) return;
+    const THRESHOLD = 200;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (e.deltaY > 0) scrollForward();
-      else if (e.deltaY < 0) scrollBack();
+      wheelAccum.current += e.deltaY;
+      clearTimeout(wheelTimer.current);
+      wheelTimer.current = setTimeout(() => { wheelAccum.current = 0; }, 150);
+      if (wheelAccum.current > THRESHOLD) {
+        scrollForward();
+        wheelAccum.current = 0;
+      } else if (wheelAccum.current < -THRESHOLD) {
+        scrollBack();
+        wheelAccum.current = 0;
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -337,7 +349,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   const handleSelect = useCallback(
     async (rkey: string) => {
       try {
-        const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9401";
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
         const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
         if (!res.ok) return;
         const { talk } = await res.json();
@@ -419,22 +431,26 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         <div className="text-neutral-400 pl-[18px] line-clamp-2 -mt-px">
           {di.og_title || di.text}
         </div>
-        {(di.talk_rkey || di.external_url) && (
-          <div className="pl-[18px] mt-0.5 flex gap-2 text-[10px]">
-            {di.talk_rkey && (
-              <button onClick={() => handleSelect(di.talk_rkey!)}
-                className="text-neutral-500 hover:text-neutral-300 truncate">
-                {di.talk_title || "Talk"} &rarr;
-              </button>
-            )}
-            {di.external_url && (
-              <a href={di.external_url} target="_blank" rel="noopener"
-                className={di.content_type === "blog" ? "text-emerald-500" : di.content_type === "video" ? "text-purple-400" : "text-neutral-500"}>
-                {(() => { try { return new URL(di.external_url).hostname; } catch { return "link"; } })()} &#8599;
-              </a>
-            )}
-          </div>
-        )}
+        <div className="pl-[18px] mt-0.5 flex gap-2 text-[10px]">
+          {di.talk_rkey && (
+            <button onClick={() => handleSelect(di.talk_rkey!)}
+              className="text-neutral-500 hover:text-neutral-300 truncate">
+              {di.talk_title || "Talk"} &rarr;
+            </button>
+          )}
+          {di.external_url && (
+            <a href={di.external_url} target="_blank" rel="noopener"
+              className={di.content_type === "blog" ? "text-emerald-500" : di.content_type === "video" ? "text-purple-400" : "text-neutral-500"}>
+              {(() => { try { return new URL(di.external_url).hostname; } catch { return "link"; } })()} &#8599;
+            </a>
+          )}
+          {di.author_handle && (
+            <a href={`https://bsky.app/profile/${di.author_handle}/post/${di.uri.split("/").pop()}`}
+              target="_blank" rel="noopener" className="text-neutral-600 hover:text-neutral-400">
+              bsky &#8599;
+            </a>
+          )}
+        </div>
       </div>
     );
   };
