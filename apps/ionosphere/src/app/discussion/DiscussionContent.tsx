@@ -64,11 +64,10 @@ interface Stats {
 
 interface Project {
   name: string;
+  url: string | null;
   talkRkey: string;
-  talkType: string | null;
-  category: string | null;
+  talkTitle: string;
   speakers: string;
-  handles: string | null;
 }
 
 interface DiscussionData {
@@ -480,14 +479,21 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     if (item.type === "project") {
       const proj = item.project;
       return (
-        <div key={proj.talkRkey} className="flex items-baseline gap-1 text-[11px] leading-[20px] truncate" style={style}>
+        <div key={`${proj.talkRkey}-${proj.name}`} className="flex items-baseline gap-1 text-[11px] leading-[20px] truncate" style={style}>
+          {proj.url ? (
+            <a href={proj.url} target="_blank" rel="noopener"
+              className="text-amber-300/80 hover:text-amber-200 truncate">
+              {proj.name}
+            </a>
+          ) : (
+            <span className="text-amber-300/60 truncate">{proj.name}</span>
+          )}
           <button
             onClick={() => handleSelect(proj.talkRkey)}
-            className="text-amber-300/80 hover:text-amber-200 truncate text-left"
-          >
-            {proj.name}
-          </button>
-          <span className="text-neutral-600 shrink-0 text-[10px]">
+            className="text-neutral-600 hover:text-neutral-300 shrink-0 text-[10px]"
+            title={proj.talkTitle}
+          >▶</button>
+          <span className="text-neutral-700 shrink-0 text-[10px] truncate">
             {proj.speakers?.split(",")[0]}
           </span>
         </div>
