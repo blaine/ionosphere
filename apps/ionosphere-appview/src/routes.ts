@@ -362,6 +362,20 @@ export function createRoutes(db: Database.Database): Hono {
        ORDER BY m.likes DESC`
     ).all();
 
+    // Photos: posts with images
+    const photos = db.prepare(
+      `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url,
+              (SELECT t.title FROM talks t WHERE t.rkey = m.talk_rkey LIMIT 1) as talk_title
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE m.content_type = 'photo' AND m.parent_uri IS NULL
+       ORDER BY m.likes DESC`
+    ).all();
+
     // VOD sites: unique domains from video external_urls
     const vodRows = db.prepare(
       `SELECT DISTINCT m.external_url FROM mentions m
@@ -387,10 +401,13 @@ export function createRoutes(db: Database.Database): Hono {
       posts,
       blogs,
       videos,
+      photos,
       vodSites,
       stats: {
         totalPosts: statsRow?.totalPosts || 0,
-        blogCount: statsRow?.blogCount || 0,
+        blogCount: blogs.length,
+        videoCount: videos.length,
+        photoCount: photos.length,
         vodSiteCount: vodSites.length,
         uniqueAuthors: statsRow?.uniqueAuthors || 0,
       },

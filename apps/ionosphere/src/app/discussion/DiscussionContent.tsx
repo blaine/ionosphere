@@ -54,6 +54,8 @@ interface DiscussionItem {
 interface Stats {
   totalPosts: number;
   blogCount: number;
+  photoCount: number;
+  videoCount: number;
   vodSiteCount: number;
   uniqueAuthors: number;
 }
@@ -72,7 +74,7 @@ type FlowItem =
   | { type: "stats"; stats: Stats }
   | { type: "vodDirectory"; sites: string[] };
 
-type FilterKey = "all" | "posts" | "blogs" | "videos";
+type FilterKey = "all" | "posts" | "blogs" | "videos" | "photos";
 
 // --- Height estimation ---
 
@@ -155,10 +157,12 @@ const SECTION_NAV: Record<FilterKey, { key: string; label: string }[]> = {
   all: [
     { key: "Top Posts", label: "T" },
     { key: "Recaps & Blog Posts", label: "R" },
+    { key: "Photos", label: "P" },
     { key: "Videos & VOD Sites", label: "V" },
   ],
   posts: [{ key: "Top Posts", label: "T" }],
   blogs: [{ key: "Recaps & Blog Posts", label: "R" }],
+  photos: [{ key: "Photos", label: "P" }],
   videos: [{ key: "Videos & VOD Sites", label: "V" }],
 };
 
@@ -232,6 +236,15 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         items.push({ type: "heading", label: "Recaps & Blog Posts" });
         for (const blog of data.blogs) {
           items.push({ type: "item", item: blog });
+        }
+      }
+    }
+
+    if (filter === "all" || filter === "photos") {
+      if ((data as any).photos?.length > 0) {
+        items.push({ type: "heading", label: "Photos" });
+        for (const photo of (data as any).photos) {
+          items.push({ type: "item", item: photo });
         }
       }
     }
@@ -387,6 +400,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
           <div className="flex gap-4 flex-wrap">
             <span>{item.stats.totalPosts.toLocaleString()} posts</span>
             <span>{item.stats.blogCount} recaps</span>
+            <span>{item.stats.photoCount || 0} photos</span>
             <span>{item.stats.vodSiteCount} VOD sites</span>
             <span>{item.stats.uniqueAuthors} authors</span>
           </div>
@@ -480,6 +494,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
             { key: "all" as FilterKey, label: "All" },
             { key: "posts" as FilterKey, label: "Top Posts" },
             { key: "blogs" as FilterKey, label: "Recaps & Blog Posts" },
+            { key: "photos" as FilterKey, label: "Photos" },
             { key: "videos" as FilterKey, label: "Videos & VOD Sites" },
           ]).map((f) => (
             <button key={f.key} onClick={() => setFilter(f.key)}
