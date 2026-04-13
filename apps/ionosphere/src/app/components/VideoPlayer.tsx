@@ -32,8 +32,16 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
         // Select AAC audio track before playback starts to avoid mid-play rebuffer.
         // Streamplace serves both original + AAC renditions — switching after
         // playback begins causes a visible stall.
+        //
+        // Strategy: wait for MANIFEST_PARSED, then select the audio track
+        // before any playback begins. Only auto-play after the track is set
+        // and the first fragment is buffered — this avoids the reload cycle
+        // caused by switching tracks mid-stream.
         let audioSettled = false;
+        let hasAutoPlayed = false;
+
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+          if (audioSettled) return; // only run once
           const tracks = hls!.audioTracks;
           if (tracks.length > 1) {
             const aacTrack = tracks.findIndex((t: any) =>
@@ -46,8 +54,20 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           audioSettled = true;
         });
 
-        // Auto-play once audio track is settled and first fragment is buffered
-        let hasAutoPlayed = false;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          // If no audio tracks event fires within 200ms, consider audio settled
+          // (single-track streams don't fire AUDIO_TRACKS_UPDATED)
+          setTimeout(() => {
+            if (!audioSettled) audioSettled = true;
+          }, 200);
+
+          // Seek to offset before playback starts
+          if (offsetS > 0) {
+            video!.currentTime = offsetS;
+          }
+        });
+
+        // Auto-play once audio is settled and we have buffered data
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
           if (!hasAutoPlayed && video!.paused && audioSettled) {
             hasAutoPlayed = true;
@@ -55,52 +75,27 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           }
         });
 
-        // Fallback: if audio tracks never fire (single track), play after manifest
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          // Give AUDIO_TRACKS_UPDATED a chance to fire first
-          setTimeout(() => { audioSettled = true; }, 100);
-        });
-
-        // Error recovery with logging
-        let mediaErrorRecoveries = 0;
+        // Error recovery — conservative approach to avoid reload cycles.
+        // Only recover from fatal errors; non-fatal errors are handled by HLS.js internally.
         hls.on(Hls.Events.ERROR, (_: any, data: any) => {
-          console.warn("[HLS]", data.type, data.details, data.fatal ? "FATAL" : "");
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            if (mediaErrorRecoveries < 5) {
-              mediaErrorRecoveries++;
+          if (!data.fatal) return;
+
+          console.warn("[HLS] Fatal error:", data.type, data.details);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              // Network errors: retry loading
+              hls!.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              // Media errors: single recovery attempt
               hls!.recoverMediaError();
-              return;
-            }
-            const tracks = hls!.audioTracks;
-            if (tracks.length > 1) {
-              const next = (hls!.audioTrack + 1) % tracks.length;
-              console.warn("[HLS] Swapping to audio track", next);
-              hls!.audioTrack = next;
-              mediaErrorRecoveries = 0;
-              return;
-            }
-          }
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                hls!.startLoad();
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                hls!.recoverMediaError();
-                break;
-              default:
-                hls!.destroy();
-                break;
-            }
+              break;
+            default:
+              // Unrecoverable: destroy and give up
+              hls!.destroy();
+              break;
           }
         });
-
-        // Seek to offset once media is loaded
-        if (offsetS > 0) {
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            video!.currentTime = offsetS;
-          });
-        }
       } else if (video!.canPlayType("application/vnd.apple.mpegurl")) {
         video!.src = playlistUrl;
         if (offsetS > 0) {
