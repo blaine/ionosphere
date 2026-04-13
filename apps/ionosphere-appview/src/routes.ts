@@ -282,7 +282,12 @@ export function createRoutes(db: Database.Database): Hono {
     const talkPlaceholders = talkUris.map(() => "?").join(",");
 
     const topLevel = db.prepare(
-      `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+      `SELECT m.uri, m.talk_uri, m.author_did, m.text, m.created_at,
+              m.talk_offset_ms, m.byte_position, m.likes, m.reposts, m.replies,
+              m.parent_uri, m.mention_type, m.indexed_at,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url
        FROM mentions m
        LEFT JOIN profiles p ON m.author_did = p.did
        WHERE m.talk_uri IN (${talkPlaceholders}) AND m.parent_uri IS NULL
@@ -293,7 +298,12 @@ export function createRoutes(db: Database.Database): Hono {
     ).all(...talkUris);
 
     const replyStmt = db.prepare(
-      `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+      `SELECT m.uri, m.talk_uri, m.author_did, m.text, m.created_at,
+              m.talk_offset_ms, m.byte_position, m.likes, m.reposts, m.replies,
+              m.parent_uri, m.mention_type, m.indexed_at,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url
        FROM mentions m
        LEFT JOIN profiles p ON m.author_did = p.did
        WHERE m.parent_uri = ?
