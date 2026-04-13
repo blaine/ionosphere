@@ -251,6 +251,40 @@ export function migrate(db: Database.Database): void {
       cursor_us INTEGER
     );
     INSERT OR IGNORE INTO _cursor (id, cursor_us) VALUES (1, NULL);
+
+    -- layers.pub records
+    CREATE TABLE IF NOT EXISTS layers_expressions (
+      uri TEXT PRIMARY KEY,
+      rkey TEXT NOT NULL,
+      did TEXT NOT NULL,
+      transcript_uri TEXT NOT NULL,
+      text TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'en',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_layers_expr_transcript ON layers_expressions(transcript_uri);
+
+    CREATE TABLE IF NOT EXISTS layers_segmentations (
+      uri TEXT PRIMARY KEY,
+      rkey TEXT NOT NULL,
+      did TEXT NOT NULL,
+      expression_uri TEXT NOT NULL,
+      tokens_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_layers_seg_expression ON layers_segmentations(expression_uri);
+
+    CREATE TABLE IF NOT EXISTS layers_annotations (
+      uri TEXT PRIMARY KEY,
+      rkey TEXT NOT NULL,
+      did TEXT NOT NULL,
+      expression_uri TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subkind TEXT NOT NULL,
+      annotations_json TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_layers_ann_expression ON layers_annotations(expression_uri);
   `);
 }
 
