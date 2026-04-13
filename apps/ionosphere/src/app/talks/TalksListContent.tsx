@@ -168,7 +168,7 @@ export default function TalksListContent({ talks }: { talks: Talk[] }) {
       const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTalk?rkey=${encodeURIComponent(rkey)}`);
       if (!res.ok) return;
       const { talk } = await res.json();
-      const doc = talk.document ? JSON.parse(talk.document) : null;
+      const doc = talk.document ? (typeof talk.document === "string" ? JSON.parse(talk.document) : talk.document) : null;
       setSelectedTalk({
         rkey,
         title: talk.title,
