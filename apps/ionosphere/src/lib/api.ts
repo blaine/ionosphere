@@ -42,6 +42,16 @@ export async function getConceptClusters() {
   return fetchApi<{ clusters: any[] }>("/xrpc/tv.ionosphere.getConceptClusters");
 }
 
+export async function getDiscussion() {
+  return fetchApi<{
+    posts: any[];
+    blogs: any[];
+    videos: any[];
+    vodSites: string[];
+    stats: { totalPosts: number; blogCount: number; vodSiteCount: number; uniqueAuthors: number };
+  }>("/xrpc/tv.ionosphere.getDiscussion");
+}
+
 export async function getTracks() {
   return fetchApi<{ tracks: any[] }>("/xrpc/tv.ionosphere.getTracks");
 }

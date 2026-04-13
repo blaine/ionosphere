@@ -318,6 +318,85 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ mentions, total: mentions.length });
   });
 
+  app.get("/xrpc/tv.ionosphere.getDiscussion", (c) => {
+    // Posts: content_type = 'post' or NULL, top-level only, sorted by likes DESC
+    const posts = db.prepare(
+      `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url,
+              (SELECT t.title FROM talks t WHERE t.rkey = m.talk_rkey LIMIT 1) as talk_title
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE (m.content_type IS NULL OR m.content_type = 'post') AND m.parent_uri IS NULL
+       ORDER BY m.likes DESC
+       LIMIT 200`
+    ).all();
+
+    // Blogs: content_type = 'blog', top-level only
+    const blogs = db.prepare(
+      `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url,
+              (SELECT t.title FROM talks t WHERE t.rkey = m.talk_rkey LIMIT 1) as talk_title
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE m.content_type = 'blog' AND m.parent_uri IS NULL
+       ORDER BY m.likes DESC`
+    ).all();
+
+    // Videos: content_type = 'video', top-level only
+    const videos = db.prepare(
+      `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              COALESCE(p.handle, m.author_handle) as author_handle,
+              p.display_name as author_display_name,
+              p.avatar_url as author_avatar_url,
+              (SELECT t.title FROM talks t WHERE t.rkey = m.talk_rkey LIMIT 1) as talk_title
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE m.content_type = 'video' AND m.parent_uri IS NULL
+       ORDER BY m.likes DESC`
+    ).all();
+
+    // VOD sites: unique domains from video external_urls
+    const vodRows = db.prepare(
+      `SELECT DISTINCT m.external_url FROM mentions m
+       WHERE m.content_type = 'video' AND m.external_url IS NOT NULL AND m.parent_uri IS NULL`
+    ).all() as any[];
+    const vodSites = [...new Set(
+      vodRows.map((r: any) => {
+        try { return new URL(r.external_url).hostname; } catch { return null; }
+      }).filter(Boolean)
+    )] as string[];
+
+    // Stats
+    const statsRow = db.prepare(
+      `SELECT
+         COUNT(*) as totalPosts,
+         COUNT(CASE WHEN content_type = 'blog' THEN 1 END) as blogCount,
+         COUNT(DISTINCT author_did) as uniqueAuthors
+       FROM mentions
+       WHERE parent_uri IS NULL`
+    ).get() as any;
+
+    return c.json({
+      posts,
+      blogs,
+      videos,
+      vodSites,
+      stats: {
+        totalPosts: statsRow?.totalPosts || 0,
+        blogCount: statsRow?.blogCount || 0,
+        vodSiteCount: vodSites.length,
+        uniqueAuthors: statsRow?.uniqueAuthors || 0,
+      },
+    });
+  });
+
   app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
