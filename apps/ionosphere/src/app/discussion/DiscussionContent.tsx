@@ -50,6 +50,7 @@ interface DiscussionItem {
   author_avatar_url: string | null;
   talk_title: string | null;
   image_url: string | null;
+  image_aspect: number | null;
 }
 
 interface Stats {
@@ -79,12 +80,16 @@ type FilterKey = "all" | "posts" | "blogs" | "videos" | "photos";
 
 // --- Height estimation ---
 
-function estimateItemHeight(item: FlowItem): number {
+function estimateItemHeight(item: FlowItem, columnWidth?: number): number {
   if (item.type === "stats") return 70;
   if (item.type === "heading") return 28;
   if (item.type === "vodDirectory") return 80;
-  // item — photos are taller due to thumbnail
-  if (item.type === "item" && item.item.image_url) return 150;
+  if (item.type === "item" && item.item.image_url) {
+    const imgWidth = (columnWidth || 240) - 18; // 18px left padding
+    const aspect = item.item.image_aspect || 1.33; // default 4:3
+    const imgHeight = Math.min(Math.round(imgWidth / aspect), 200); // cap at 200px
+    return 40 + imgHeight + 20; // header + image + text/links
+  }
   return 58;
 }
 
@@ -97,13 +102,13 @@ interface FilledColumn {
   extraSpacing: number;
 }
 
-function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: number): FilledColumn {
+function fillColumn(flowItems: FlowItem[], startIndex: number, columnHeight: number, columnWidth?: number): FilledColumn {
   const items: FlowItem[] = [];
   let used = 0;
   let i = startIndex;
 
   while (i < flowItems.length) {
-    const h = estimateItemHeight(flowItems[i]);
+    const h = estimateItemHeight(flowItems[i], columnWidth);
     if (used + h > columnHeight && items.length > 0) break;
     items.push(flowItems[i]);
     used += h;
@@ -293,7 +298,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       if (idx >= flowItems.length) {
         cols.push({ items: [], endIndex: idx, usedHeight: 0, extraSpacing: 0 });
       } else {
-        const col = fillColumn(flowItems, idx, columnHeight);
+        const col = fillColumn(flowItems, idx, columnHeight, columnWidth);
         cols.push(col);
         idx = col.endIndex;
       }
@@ -327,7 +332,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     let idx = startIndex - 1;
     let used = 0;
     while (idx >= 0) {
-      const h = estimateItemHeight(flowItems[idx]);
+      const h = estimateItemHeight(flowItems[idx], columnWidth);
       if (used + h > columnHeight && used > 0) break;
       used += h;
       idx--;
@@ -446,7 +451,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         </div>
         {di.image_url && (
           <div className="pl-[18px] mt-1 mb-1">
-            <img src={di.image_url} alt="" className="rounded w-full max-h-24 object-cover" loading="lazy" />
+            <img
+              src={di.image_url}
+              alt=""
+              className="rounded w-full object-contain bg-neutral-900"
+              style={di.image_aspect ? { aspectRatio: di.image_aspect, maxHeight: 200 } : { maxHeight: 200 }}
+              loading="lazy"
+            />
           </div>
         )}
         <div className="text-neutral-400 pl-[18px] line-clamp-2 -mt-px">
