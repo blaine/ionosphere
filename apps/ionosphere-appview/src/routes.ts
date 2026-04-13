@@ -322,6 +322,28 @@ export function createRoutes(db: Database.Database): Hono {
     const BLOCKED_HANDLES = new Set(['nowbreezing.ntw.app']);
     const filterBlocked = (rows: any[]) => rows.filter((r: any) => !BLOCKED_HANDLES.has(r.author_handle));
 
+    // Projects
+    let projects: any[] = [];
+    try {
+      const projectsPath = path.resolve(import.meta.dirname, "../data/atmosphere-projects.json");
+      projects = JSON.parse(readFileSync(projectsPath, "utf-8"));
+      // Enrich with talk rkeys
+      const talksByHandle = new Map<string, string>();
+      const speakerTalks = db.prepare(`
+        SELECT s.handle, t.rkey, t.title FROM speakers s
+        JOIN talk_speakers ts ON ts.speaker_uri = s.uri
+        JOIN talks t ON t.uri = ts.talk_uri
+        WHERE s.handle IS NOT NULL AND t.starts_at IS NOT NULL
+      `).all() as any[];
+      for (const st of speakerTalks) {
+        if (!talksByHandle.has(st.handle)) talksByHandle.set(st.handle, st.rkey);
+      }
+      projects = projects.map((p: any) => ({
+        ...p,
+        talkRkey: p.handle ? talksByHandle.get(p.handle) || null : null,
+      }));
+    } catch {}
+
     // Posts: content_type = 'post' or NULL, top-level only, sorted by likes DESC
     const posts = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
@@ -410,6 +432,7 @@ export function createRoutes(db: Database.Database): Hono {
       blogs: filteredBlogs,
       videos: filteredVideos,
       photos: filteredPhotos,
+      projects,
       vodSites,
       stats: {
         totalPosts: statsRow?.totalPosts || 0,

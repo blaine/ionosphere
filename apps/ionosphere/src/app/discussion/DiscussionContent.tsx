@@ -62,10 +62,19 @@ interface Stats {
   uniqueAuthors: number;
 }
 
+interface Project {
+  name: string;
+  url: string | null;
+  handle: string | null;
+  description: string;
+  talkRkey: string | null;
+}
+
 interface DiscussionData {
   posts: DiscussionItem[];
   blogs: DiscussionItem[];
   videos: DiscussionItem[];
+  projects: Project[];
   vodSites: string[];
   stats: Stats;
 }
@@ -74,9 +83,10 @@ type FlowItem =
   | { type: "heading"; label: string }
   | { type: "item"; item: DiscussionItem }
   | { type: "stats"; stats: Stats }
-  | { type: "vodDirectory"; sites: string[] };
+  | { type: "vodDirectory"; sites: string[] }
+  | { type: "projectDirectory"; projects: Project[] };
 
-type FilterKey = "all" | "posts" | "blogs" | "videos" | "photos";
+type FilterKey = "all" | "posts" | "blogs" | "photos" | "projects" | "videos";
 
 // --- Height estimation ---
 
@@ -84,6 +94,7 @@ function estimateItemHeight(item: FlowItem, columnWidth?: number): number {
   if (item.type === "stats") return 76;
   if (item.type === "heading") return 32;
   if (item.type === "vodDirectory") return 86;
+  if (item.type === "projectDirectory") return Math.ceil((item.projects.length / 3) * 24) + 30;
   if (item.type === "item" && item.item.image_url) {
     const imgWidth = (columnWidth || 240) - 18; // 18px left padding
     const aspect = item.item.image_aspect || 1.33; // default 4:3
@@ -169,12 +180,14 @@ const SECTION_NAV: Record<FilterKey, { key: string; label: string }[]> = {
   all: [
     { key: "Top Posts", label: "T" },
     { key: "Recaps & Blog Posts", label: "R" },
+    { key: "Projects", label: "J" },
     { key: "Photos", label: "P" },
     { key: "Videos & VOD Sites", label: "V" },
     { key: "More Posts", label: "+" },
   ],
   posts: [{ key: "Top Posts", label: "T" }],
   blogs: [{ key: "Recaps & Blog Posts", label: "R" }],
+  projects: [{ key: "Projects", label: "J" }],
   photos: [{ key: "Photos", label: "P" }],
   videos: [{ key: "Videos & VOD Sites", label: "V" }],
 };
@@ -235,7 +248,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     // Stats card at the beginning
     items.push({ type: "stats", stats: data.stats });
 
-    const TOP_POSTS_COUNT = 30;
+    const TOP_POSTS_COUNT = 20;
 
     if (filter === "all" || filter === "posts") {
       if (data.posts.length > 0) {
@@ -253,6 +266,13 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         for (const blog of data.blogs) {
           items.push({ type: "item", item: blog });
         }
+      }
+    }
+
+    if (filter === "all" || filter === "projects") {
+      if (data.projects?.length > 0) {
+        items.push({ type: "heading", label: "Projects" });
+        items.push({ type: "projectDirectory", projects: data.projects });
       }
     }
 
@@ -445,10 +465,41 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       return (
         <div key="vod-dir" className="mb-2 flex flex-wrap gap-1.5" style={style}>
           {item.sites.map((site) => (
-            <span key={site} className="text-[10px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400">
+            <a key={site} href={`https://${site}`} target="_blank" rel="noopener"
+              className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 hover:bg-purple-500/20">
               {site}
-            </span>
+            </a>
           ))}
+        </div>
+      );
+    }
+
+    if (item.type === "projectDirectory") {
+      return (
+        <div key="project-dir" className="mb-2" style={style}>
+          <div className="flex flex-wrap gap-1.5">
+            {item.projects.map((proj) => (
+              <span key={proj.name} className="inline-flex items-center gap-1">
+                {proj.url ? (
+                  <a href={proj.url} target="_blank" rel="noopener"
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                    title={proj.description}>
+                    {proj.name}
+                  </a>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-400"
+                    title={proj.description}>
+                    {proj.name}
+                  </span>
+                )}
+                {proj.talkRkey && (
+                  <button onClick={() => handleSelect(proj.talkRkey!)}
+                    className="text-[9px] text-neutral-600 hover:text-neutral-300"
+                    title="Watch talk">&#9654;</button>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
       );
     }
@@ -529,6 +580,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
             { key: "all" as FilterKey, label: "All" },
             { key: "posts" as FilterKey, label: "Top Posts" },
             { key: "blogs" as FilterKey, label: "Recaps & Blog Posts" },
+            { key: "projects" as FilterKey, label: "Projects" },
             { key: "photos" as FilterKey, label: "Photos" },
             { key: "videos" as FilterKey, label: "Videos & VOD Sites" },
           ]).map((f) => (
