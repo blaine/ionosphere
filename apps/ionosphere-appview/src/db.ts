@@ -236,6 +236,12 @@ export function migrate(db: Database.Database): void {
   try { db.exec("ALTER TABLE stream_transcripts ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
   try { db.exec("ALTER TABLE stream_diarizations ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
 
+  // Mentions table extensions for discussion page
+  try { db.exec("ALTER TABLE mentions ADD COLUMN content_type TEXT DEFAULT 'post'"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN external_url TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN og_title TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN talk_rkey TEXT"); } catch {}
+
   db.exec(`
     -- Jetstream cursor for resumable indexing
     CREATE TABLE IF NOT EXISTS _cursor (
