@@ -123,24 +123,46 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
     return () => { if (hls) hls.destroy(); };
   }, [playlistUrl, offsetS]);
 
-  // Broadcast current time and play/pause state
+  // Broadcast current time at 60fps via RAF (instead of ~4Hz timeupdate).
+  // This eliminates up to 250ms of stale time data and makes the
+  // transcript highlight track the audio much more tightly.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const onTime = () => {
+    let rafId = 0;
+    let isPlaying = false;
+
+    const pollTime = () => {
+      setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
+      if (isPlaying) rafId = requestAnimationFrame(pollTime);
+    };
+
+    const onPlay = () => {
+      isPlaying = true;
+      setPaused(false);
+      rafId = requestAnimationFrame(pollTime);
+    };
+    const onPause = () => {
+      isPlaying = false;
+      setPaused(true);
+      cancelAnimationFrame(rafId);
+      // One final update to capture exact pause position
       setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
     };
-    const onPlay = () => setPaused(false);
-    const onPause = () => setPaused(true);
+    // Also update on seek (click-to-seek while paused)
+    const onSeeked = () => {
+      setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
+    };
 
-    video.addEventListener("timeupdate", onTime);
     video.addEventListener("play", onPlay);
     video.addEventListener("pause", onPause);
+    video.addEventListener("seeked", onSeeked);
     return () => {
-      video.removeEventListener("timeupdate", onTime);
+      cancelAnimationFrame(rafId);
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
+      video.removeEventListener("seeked", onSeeked);
     };
   }, [setCurrentTimeNs, setPaused, offsetS]);
 
