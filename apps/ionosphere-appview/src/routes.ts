@@ -322,7 +322,7 @@ export function createRoutes(db: Database.Database): Hono {
     // Posts: content_type = 'post' or NULL, top-level only, sorted by likes DESC
     const posts = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -337,7 +337,7 @@ export function createRoutes(db: Database.Database): Hono {
     // Blogs: content_type = 'blog', top-level only
     const blogs = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -351,7 +351,7 @@ export function createRoutes(db: Database.Database): Hono {
     // Videos: content_type = 'video', top-level only
     const videos = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,
@@ -365,7 +365,7 @@ export function createRoutes(db: Database.Database): Hono {
     // Photos: posts with images
     const photos = db.prepare(
       `SELECT m.uri, m.author_did, m.text, m.created_at, m.likes, m.reposts, m.replies,
-              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type,
+              m.content_type, m.external_url, m.og_title, m.talk_rkey, m.mention_type, m.image_url,
               COALESCE(p.handle, m.author_handle) as author_handle,
               p.display_name as author_display_name,
               p.avatar_url as author_avatar_url,

@@ -49,6 +49,7 @@ interface DiscussionItem {
   author_display_name: string | null;
   author_avatar_url: string | null;
   talk_title: string | null;
+  image_url: string | null;
 }
 
 interface Stats {
@@ -82,7 +83,8 @@ function estimateItemHeight(item: FlowItem): number {
   if (item.type === "stats") return 70;
   if (item.type === "heading") return 28;
   if (item.type === "vodDirectory") return 80;
-  // item
+  // item — photos are taller due to thumbnail
+  if (item.type === "item" && item.item.image_url) return 150;
   return 58;
 }
 
@@ -341,7 +343,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     if (numCols <= 1) return;
     const el = containerRef.current;
     if (!el) return;
-    const THRESHOLD = 200;
+    const THRESHOLD = 160;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       wheelAccum.current += e.deltaY;
@@ -442,6 +444,11 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
           <span className="text-blue-400 text-[11px] truncate">{di.author_handle}</span>
           <span className="text-neutral-600 text-[10px] ml-auto shrink-0">{di.likes || 0}&#9825;</span>
         </div>
+        {di.image_url && (
+          <div className="pl-[18px] mt-1 mb-1">
+            <img src={di.image_url} alt="" className="rounded w-full max-h-24 object-cover" loading="lazy" />
+          </div>
+        )}
         <div className="text-neutral-400 pl-[18px] line-clamp-2 -mt-px">
           {di.og_title || di.text}
         </div>
