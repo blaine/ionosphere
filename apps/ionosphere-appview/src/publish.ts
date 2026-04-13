@@ -12,6 +12,7 @@ import { openDb } from "./db.js";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { encode, decodeToDocumentWithStructure, type NlpAnnotations } from "@ionosphere/format/transcript-encoding";
+import { transcriptToLayersPub, nlpToAnnotationLayers } from "@ionosphere/format/layers-pub";
 
 const PDS_URL = process.env.PDS_URL ?? "http://localhost:2690";
 const BOT_HANDLE = process.env.BOT_HANDLE ?? "ionosphere.test";
@@ -26,7 +27,7 @@ async function main() {
   // 0. Publish lens records
   console.log("Publishing lens records...");
   const lensDir = path.resolve(import.meta.dirname, "../../../formats/tv.ionosphere/lenses");
-  for (const file of ["schedule-to-talk.lens.json", "vod-to-talk.lens.json", "openai-whisper-to-transcript.lens.json", "transcript-to-document.lens.json"]) {
+  for (const file of ["schedule-to-talk.lens.json", "vod-to-talk.lens.json", "openai-whisper-to-transcript.lens.json", "transcript-to-document.lens.json", "transcript-to-expression.lens.json", "nlp-to-annotation-layers.lens.json", "layers-to-document.lens.json"]) {
     const lensPath = path.join(lensDir, file);
     if (!existsSync(lensPath)) continue;
     const spec = JSON.parse(readFileSync(lensPath, "utf-8"));
@@ -167,6 +168,45 @@ async function main() {
     transcriptCount++;
   }
   console.log(`\nPublished ${transcriptCount} transcripts.`);
+
+  // 5. Publish layers.pub records
+  console.log("\n=== Stage 6: layers.pub records ===");
+  let layersCount = 0;
+
+  for (const talk of talks) {
+    const transcriptPath = path.join(transcriptsDir, `${talk.rkey}.json`);
+    const nlpPath = path.join(nlpDir, `${talk.rkey}.json`);
+    if (!existsSync(transcriptPath) || !existsSync(nlpPath)) continue;
+
+    const transcriptData = JSON.parse(readFileSync(transcriptPath, "utf-8"));
+    const nlpData = JSON.parse(readFileSync(nlpPath, "utf-8"));
+    const compact = encode(transcriptData);
+
+    const transcriptRecord = {
+      $type: "tv.ionosphere.transcript" as const,
+      text: compact.text,
+      startMs: compact.startMs,
+      timings: compact.timings,
+      talkUri: `at://${did}/tv.ionosphere.talk/${talk.rkey}`,
+    };
+
+    const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
+    const expressionUri = `at://${did}/pub.layers.expression.expression/${talk.rkey}-expression`;
+    const layers = await nlpToAnnotationLayers(nlpData, did, talk.rkey, expressionUri);
+
+    await Promise.all([
+      pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
+      pds.putRecord("pub.layers.segmentation.segmentation", `${talk.rkey}-segmentation`, segmentation),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
+      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
+    ]);
+
+    console.log(`  layers.pub: ${talk.rkey} (6 records)`);
+    layersCount++;
+  }
+  console.log(`Published layers.pub records for ${layersCount} talks.`);
 
   console.log(`\nAll records published to ${PDS_URL}`);
   console.log(`DID: ${did}`);

@@ -8,7 +8,8 @@
     "./assemble": "./ts/assemble.ts",
     "./lenses": "./ts/lenses.ts",
     "./panproto": "./ts/panproto.ts",
-    "./transcript-encoding": "./ts/transcript-encoding.ts"
+    "./transcript-encoding": "./ts/transcript-encoding.ts",
+    "./layers-pub": "./ts/layers-pub.ts"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",

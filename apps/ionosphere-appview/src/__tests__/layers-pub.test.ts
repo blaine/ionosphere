@@ -122,3 +122,55 @@ describe('Lens 2: NLP annotations → annotation layers', () => {
     expect(topics.annotations[0].anchor.textSpan).toEqual({ byteStart: 12, byteEnd: 12 });
   });
 });
+
+describe('Stage 6 integration: full record production', () => {
+  it('produces 6 records for a talk with transcript + NLP data', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const transcriptsDir = path.resolve(import.meta.dirname, '../../../data/transcripts');
+    const nlpDir = path.resolve(import.meta.dirname, '../../../../pipeline/data/nlp');
+
+    const rkey = 'ats26-keynote';
+    const transcriptPath = path.join(transcriptsDir, `${rkey}.json`);
+    const nlpPath = path.join(nlpDir, `${rkey}.json`);
+
+    // Skip if fixtures not available
+    if (!fs.existsSync(transcriptPath) || !fs.existsSync(nlpPath)) {
+      console.log('Skipping: fixture data not available');
+      return;
+    }
+
+    const { encode } = await import('../../../../formats/tv.ionosphere/ts/transcript-encoding.js');
+
+    const transcriptData = JSON.parse(fs.readFileSync(transcriptPath, 'utf-8'));
+    const nlpData = JSON.parse(fs.readFileSync(nlpPath, 'utf-8'));
+    const compact = encode(transcriptData);
+
+    const did = 'did:plc:test';
+    const transcriptRecord = {
+      $type: 'tv.ionosphere.transcript' as const,
+      text: compact.text,
+      startMs: compact.startMs,
+      timings: compact.timings,
+      talkUri: `at://${did}/tv.ionosphere.talk/${rkey}`,
+    };
+
+    const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, rkey);
+    const expressionUri = `at://${did}/pub.layers.expression.expression/${rkey}-expression`;
+    const layers = await nlpToAnnotationLayers(nlpData, did, rkey, expressionUri);
+
+    // Verify all 6 records have correct $type
+    expect(expression.$type).toBe('pub.layers.expression.expression');
+    expect(segmentation.$type).toBe('pub.layers.segmentation.segmentation');
+    expect(layers.sentences.$type).toBe('pub.layers.annotation.annotationLayer');
+    expect(layers.paragraphs.$type).toBe('pub.layers.annotation.annotationLayer');
+    expect(layers.entities.$type).toBe('pub.layers.annotation.annotationLayer');
+    expect(layers.topics.$type).toBe('pub.layers.annotation.annotationLayer');
+
+    // Verify real data produces non-trivial results
+    expect(segmentation.tokenizations[0].tokens.length).toBeGreaterThan(100);
+    expect(layers.sentences.annotations.length).toBeGreaterThan(10);
+    expect(layers.entities.annotations.length).toBeGreaterThan(10);
+  });
+});
