@@ -234,23 +234,23 @@
     "talkRkey": "aQ1J9GE",
     "talkTitle": "2026 Atmosphere Report",
     "speakers": "Jay Graber, Paul Frazee",
-    "label": "Attie announcement",
+    "label": "People, not platforms!",
     "videoUri": "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3mi5nh7yjb326",
     "videoOffsetNs": 2281690000000,
-    "clipStartMs": 2030000,
-    "clipEndMs": 2075000,
+    "clipStartMs": 1010000,
+    "clipEndMs": 1055000,
     "clipDurationMs": 45000,
-    "peakOffsetMs": 2040000,
-    "score": 212,
+    "peakOffsetMs": 1020000,
+    "score": 177,
     "topMention": {
-      "text": "At ATmosphereCon @jay.bsky.team and @pfrazee.com  just announced a new app called Attie, an agentic social feed builder that will automatically build a feed for you on ATProto with natural language.",
-      "authorHandle": "davidimel.com",
-      "authorDisplayName": "David Imel",
-      "authorAvatarUrl": "https://cdn.bsky.app/img/avatar/plain/did:plc:x2mif4n7lxhw43bzs7j6db2t/bafkreigd3dzay3pwyzscgqx66dsb4zi4bfbwy67oyhtknywjgi6pxv3rgm",
-      "likes": 212
+      "text": "Hey guys, I think this @pfrazee.com guy gets it!\n\nNo, seriously, made my day 🙇🏻‍♂️ \n\nSay it louder for the people in the back: People, not platforms!",
+      "authorHandle": "quillmatiq.com",
+      "authorDisplayName": "Anuj Ahooja",
+      "authorAvatarUrl": "https://cdn.bsky.app/img/avatar/plain/did:plc:xgvzy7ni6ig6ievcbls5jaxe/bafkreiaumjzoigdvnldguuxu3ytpzwglqgy3dckzg5cxwqcp5yjychrf4e",
+      "likes": 177
     },
     "mentionCount": 135,
-    "transcriptSnippet": "this. This is Jeremy Haley, Jim Calabro, and Jay for being a part of making Addy V1 possible for this conference. So. This is online"
+    "transcriptSnippet": "you to this community for helping to make that happen, for showing up and helping to explain to the IETF why this is something that"
   },
   {
     "rank": 12,
@@ -280,13 +280,13 @@
     "talkRkey": "gDPMMa1",
     "talkTitle": "One Year of Graze - lessons learned funding, building, and growing in the atmosphere",
     "speakers": "Devin Gaffney",
-    "label": "reality of building",
+    "label": "an incredible talk",
     "videoUri": "at://did:plc:rbvrr34edl5ddpuwcubjiost/place.stream.video/3mi7ofq7ob72a",
     "videoOffsetNs": 0,
-    "clipStartMs": 867749,
-    "clipEndMs": 912749,
+    "clipStartMs": 830000,
+    "clipEndMs": 875000,
     "clipDurationMs": 45000,
-    "peakOffsetMs": 877749,
+    "peakOffsetMs": 840000,
     "score": 105,
     "topMention": {
       "text": "Damn. @devingaffney.com just gave an incredible talk at the Atmosphere Conference. If you missed it watch the video.",
@@ -296,7 +296,7 @@
       "likes": 105
     },
     "mentionCount": 14,
-    "transcriptSnippet": "York, but he's a total weirdo and he builds like feeds with poorly cropped images, that sort of stuff. That's hurtful for my sponsor posts"
+    "transcriptSnippet": "of these people. They're amazing people. They are part of this, you know, editor class of the internet. They built a feed collectively last summer"
   },
   {
     "rank": 14,
