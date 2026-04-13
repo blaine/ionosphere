@@ -1,0 +1,10 @@
+{
+  "source": "tv.ionosphere.transcript",
+  "target": ["pub.layers.expression.expression", "pub.layers.segmentation.segmentation"],
+  "version": 1,
+  "description": "Compact transcript to layers.pub expression + segmentation",
+  "mappings": {
+    "text": "expression.text",
+    "startMs + timings": "segmentation.tokenizations[0].tokens"
+  }
+}
