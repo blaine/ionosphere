@@ -354,18 +354,22 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Track startIndex from scroll position for section nav highlighting
+  // Track startIndex from scroll position for section nav highlighting (debounced to avoid re-renders during scroll)
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollDebounce = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el || numCols <= 1) return;
     const onScroll = () => {
-      const colIdx = Math.round(el.scrollLeft / scrollColWidth);
-      const itemIdx = allCols.slice(0, colIdx).reduce((sum, c) => c.endIndex, 0);
-      setStartIndex(itemIdx);
+      clearTimeout(scrollDebounce.current);
+      scrollDebounce.current = setTimeout(() => {
+        const colIdx = Math.round(el.scrollLeft / scrollColWidth);
+        const itemIdx = allCols.slice(0, colIdx).reduce((sum, c) => c.endIndex, 0);
+        setStartIndex(itemIdx);
+      }, 200);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    return () => { el.removeEventListener("scroll", onScroll); clearTimeout(scrollDebounce.current); };
   }, [numCols, scrollColWidth, allCols]);
 
   // Wheel → horizontal scroll
