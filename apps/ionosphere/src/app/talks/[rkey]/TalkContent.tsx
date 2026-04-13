@@ -11,6 +11,7 @@ interface TalkContentProps {
   talk: any;
   speakers: any[];
   concepts: any[];
+  mentions: any[];
 }
 
 interface VideoSource {
@@ -21,7 +22,7 @@ interface VideoSource {
   confidence?: string;
 }
 
-export default function TalkContent({ talk, speakers, concepts }: TalkContentProps) {
+export default function TalkContent({ talk, speakers, concepts, mentions }: TalkContentProps) {
   const [comments, setComments] = useState<CommentData[]>([]);
 
   // Parse video sources

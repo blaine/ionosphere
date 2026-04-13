@@ -30,6 +30,10 @@ export async function getConcept(rkey: string) {
   return fetchApi<{ concept: any; talks: any[] }>(`/xrpc/tv.ionosphere.getConcept?rkey=${encodeURIComponent(rkey)}`);
 }
 
+export async function getMentions(talkRkey: string) {
+  return fetchApi<{ mentions: any[]; total: number }>(`/xrpc/tv.ionosphere.getMentions?talkRkey=${encodeURIComponent(talkRkey)}`);
+}
+
 export async function getIndex() {
   return fetchApi<{ entries: any[] }>("/xrpc/tv.ionosphere.getConcordance");
 }
