@@ -153,3 +153,139 @@ export async function transcriptToLayersPub(
 
   return { expression, segmentation };
 }
+
+/**
+ * Lens 2: Transform NLP annotations into 4 pub.layers annotation layer records.
+ *
+ * Produces:
+ *   - sentences layer (sentence-boundary spans)
+ *   - paragraphs layer (paragraph-boundary spans)
+ *   - entities layer (NER spans with featureMap)
+ *   - topics layer (topic-segment zero-width spans)
+ */
+
+export interface NlpAnnotations {
+  talkRkey: string;
+  sentences: Array<{ byteStart: number; byteEnd: number }>;
+  paragraphs: Array<{ byteStart: number; byteEnd: number }>;
+  entities: Array<{
+    byteStart: number;
+    byteEnd: number;
+    label: string;
+    [key: string]: unknown;
+  }>;
+  topicBreaks: Array<{ byteStart: number }>;
+  metadata: { tool: string; [key: string]: unknown };
+}
+
+export interface Annotation {
+  anchor: { textSpan: { byteStart: number; byteEnd: number } };
+  label: string;
+  features?: { entries: Array<{ key: string; value: unknown }> };
+}
+
+export interface AnnotationLayerRecord {
+  $type: 'pub.layers.annotation.annotationLayer';
+  expression: string;
+  kind: string;
+  subkind: string;
+  sourceMethod: string;
+  metadata: { tool: string; timestamp: string };
+  annotations: Annotation[];
+  createdAt: string;
+}
+
+export interface AnnotationLayersResult {
+  sentences: AnnotationLayerRecord;
+  paragraphs: AnnotationLayerRecord;
+  entities: AnnotationLayerRecord;
+  topics: AnnotationLayerRecord;
+}
+
+export async function nlpToAnnotationLayers(
+  nlpAnnotations: NlpAnnotations,
+  did: string,
+  talkRkey: string,
+  expressionUri: string,
+): Promise<AnnotationLayersResult> {
+  const now = new Date().toISOString();
+
+  const baseMeta = {
+    tool: 'ionosphere-nlp-pipeline',
+    timestamp: now,
+  };
+
+  // Keys to exclude when forwarding entity fields to featureMap entries
+  const entityExcludeKeys = new Set(['byteStart', 'byteEnd', 'label']);
+
+  // Sentences layer
+  const sentences: AnnotationLayerRecord = {
+    $type: 'pub.layers.annotation.annotationLayer',
+    expression: expressionUri,
+    kind: 'span',
+    subkind: 'sentence-boundary',
+    sourceMethod: 'automatic',
+    metadata: { ...baseMeta },
+    annotations: nlpAnnotations.sentences.map((s) => ({
+      anchor: { textSpan: { byteStart: s.byteStart, byteEnd: s.byteEnd } },
+      label: 'sentence',
+    })),
+    createdAt: now,
+  };
+
+  // Paragraphs layer
+  const paragraphs: AnnotationLayerRecord = {
+    $type: 'pub.layers.annotation.annotationLayer',
+    expression: expressionUri,
+    kind: 'span',
+    subkind: 'paragraph-boundary',
+    sourceMethod: 'automatic',
+    metadata: { ...baseMeta },
+    annotations: nlpAnnotations.paragraphs.map((p) => ({
+      anchor: { textSpan: { byteStart: p.byteStart, byteEnd: p.byteEnd } },
+      label: 'paragraph',
+    })),
+    createdAt: now,
+  };
+
+  // Entities layer — forward all extra keys into featureMap entries
+  const entities: AnnotationLayerRecord = {
+    $type: 'pub.layers.annotation.annotationLayer',
+    expression: expressionUri,
+    kind: 'span',
+    subkind: 'ner',
+    sourceMethod: 'automatic',
+    metadata: { ...baseMeta },
+    annotations: nlpAnnotations.entities.map((e) => {
+      const entries: Array<{ key: string; value: unknown }> = [];
+      for (const [key, value] of Object.entries(e)) {
+        if (!entityExcludeKeys.has(key)) {
+          entries.push({ key, value });
+        }
+      }
+      return {
+        anchor: { textSpan: { byteStart: e.byteStart, byteEnd: e.byteEnd } },
+        label: e.label,
+        features: { entries },
+      };
+    }),
+    createdAt: now,
+  };
+
+  // Topics layer — zero-width spans (byteEnd === byteStart)
+  const topics: AnnotationLayerRecord = {
+    $type: 'pub.layers.annotation.annotationLayer',
+    expression: expressionUri,
+    kind: 'span',
+    subkind: 'topic-segment',
+    sourceMethod: 'automatic',
+    metadata: { ...baseMeta },
+    annotations: nlpAnnotations.topicBreaks.map((t) => ({
+      anchor: { textSpan: { byteStart: t.byteStart, byteEnd: t.byteStart } },
+      label: 'topic-break',
+    })),
+    createdAt: now,
+  };
+
+  return { sentences, paragraphs, entities, topics };
+}
