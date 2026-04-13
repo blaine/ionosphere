@@ -328,12 +328,33 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   // Reset on filter change
   useEffect(() => { setStartIndex(0); }, [filter]);
 
-  // Greedy-fill columns
-  const filled = useMemo(() => {
+  // Greedy-fill columns: 1 back buffer + numCols visible + 2 forward buffer
+  const BACK_BUFFER = 1;
+  const FWD_BUFFER = 2;
+  const scrollColWidth = columnWidth + 24; // column + gap
+
+  // Fill one column backwards for back-scroll buffer
+  const backBufferCol = useMemo(() => {
+    if (startIndex <= 0 || numCols <= 1 || columnHeight <= 0) return null;
+    let idx = startIndex - 1;
+    let used = 0;
+    const items: FlowItem[] = [];
+    while (idx >= 0) {
+      const h = estimateItemHeight(flowItems[idx], columnWidth);
+      if (used + h > columnHeight && items.length > 0) break;
+      items.unshift(flowItems[idx]);
+      used += h;
+      idx--;
+    }
+    return { items, endIndex: startIndex, usedHeight: used, extraSpacing: 0 } as FilledColumn;
+  }, [startIndex, numCols, columnHeight, flowItems, columnWidth]);
+
+  // Fill forward columns: numCols + FWD_BUFFER
+  const forwardCols = useMemo(() => {
     if (numCols <= 1 || columnHeight <= 0) return [];
     const cols: FilledColumn[] = [];
     let idx = startIndex;
-    for (let c = 0; c < numCols + 1; c++) {
+    for (let c = 0; c < numCols + FWD_BUFFER; c++) {
       if (idx >= flowItems.length) {
         cols.push({ items: [], endIndex: idx, usedHeight: 0, extraSpacing: 0 });
       } else {
@@ -345,7 +366,18 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return cols;
   }, [startIndex, numCols, columnHeight, flowItems]);
 
-  const visibleFilled = filled.slice(0, numCols);
+  // All rendered columns: [backBuffer?, ...forwardCols]
+  const allCols = useMemo(() => {
+    const cols: FilledColumn[] = [];
+    if (backBufferCol) cols.push(backBufferCol);
+    cols.push(...forwardCols);
+    return cols;
+  }, [backBufferCol, forwardCols]);
+
+  // The back buffer shifts everything right by one column
+  const backBufferOffset = backBufferCol ? scrollColWidth : 0;
+
+  const visibleFilled = forwardCols.slice(0, numCols);
 
   // Current section for nav highlighting
   const currentSection = useMemo(() => {
@@ -356,85 +388,101 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Scroll animation — real side-scroll with buffer columns
-  const [scrollOffset, setScrollOffset] = useState(0); // px offset for animation
-  const animating = useRef(false);
-  const scrollColWidth = columnWidth + 24; // column + gap
+  // Continuous scroll: pixel offset driven by wheel, snaps to column boundaries
+  const pixelOffset = useRef(0);
+  const [renderOffset, setRenderOffset] = useState(0);
+  const snapTimer = useRef<ReturnType<typeof setTimeout>>();
+  const rafId = useRef<number>();
 
-  // For forward scroll, also fill one buffer column BEFORE for back-scroll
-  const backBuffer = useMemo(() => {
-    if (startIndex <= 0 || numCols <= 1 || columnHeight <= 0) return null;
-    // Fill one column backwards from startIndex
-    let idx = startIndex - 1;
-    let used = 0;
-    const items: FlowItem[] = [];
-    while (idx >= 0) {
-      const h = estimateItemHeight(flowItems[idx], columnWidth);
-      if (used + h > columnHeight && items.length > 0) break;
-      items.unshift(flowItems[idx]);
-      used += h;
-      idx--;
-    }
-    return { items, startIndex: idx + 1, usedHeight: used, endIndex: startIndex, extraSpacing: 0 } as FilledColumn;
-  }, [startIndex, numCols, columnHeight, flowItems, columnWidth]);
-
-  const canScrollForward = filled.length > 0 && filled[filled.length - 1].endIndex < flowItems.length;
+  const canScrollForward = forwardCols.length > numCols && forwardCols[numCols]?.items.length > 0;
   const canScrollBack = startIndex > 0;
 
-  const scrollForward = useCallback(() => {
-    if (animating.current) return;
-    if (visibleFilled.length > 0 && visibleFilled[0].endIndex < flowItems.length) {
-      animating.current = true;
-      setScrollOffset(-scrollColWidth);
-      setTimeout(() => {
-        setStartIndex(visibleFilled[0].endIndex);
-        setScrollOffset(0);
-        animating.current = false;
-      }, 300);
+  // Snap to nearest column boundary when scrolling stops
+  const snapToColumn = useCallback(() => {
+    const offset = pixelOffset.current;
+    if (Math.abs(offset) < 10) {
+      // Close enough, just reset
+      pixelOffset.current = 0;
+      setRenderOffset(0);
+      return;
     }
-  }, [visibleFilled, flowItems.length, scrollColWidth]);
 
-  const scrollBack = useCallback(() => {
-    if (animating.current) return;
-    if (startIndex <= 0 || !backBuffer) return;
-    animating.current = true;
-    // Start offset at -1 column (showing back buffer off-screen left), then animate to 0
-    setStartIndex(backBuffer.startIndex);
-    // Immediately position showing the old view, then animate to reveal the new column
-    requestAnimationFrame(() => {
-      setScrollOffset(scrollColWidth);
-      requestAnimationFrame(() => {
-        setScrollOffset(0);
-        setTimeout(() => { animating.current = false; }, 300);
-      });
-    });
-  }, [startIndex, backBuffer, scrollColWidth]);
+    if (offset < -scrollColWidth * 0.3 && canScrollForward) {
+      // Crossed threshold forward — advance
+      pixelOffset.current = 0;
+      setRenderOffset(0);
+      if (visibleFilled.length > 0) {
+        setStartIndex(visibleFilled[0].endIndex);
+      }
+    } else if (offset > scrollColWidth * 0.3 && canScrollBack) {
+      // Crossed threshold backward — go back
+      pixelOffset.current = 0;
+      setRenderOffset(0);
+      // Compute back index
+      let idx = startIndex - 1;
+      let used = 0;
+      while (idx >= 0) {
+        const h = estimateItemHeight(flowItems[idx], columnWidth);
+        if (used + h > columnHeight && used > 0) break;
+        used += h;
+        idx--;
+      }
+      setStartIndex(Math.max(0, idx + 1));
+    } else {
+      // Didn't cross threshold — spring back
+      pixelOffset.current = 0;
+      setRenderOffset(0);
+    }
+  }, [scrollColWidth, canScrollForward, canScrollBack, visibleFilled, startIndex, flowItems, columnWidth, columnHeight]);
 
-  // Wheel handler
-  // Debounced wheel scroll — accumulate deltaY, advance when threshold reached
-  const wheelAccum = useRef(0);
-  const wheelTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Wheel handler — drives pixel offset directly
   useEffect(() => {
     if (numCols <= 1) return;
     const el = containerRef.current;
     if (!el) return;
-    const THRESHOLD = 160;
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      wheelAccum.current += e.deltaY;
-      clearTimeout(wheelTimer.current);
-      wheelTimer.current = setTimeout(() => { wheelAccum.current = 0; }, 150);
-      if (wheelAccum.current > THRESHOLD) {
-        scrollForward();
-        wheelAccum.current = 0;
-      } else if (wheelAccum.current < -THRESHOLD) {
-        scrollBack();
-        wheelAccum.current = 0;
+      const delta = e.deltaY * 0.5; // dampen
+      const newOffset = pixelOffset.current - delta;
+
+      // Clamp: don't scroll past 1.2 columns in either direction
+      const maxFwd = canScrollForward ? scrollColWidth * 1.2 : 0;
+      const maxBack = canScrollBack ? scrollColWidth * 1.2 : 0;
+      pixelOffset.current = Math.max(-maxFwd, Math.min(maxBack, newOffset));
+
+      // If we've scrolled a full column, snap immediately
+      if (pixelOffset.current <= -scrollColWidth && canScrollForward) {
+        pixelOffset.current = 0;
+        if (visibleFilled.length > 0) {
+          setStartIndex(prev => {
+            const next = visibleFilled[0].endIndex;
+            return next < flowItems.length ? next : prev;
+          });
+        }
+      } else if (pixelOffset.current >= scrollColWidth && canScrollBack) {
+        pixelOffset.current = 0;
+        let idx = startIndex - 1;
+        let used = 0;
+        while (idx >= 0) {
+          const h = estimateItemHeight(flowItems[idx], columnWidth);
+          if (used + h > columnHeight && used > 0) break;
+          used += h;
+          idx--;
+        }
+        setStartIndex(Math.max(0, idx + 1));
       }
+
+      setRenderOffset(pixelOffset.current);
+
+      // Snap when scrolling stops
+      clearTimeout(snapTimer.current);
+      snapTimer.current = setTimeout(snapToColumn, 150);
     };
+
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [numCols, scrollForward, scrollBack]);
+  }, [numCols, scrollColWidth, canScrollForward, canScrollBack, visibleFilled, startIndex, flowItems, columnWidth, columnHeight, snapToColumn]);
 
   const handleSelect = useCallback(
     async (rkey: string) => {
@@ -463,7 +511,11 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
       if (el) el.scrollIntoView({ behavior: "instant", block: "start" });
     } else {
       const idx = sectionToIndex.get(sectionLabel);
-      if (idx !== undefined) setStartIndex(idx);
+      if (idx !== undefined) {
+        pixelOffset.current = 0;
+        setRenderOffset(0);
+        setStartIndex(idx);
+      }
     }
   }, [sectionToIndex, numCols]);
 
@@ -630,12 +682,12 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
               ref={columnsRef}
               className="flex gap-6 h-full"
               style={{
-                transition: scrollOffset !== 0 ? "transform 300ms ease-out" : undefined,
-                transform: scrollOffset ? `translateX(${scrollOffset}px)` : undefined,
-                width: `${(numCols + 1) * scrollColWidth}px`,
+                transform: `translateX(${renderOffset - backBufferOffset}px)`,
+                transition: pixelOffset.current === 0 && renderOffset === 0 ? "transform 200ms ease-out" : undefined,
+                width: `${allCols.length * scrollColWidth}px`,
               }}
             >
-              {filled.map((col, colIdx) => (
+              {allCols.map((col, colIdx) => (
                 <div key={`${startIndex}-${colIdx}`} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
                   {col.items.map((item) => renderItem(item, col.extraSpacing))}
                 </div>
