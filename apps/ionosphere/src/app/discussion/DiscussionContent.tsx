@@ -356,9 +356,27 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Scroll animation
-  const [scrollDir, setScrollDir] = useState<"none" | "forward" | "back">("none");
+  // Scroll animation — real side-scroll with buffer columns
+  const [scrollOffset, setScrollOffset] = useState(0); // px offset for animation
   const animating = useRef(false);
+  const scrollColWidth = columnWidth + 24; // column + gap
+
+  // For forward scroll, also fill one buffer column BEFORE for back-scroll
+  const backBuffer = useMemo(() => {
+    if (startIndex <= 0 || numCols <= 1 || columnHeight <= 0) return null;
+    // Fill one column backwards from startIndex
+    let idx = startIndex - 1;
+    let used = 0;
+    const items: FlowItem[] = [];
+    while (idx >= 0) {
+      const h = estimateItemHeight(flowItems[idx], columnWidth);
+      if (used + h > columnHeight && items.length > 0) break;
+      items.unshift(flowItems[idx]);
+      used += h;
+      idx--;
+    }
+    return { items, startIndex: idx + 1, usedHeight: used, endIndex: startIndex, extraSpacing: 0 } as FilledColumn;
+  }, [startIndex, numCols, columnHeight, flowItems, columnWidth]);
 
   const canScrollForward = filled.length > 0 && filled[filled.length - 1].endIndex < flowItems.length;
   const canScrollBack = startIndex > 0;
@@ -367,34 +385,30 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     if (animating.current) return;
     if (visibleFilled.length > 0 && visibleFilled[0].endIndex < flowItems.length) {
       animating.current = true;
-      setScrollDir("forward");
+      setScrollOffset(-scrollColWidth);
       setTimeout(() => {
         setStartIndex(visibleFilled[0].endIndex);
-        setScrollDir("none");
+        setScrollOffset(0);
         animating.current = false;
-      }, 250);
+      }, 300);
     }
-  }, [visibleFilled, flowItems.length]);
+  }, [visibleFilled, flowItems.length, scrollColWidth]);
 
   const scrollBack = useCallback(() => {
     if (animating.current) return;
-    if (startIndex <= 0) return;
-    let idx = startIndex - 1;
-    let used = 0;
-    while (idx >= 0) {
-      const h = estimateItemHeight(flowItems[idx], columnWidth);
-      if (used + h > columnHeight && used > 0) break;
-      used += h;
-      idx--;
-    }
+    if (startIndex <= 0 || !backBuffer) return;
     animating.current = true;
-    setScrollDir("back");
-    setTimeout(() => {
-      setStartIndex(Math.max(0, idx + 1));
-      setScrollDir("none");
-      animating.current = false;
-    }, 250);
-  }, [startIndex, flowItems, columnHeight]);
+    // Start offset at -1 column (showing back buffer off-screen left), then animate to 0
+    setStartIndex(backBuffer.startIndex);
+    // Immediately position showing the old view, then animate to reveal the new column
+    requestAnimationFrame(() => {
+      setScrollOffset(scrollColWidth);
+      requestAnimationFrame(() => {
+        setScrollOffset(0);
+        setTimeout(() => { animating.current = false; }, 300);
+      });
+    });
+  }, [startIndex, backBuffer, scrollColWidth]);
 
   // Wheel handler
   // Debounced wheel scroll — accumulate deltaY, advance when threshold reached
@@ -611,20 +625,22 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         {numCols <= 1 ? (
           <MobileDiscussion ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
         ) : (
-          <div
-            ref={columnsRef}
-            className="flex gap-6 flex-1 min-h-0"
-            style={{
-              transition: scrollDir !== "none" ? "transform 250ms ease-out, opacity 200ms ease-out" : undefined,
-              transform: scrollDir === "forward" ? "translateX(-40px)" : scrollDir === "back" ? "translateX(40px)" : undefined,
-              opacity: scrollDir !== "none" ? 0.3 : 1,
-            }}
-          >
-            {visibleFilled.map((col, colIdx) => (
-              <div key={`${startIndex}-${colIdx}`} className="min-w-0 flex-1 overflow-hidden">
-                {col.items.map((item) => renderItem(item, col.extraSpacing))}
-              </div>
-            ))}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <div
+              ref={columnsRef}
+              className="flex gap-6 h-full"
+              style={{
+                transition: scrollOffset !== 0 ? "transform 300ms ease-out" : undefined,
+                transform: scrollOffset ? `translateX(${scrollOffset}px)` : undefined,
+                width: `${(numCols + 1) * scrollColWidth}px`,
+              }}
+            >
+              {filled.map((col, colIdx) => (
+                <div key={`${startIndex}-${colIdx}`} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
+                  {col.items.map((item) => renderItem(item, col.extraSpacing))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
