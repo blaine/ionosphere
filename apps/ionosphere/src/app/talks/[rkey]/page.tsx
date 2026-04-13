@@ -33,10 +33,10 @@ export async function generateMetadata({ params }: { params: Promise<{ rkey: str
 
 export default async function TalkPage({ params }: { params: Promise<{ rkey: string }> }) {
   const { rkey } = await params;
-  const [{ talk, speakers, concepts }, { mentions }] = await Promise.all([
+  const [{ talk, speakers, concepts }, mentionsData] = await Promise.all([
     getTalk(rkey),
-    getMentions(rkey),
+    getMentions(rkey).catch(() => ({ mentions: [], total: 0 })),
   ]);
 
-  return <TalkContent talk={talk} speakers={speakers} concepts={concepts} mentions={mentions} />;
+  return <TalkContent talk={talk} speakers={speakers} concepts={concepts} mentions={mentionsData.mentions} />;
 }
