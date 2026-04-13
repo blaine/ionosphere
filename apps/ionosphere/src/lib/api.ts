@@ -47,8 +47,10 @@ export async function getDiscussion() {
     posts: any[];
     blogs: any[];
     videos: any[];
+    photos: any[];
+    projects: any[];
     vodSites: string[];
-    stats: { totalPosts: number; blogCount: number; vodSiteCount: number; uniqueAuthors: number };
+    stats: { totalPosts: number; blogCount: number; videoCount: number; photoCount: number; vodSiteCount: number; uniqueAuthors: number };
   }>("/xrpc/tv.ionosphere.getDiscussion");
 }
 
