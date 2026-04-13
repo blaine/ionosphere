@@ -377,8 +377,8 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
 
     let velocity = 0;
     let raf = 0;
-    const FRICTION = 0.92;
-    const MIN_VELOCITY = 0.5;
+    const FRICTION = 0.95; // slower decay = longer coast, more macOS-like
+    const MIN_VELOCITY = 0.3;
 
     const coast = () => {
       velocity *= FRICTION;
@@ -390,11 +390,8 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
-        // Add wheel delta to velocity (trackpad gives small frequent deltas, mouse gives large ones)
-        velocity += e.deltaY * 0.4;
-        // Clamp velocity
-        velocity = Math.max(-60, Math.min(60, velocity));
-        // Start coasting if not already
+        velocity += e.deltaY * 0.25; // gentler input scaling
+        velocity = Math.max(-40, Math.min(40, velocity)); // lower clamp
         if (!raf) raf = requestAnimationFrame(coast);
       }
     };
