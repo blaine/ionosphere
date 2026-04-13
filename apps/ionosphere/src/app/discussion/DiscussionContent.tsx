@@ -373,14 +373,22 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     if (numCols <= 1) return;
     const el = scrollContainerRef.current;
     if (!el) return;
+    let pending = 0;
+    let raf = 0;
+    const flush = () => {
+      el.scrollLeft += pending;
+      pending = 0;
+      raf = 0;
+    };
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
-        el.scrollLeft += e.deltaY;
+        pending += e.deltaY;
+        if (!raf) raf = requestAnimationFrame(flush);
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); };
   }, [numCols]);
 
   const handleSelect = useCallback(
@@ -584,7 +592,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
           <div
             ref={scrollContainerRef}
             className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex gap-6 [&::-webkit-scrollbar]:hidden"
-            style={{ scrollbarWidth: "none" }}
+            style={{ scrollbarWidth: "none", willChange: "scroll-position" }}
           >
             {allCols.map((col, colIdx) => (
               <div key={colIdx} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
