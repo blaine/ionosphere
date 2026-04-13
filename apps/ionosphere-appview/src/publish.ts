@@ -229,18 +229,22 @@ async function main() {
         temp)
     );
 
-    await Promise.all([
-      pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
-      ...segPuts,
-      ...temporalPuts,
-      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
-      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
-      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
-      pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
-    ]);
+    try {
+      await Promise.all([
+        pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
+        ...segPuts,
+        ...temporalPuts,
+        pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
+        pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
+        pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
+        pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
+      ]);
 
-    const totalRecords = 1 + segmentations.length + temporals.length + 4;
-    console.log(`  layers.pub: ${talk.rkey} (${totalRecords} records${segmentations.length > 1 ? `, ${segmentations.length} seg chunks` : ''})`);
+      const totalRecords = 1 + segmentations.length + temporals.length + 4;
+      console.log(`  layers.pub: ${talk.rkey} (${totalRecords} records${segmentations.length > 1 ? `, ${segmentations.length} seg chunks` : ''})`);
+    } catch (err: any) {
+      console.warn(`  ⚠ layers.pub: ${talk.rkey} failed (${err?.error || err?.message || 'unknown'})`);
+    }
     layersCount++;
   }
   console.log(`Published layers.pub records for ${layersCount} talks.`);
