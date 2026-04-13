@@ -438,27 +438,6 @@ export function createRoutes(db: Database.Database): Hono {
     });
   });
 
-  app.get("/xrpc/tv.ionosphere.getHighlights", (c) => {
-    try {
-      const highlightsPath = path.resolve(import.meta.dirname, "../../data/highlights.json");
-      const raw = JSON.parse(readFileSync(highlightsPath, "utf-8")) as any[];
-
-      // Enrich with talk titles from DB
-      const talkTitles = new Map<string, string>();
-      const talkRows = db.prepare("SELECT rkey, title FROM talks").all() as any[];
-      for (const t of talkRows) talkTitles.set(t.rkey, t.title);
-
-      const highlights = raw.map((h: any) => ({
-        ...h,
-        talkTitle: talkTitles.get(h.talkRkey) || h.talkTitle || "Unknown Talk",
-      }));
-
-      return c.json({ highlights });
-    } catch {
-      return c.json({ highlights: [] });
-    }
-  });
-
   app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");

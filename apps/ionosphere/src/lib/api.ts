@@ -54,10 +54,6 @@ export async function getDiscussion() {
   }>("/xrpc/tv.ionosphere.getDiscussion");
 }
 
-export async function getHighlights() {
-  return fetchApi<{ highlights: any[] }>("/xrpc/tv.ionosphere.getHighlights");
-}
-
 export async function getTracks() {
   return fetchApi<{ tracks: any[] }>("/xrpc/tv.ionosphere.getTracks");
 }

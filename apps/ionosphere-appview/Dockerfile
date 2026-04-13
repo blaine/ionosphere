@@ -17,7 +17,6 @@ RUN pnpm install --frozen-lockfile
 COPY apps/ionosphere-appview/ apps/ionosphere-appview/
 COPY formats/tv.ionosphere/ formats/tv.ionosphere/
 COPY apps/data/atmosphere-projects.json apps/data/atmosphere-projects.json
-COPY apps/data/highlights.json apps/data/highlights.json
 
 WORKDIR /app/apps/ionosphere-appview
 
