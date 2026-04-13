@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/speakers", label: "Speakers" },
   { href: "/concepts", label: "Concepts" },
   { href: "/concordance", label: "Index" },
+  { href: "/highlights", label: "Highlights" },
   { href: "/discussion", label: "Community" },
 ];
 
