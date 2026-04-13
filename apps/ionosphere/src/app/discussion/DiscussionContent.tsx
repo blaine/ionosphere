@@ -328,58 +328,24 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   // Reset on filter change
   useEffect(() => { setStartIndex(0); }, [filter]);
 
-  // Greedy-fill columns: 1 back buffer + numCols visible + 2 forward buffer
-  const BACK_BUFFER = 1;
-  const FWD_BUFFER = 2;
-  const scrollColWidth = columnWidth + 24; // column + gap
-
-  // Fill one column backwards for back-scroll buffer
-  const backBufferCol = useMemo(() => {
-    if (startIndex <= 0 || numCols <= 1 || columnHeight <= 0) return null;
-    let idx = startIndex - 1;
-    let used = 0;
-    const items: FlowItem[] = [];
-    while (idx >= 0) {
-      const h = estimateItemHeight(flowItems[idx], columnWidth);
-      if (used + h > columnHeight && items.length > 0) break;
-      items.unshift(flowItems[idx]);
-      used += h;
-      idx--;
-    }
-    return { items, endIndex: startIndex, usedHeight: used, extraSpacing: 0 } as FilledColumn;
-  }, [startIndex, numCols, columnHeight, flowItems, columnWidth]);
-
-  // Fill forward columns: numCols + FWD_BUFFER
-  const forwardCols = useMemo(() => {
+  // Fill ALL columns from the start of the data — render everything, use native scroll
+  const allCols = useMemo(() => {
     if (numCols <= 1 || columnHeight <= 0) return [];
     const cols: FilledColumn[] = [];
-    let idx = startIndex;
-    for (let c = 0; c < numCols + FWD_BUFFER; c++) {
-      if (idx >= flowItems.length) {
-        cols.push({ items: [], endIndex: idx, usedHeight: 0, extraSpacing: 0 });
-      } else {
-        const col = fillColumn(flowItems, idx, columnHeight, columnWidth);
-        cols.push(col);
-        idx = col.endIndex;
-      }
+    let idx = 0;
+    while (idx < flowItems.length) {
+      const col = fillColumn(flowItems, idx, columnHeight, columnWidth);
+      cols.push(col);
+      idx = col.endIndex;
+      if (col.items.length === 0) break; // safety
     }
     return cols;
-  }, [startIndex, numCols, columnHeight, flowItems]);
+  }, [numCols, columnHeight, flowItems, columnWidth]);
 
-  // All rendered columns: [backBuffer?, ...forwardCols]
-  const allCols = useMemo(() => {
-    const cols: FilledColumn[] = [];
-    if (backBufferCol) cols.push(backBufferCol);
-    cols.push(...forwardCols);
-    return cols;
-  }, [backBufferCol, forwardCols]);
+  const scrollColWidth = columnWidth + 24;
+  const visibleFilled = allCols.slice(0, numCols); // for section nav
 
-  // The back buffer shifts everything right by one column
-  const backBufferOffset = backBufferCol ? scrollColWidth : 0;
-
-  const visibleFilled = forwardCols.slice(0, numCols);
-
-  // Current section for nav highlighting
+  // Current section for nav highlighting (based on scroll position)
   const currentSection = useMemo(() => {
     let section = "";
     for (let i = 0; i <= startIndex && i < flowItems.length; i++) {
@@ -388,101 +354,34 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     return section;
   }, [startIndex, flowItems]);
 
-  // Continuous scroll: pixel offset driven by wheel, snaps to column boundaries
-  const pixelOffset = useRef(0);
-  const [renderOffset, setRenderOffset] = useState(0);
-  const snapTimer = useRef<ReturnType<typeof setTimeout>>();
-  const rafId = useRef<number>();
+  // Track startIndex from scroll position for section nav highlighting
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || numCols <= 1) return;
+    const onScroll = () => {
+      const colIdx = Math.round(el.scrollLeft / scrollColWidth);
+      const itemIdx = allCols.slice(0, colIdx).reduce((sum, c) => c.endIndex, 0);
+      setStartIndex(itemIdx);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [numCols, scrollColWidth, allCols]);
 
-  const canScrollForward = forwardCols.length > numCols && forwardCols[numCols]?.items.length > 0;
-  const canScrollBack = startIndex > 0;
-
-  // Snap to nearest column boundary when scrolling stops
-  const snapToColumn = useCallback(() => {
-    const offset = pixelOffset.current;
-    if (Math.abs(offset) < 10) {
-      // Close enough, just reset
-      pixelOffset.current = 0;
-      setRenderOffset(0);
-      return;
-    }
-
-    if (offset < -scrollColWidth * 0.3 && canScrollForward) {
-      // Crossed threshold forward — advance
-      pixelOffset.current = 0;
-      setRenderOffset(0);
-      if (visibleFilled.length > 0) {
-        setStartIndex(visibleFilled[0].endIndex);
-      }
-    } else if (offset > scrollColWidth * 0.3 && canScrollBack) {
-      // Crossed threshold backward — go back
-      pixelOffset.current = 0;
-      setRenderOffset(0);
-      // Compute back index
-      let idx = startIndex - 1;
-      let used = 0;
-      while (idx >= 0) {
-        const h = estimateItemHeight(flowItems[idx], columnWidth);
-        if (used + h > columnHeight && used > 0) break;
-        used += h;
-        idx--;
-      }
-      setStartIndex(Math.max(0, idx + 1));
-    } else {
-      // Didn't cross threshold — spring back
-      pixelOffset.current = 0;
-      setRenderOffset(0);
-    }
-  }, [scrollColWidth, canScrollForward, canScrollBack, visibleFilled, startIndex, flowItems, columnWidth, columnHeight]);
-
-  // Wheel handler — drives pixel offset directly
+  // Wheel → horizontal scroll
   useEffect(() => {
     if (numCols <= 1) return;
-    const el = containerRef.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
-
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY * 0.5; // dampen
-      const newOffset = pixelOffset.current - delta;
-
-      // Clamp: don't scroll past 1.2 columns in either direction
-      const maxFwd = canScrollForward ? scrollColWidth * 1.2 : 0;
-      const maxBack = canScrollBack ? scrollColWidth * 1.2 : 0;
-      pixelOffset.current = Math.max(-maxFwd, Math.min(maxBack, newOffset));
-
-      // If we've scrolled a full column, snap immediately
-      if (pixelOffset.current <= -scrollColWidth && canScrollForward) {
-        pixelOffset.current = 0;
-        if (visibleFilled.length > 0) {
-          setStartIndex(prev => {
-            const next = visibleFilled[0].endIndex;
-            return next < flowItems.length ? next : prev;
-          });
-        }
-      } else if (pixelOffset.current >= scrollColWidth && canScrollBack) {
-        pixelOffset.current = 0;
-        let idx = startIndex - 1;
-        let used = 0;
-        while (idx >= 0) {
-          const h = estimateItemHeight(flowItems[idx], columnWidth);
-          if (used + h > columnHeight && used > 0) break;
-          used += h;
-          idx--;
-        }
-        setStartIndex(Math.max(0, idx + 1));
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
       }
-
-      setRenderOffset(pixelOffset.current);
-
-      // Snap when scrolling stops
-      clearTimeout(snapTimer.current);
-      snapTimer.current = setTimeout(snapToColumn, 150);
     };
-
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [numCols, scrollColWidth, canScrollForward, canScrollBack, visibleFilled, startIndex, flowItems, columnWidth, columnHeight, snapToColumn]);
+  }, [numCols]);
 
   const handleSelect = useCallback(
     async (rkey: string) => {
@@ -512,9 +411,14 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
     } else {
       const idx = sectionToIndex.get(sectionLabel);
       if (idx !== undefined) {
-        pixelOffset.current = 0;
-        setRenderOffset(0);
-        setStartIndex(idx);
+        // Find which column this item is in
+        let colIdx = 0;
+        for (let c = 0; c < allCols.length; c++) {
+          const col = allCols[c];
+          const colStart = c === 0 ? 0 : allCols.slice(0, c).reduce((_, cc) => cc.endIndex, 0);
+          if (idx < col.endIndex) { colIdx = c; break; }
+        }
+        scrollContainerRef.current?.scrollTo({ left: colIdx * scrollColWidth, behavior: "smooth" });
       }
     }
   }, [sectionToIndex, numCols]);
@@ -677,22 +581,16 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
         {numCols <= 1 ? (
           <MobileDiscussion ref={columnsRef} flowItems={flowItems} renderItem={renderItem} />
         ) : (
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <div
-              ref={columnsRef}
-              className="flex gap-6 h-full"
-              style={{
-                transform: `translateX(${renderOffset - backBufferOffset}px)`,
-                transition: pixelOffset.current === 0 && renderOffset === 0 ? "transform 200ms ease-out" : undefined,
-                width: `${allCols.length * scrollColWidth}px`,
-              }}
-            >
-              {allCols.map((col, colIdx) => (
-                <div key={`${startIndex}-${colIdx}`} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
-                  {col.items.map((item) => renderItem(item, col.extraSpacing))}
-                </div>
-              ))}
-            </div>
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex gap-6 [&::-webkit-scrollbar]:hidden"
+            style={{ scrollBehavior: "smooth", scrollbarWidth: "none" }}
+          >
+            {allCols.map((col, colIdx) => (
+              <div key={colIdx} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
+                {col.items.map((item) => renderItem(item, col.extraSpacing))}
+              </div>
+            ))}
           </div>
         )}
       </div>
