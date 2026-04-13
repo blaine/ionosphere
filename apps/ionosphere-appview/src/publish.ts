@@ -155,6 +155,7 @@ async function main() {
           ...(speakerUris.length > 0 && { speakerUris }),
           ...(talk.video_uri && { videoUri: talk.video_uri }),
           ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
+          ...(talk.video_segments && { videoSegments: JSON.parse(talk.video_segments) }),
           ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
           ...(talk.room && { room: talk.room }),
           ...(talk.category && { category: talk.category }),
