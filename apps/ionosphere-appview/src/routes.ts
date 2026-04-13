@@ -322,23 +322,19 @@ export function createRoutes(db: Database.Database): Hono {
     const BLOCKED_HANDLES = new Set(['nowbreezing.ntw.app']);
     const filterBlocked = (rows: any[]) => rows.filter((r: any) => !BLOCKED_HANDLES.has(r.author_handle));
 
-    // Projects: curated list from JSON
+    // Projects: curated list from JSON (flat array)
     let projects: any[] = [];
     try {
       const projectsPath = path.resolve(import.meta.dirname, "../../data/atmosphere-projects.json");
       const raw = JSON.parse(readFileSync(projectsPath, "utf-8"));
-      // Flatten: each project gets its talk context
-      for (const talk of raw) {
-        for (const proj of talk.projects) {
-          projects.push({
-            name: proj.name,
-            url: proj.url || null,
-            talkRkey: talk.talkRkey,
-            talkTitle: talk.talkTitle,
-            speakers: talk.speakers,
-          });
-        }
-      }
+      // Enrich with talk titles
+      const talkTitles = new Map<string, string>();
+      const talkRows = db.prepare("SELECT rkey, title FROM talks").all() as any[];
+      for (const t of talkRows) talkTitles.set(t.rkey, t.title);
+      projects = raw.map((p: any) => ({
+        ...p,
+        talkTitle: talkTitles.get(p.talkRkey) || p.name,
+      }));
     } catch {}
 
     // Posts: content_type = 'post' or NULL, top-level only, sorted by likes DESC
