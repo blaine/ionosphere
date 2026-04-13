@@ -126,23 +126,47 @@ async function main() {
       docCount++;
     }
 
-    await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
-      $type: "tv.ionosphere.talk",
-      title: talk.title,
-      ...(document && { document }),
-      ...(eventUri && { eventUri }),
-      ...(speakerUris.length > 0 && { speakerUris }),
-      ...(talk.video_uri && { videoUri: talk.video_uri }),
-      ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
-      ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
-      ...(talk.room && { room: talk.room }),
-      ...(talk.category && { category: talk.category }),
-      ...(talk.talk_type && { talkType: talk.talk_type }),
-      ...(talk.starts_at && { startsAt: talk.starts_at }),
-      ...(talk.ends_at && { endsAt: talk.ends_at }),
-      ...(talk.duration && { duration: talk.duration }),
-      ...(talk.description && { description: talk.description }),
-    });
+    try {
+      await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
+        $type: "tv.ionosphere.talk",
+        title: talk.title,
+        ...(document && { document }),
+        ...(eventUri && { eventUri }),
+        ...(speakerUris.length > 0 && { speakerUris }),
+        ...(talk.video_uri && { videoUri: talk.video_uri }),
+        ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
+        ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
+        ...(talk.room && { room: talk.room }),
+        ...(talk.category && { category: talk.category }),
+        ...(talk.talk_type && { talkType: talk.talk_type }),
+        ...(talk.starts_at && { startsAt: talk.starts_at }),
+        ...(talk.ends_at && { endsAt: talk.ends_at }),
+        ...(talk.duration && { duration: talk.duration }),
+        ...(talk.description && { description: talk.description }),
+      });
+    } catch (err: any) {
+      if (err?.status === 413) {
+        console.warn(`  ⚠ Talk ${talk.rkey}: payload too large, publishing without document`);
+        await pds.putRecord("tv.ionosphere.talk", talk.rkey, {
+          $type: "tv.ionosphere.talk",
+          title: talk.title,
+          ...(eventUri && { eventUri }),
+          ...(speakerUris.length > 0 && { speakerUris }),
+          ...(talk.video_uri && { videoUri: talk.video_uri }),
+          ...(talk.video_offset_ns && { videoOffsetNs: talk.video_offset_ns }),
+          ...(talk.schedule_uri && { scheduleUri: talk.schedule_uri }),
+          ...(talk.room && { room: talk.room }),
+          ...(talk.category && { category: talk.category }),
+          ...(talk.talk_type && { talkType: talk.talk_type }),
+          ...(talk.starts_at && { startsAt: talk.starts_at }),
+          ...(talk.ends_at && { endsAt: talk.ends_at }),
+          ...(talk.duration && { duration: talk.duration }),
+          ...(talk.description && { description: talk.description }),
+        });
+      } else {
+        throw err;
+      }
+    }
   }
   console.log(`  ${docCount} talks with assembled documents.`);
   console.log(`  Done.`);
