@@ -81,16 +81,21 @@ type FilterKey = "all" | "posts" | "blogs" | "videos" | "photos";
 // --- Height estimation ---
 
 function estimateItemHeight(item: FlowItem, columnWidth?: number): number {
-  if (item.type === "stats") return 70;
-  if (item.type === "heading") return 28;
-  if (item.type === "vodDirectory") return 80;
+  if (item.type === "stats") return 76;
+  if (item.type === "heading") return 32;
+  if (item.type === "vodDirectory") return 86;
   if (item.type === "item" && item.item.image_url) {
     const imgWidth = (columnWidth || 240) - 18; // 18px left padding
     const aspect = item.item.image_aspect || 1.33; // default 4:3
     const imgHeight = Math.min(Math.round(imgWidth / aspect), 200); // cap at 200px
-    return 40 + imgHeight + 20; // header + image + text/links
+    return 44 + imgHeight + 28; // header + image + text/links + margin
   }
-  return 58;
+  // Text items: header(20) + text 2 lines(36) + links(16) + margin(6) = 78
+  if (item.type === "item") {
+    const hasLinks = item.item.talk_rkey || item.item.external_url || item.item.author_handle;
+    return hasLinks ? 78 : 62;
+  }
+  return 62;
 }
 
 // --- Greedy column fill ---
