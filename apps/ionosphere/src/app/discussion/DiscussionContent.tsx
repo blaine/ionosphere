@@ -369,24 +369,36 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   }, [numCols, scrollColWidth, allCols]);
 
   // Wheel → horizontal scroll
+  // Wheel → horizontal scroll with momentum/inertia
   useEffect(() => {
     if (numCols <= 1) return;
     const el = scrollContainerRef.current;
     if (!el) return;
-    let pending = 0;
+
+    let velocity = 0;
     let raf = 0;
-    const flush = () => {
-      el.scrollLeft += pending;
-      pending = 0;
-      raf = 0;
+    const FRICTION = 0.92;
+    const MIN_VELOCITY = 0.5;
+
+    const coast = () => {
+      velocity *= FRICTION;
+      if (Math.abs(velocity) < MIN_VELOCITY) { velocity = 0; raf = 0; return; }
+      el.scrollLeft += velocity;
+      raf = requestAnimationFrame(coast);
     };
+
     const onWheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
-        pending += e.deltaY;
-        if (!raf) raf = requestAnimationFrame(flush);
+        // Add wheel delta to velocity (trackpad gives small frequent deltas, mouse gives large ones)
+        velocity += e.deltaY * 0.4;
+        // Clamp velocity
+        velocity = Math.max(-60, Math.min(60, velocity));
+        // Start coasting if not already
+        if (!raf) raf = requestAnimationFrame(coast);
       }
     };
+
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); };
   }, [numCols]);
@@ -592,7 +604,7 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
           <div
             ref={scrollContainerRef}
             className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden flex gap-6 [&::-webkit-scrollbar]:hidden"
-            style={{ scrollbarWidth: "none", willChange: "scroll-position", scrollBehavior: "smooth" }}
+            style={{ scrollbarWidth: "none", willChange: "scroll-position" }}
           >
             {allCols.map((col, colIdx) => (
               <div key={colIdx} className="overflow-hidden" style={{ width: columnWidth, flexShrink: 0 }}>
