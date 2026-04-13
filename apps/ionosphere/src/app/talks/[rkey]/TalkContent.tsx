@@ -1,11 +1,32 @@
 "use client";
 
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
-import { TimestampProvider } from "@/app/components/TimestampProvider";
+import { TimestampProvider, useTimestamp } from "@/app/components/TimestampProvider";
 import VideoPlayer from "@/app/components/VideoPlayer";
 import TranscriptView from "@/app/components/TranscriptView";
 import { fetchComments, type CommentData } from "@/lib/comments";
 import ReactionBar from "@/app/components/ReactionBar";
+
+function ConceptSidebar({ concepts }: { concepts: Array<{ rkey: string; name: string; timeNs?: number }> }) {
+  const { seekTo } = useTimestamp();
+  return (
+    <section>
+      <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Concepts</h2>
+      <div className="flex flex-wrap gap-1.5">
+        {concepts.map((c) => (
+          <button
+            key={c.rkey}
+            onClick={() => c.timeNs ? seekTo(c.timeNs) : undefined}
+            className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors cursor-pointer"
+            title={c.timeNs ? `Jump to ${Math.floor(c.timeNs / 1e9 / 60)}:${String(Math.floor((c.timeNs / 1e9) % 60)).padStart(2, "0")}` : c.name}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 interface TalkContentProps {
   talk: any;
@@ -59,18 +80,39 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
   }, [talk.document]);
 
   // Derive concepts from document facets (concept-ref entities)
+  // For each concept, find the timestamp of its first mention
   const docConcepts = useMemo(() => {
     if (!document) return [];
-    const seen = new Map<string, { name: string; uri: string; rkey: string }>();
+
+    // Build a byte→time lookup from timestamp facets
+    const byteToTime: Array<{ byteStart: number; byteEnd: number; startTime: number }> = [];
+    for (const f of document.facets) {
+      for (const feat of f.features) {
+        if (feat.$type === "tv.ionosphere.facet#timestamp" && feat.startTime != null) {
+          byteToTime.push({ byteStart: f.index.byteStart, byteEnd: f.index.byteEnd, startTime: feat.startTime });
+        }
+      }
+    }
+
+    const seen = new Map<string, { name: string; uri: string; rkey: string; timeNs: number }>();
     for (const f of document.facets) {
       for (const feat of f.features) {
         if (feat.$type === "tv.ionosphere.facet#concept-ref" && feat.conceptUri) {
           if (!seen.has(feat.conceptUri)) {
             const rkey = feat.conceptUri.split("/").pop() || "";
+            // Find the nearest timestamp facet overlapping this byte range
+            let timeNs = 0;
+            for (const ts of byteToTime) {
+              if (ts.byteStart < f.index.byteEnd && ts.byteEnd > f.index.byteStart) {
+                timeNs = ts.startTime;
+                break;
+              }
+            }
             seen.set(feat.conceptUri, {
               name: feat.conceptName || feat.label || rkey,
               uri: feat.conceptUri,
               rkey,
+              timeNs,
             });
           }
         }
@@ -216,20 +258,7 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
         {/* Right sidebar — concepts + cross-refs (hidden on mobile, scrollable on desktop) */}
         <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-y-auto p-4 gap-5">
           {(concepts.length > 0 || docConcepts.length > 0) && (
-            <section>
-              <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Concepts</h2>
-              <div className="flex flex-wrap gap-1.5">
-                {(concepts.length > 0 ? concepts : docConcepts).map((c: any) => (
-                  <a
-                    key={c.rkey}
-                    href={`/concepts/${c.rkey}`}
-                    className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300/80 hover:bg-amber-500/20 hover:text-amber-200 transition-colors"
-                  >
-                    {c.name}
-                  </a>
-                ))}
-              </div>
-            </section>
+            <ConceptSidebar concepts={concepts.length > 0 ? concepts : docConcepts} />
           )}
 
           {/* Mobile speakers (shown below transcript on small screens) */}
