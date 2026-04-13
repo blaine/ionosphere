@@ -147,6 +147,8 @@ const VIEWPORT_BUFFER = 800; // px of buffer above and below viewport
 
 export default function WindowedTranscriptView({ document }: WindowedTranscriptViewProps) {
   const { currentTimeNs, seekTo, paused } = useTimestamp();
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
@@ -318,7 +320,8 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
 
       if (!userScrolling.current && scrollTargetRef.current !== null) {
         // Extrapolate target forward using velocity since last timeupdate
-        const msSinceUpdate = now - lastTickMs.current;
+        // When paused, don't extrapolate — velocity is stale
+        const msSinceUpdate = pausedRef.current ? 0 : now - lastTickMs.current;
         const extrapolated = scrollTargetRef.current + scrollVelocity.current * msSinceUpdate;
 
         const diff = extrapolated - container.scrollTop;
