@@ -369,35 +369,24 @@ export default function DiscussionContent({ data }: { data: DiscussionData }) {
   }, [numCols, scrollColWidth, allCols]);
 
   // Wheel → horizontal scroll
-  // Wheel → horizontal scroll with momentum/inertia
+  // Wheel → horizontal native scroll (just remap Y to X, let OS handle physics)
   useEffect(() => {
     if (numCols <= 1) return;
     const el = scrollContainerRef.current;
     if (!el) return;
 
-    let velocity = 0;
-    let raf = 0;
-    const FRICTION = 0.95; // slower decay = longer coast, more macOS-like
-    const MIN_VELOCITY = 0.3;
-
-    const coast = () => {
-      velocity *= FRICTION;
-      if (Math.abs(velocity) < MIN_VELOCITY) { velocity = 0; raf = 0; return; }
-      el.scrollLeft += velocity;
-      raf = requestAnimationFrame(coast);
-    };
-
     const onWheel = (e: WheelEvent) => {
+      // Only remap if scrolling vertically (not already horizontal trackpad gesture)
       if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
         e.preventDefault();
-        velocity += e.deltaY * 0.25; // gentler input scaling
-        velocity = Math.max(-40, Math.min(40, velocity)); // lower clamp
-        if (!raf) raf = requestAnimationFrame(coast);
+        // Use scrollBy without smooth — the OS wheel event stream already
+        // provides momentum/inertia on macOS trackpads
+        el.scrollLeft += e.deltaY;
       }
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => { el.removeEventListener("wheel", onWheel); if (raf) cancelAnimationFrame(raf); };
+    return () => el.removeEventListener("wheel", onWheel);
   }, [numCols]);
 
   const handleSelect = useCallback(
