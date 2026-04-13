@@ -76,7 +76,7 @@ All records include `$type: "pub.layers.annotation.annotationLayer"`. All refere
 |---|---|---|---|
 | `-sentences` | `"span"` | `"sentence-boundary"` | One annotation per sentence. `anchor: { textSpan: { byteStart, byteEnd } }`, `label`: first ~50 chars of sentence text. |
 | `-paragraphs` | `"span"` | `"paragraph-boundary"` | One annotation per paragraph. `anchor: { textSpan: { byteStart, byteEnd } }`, `label`: `"paragraph"`. |
-| `-entities` | `"span"` | `"ner"` | One annotation per entity mention. `anchor: { textSpan: { byteStart, byteEnd } }`, `label`: entity name. `features: { entries: [{ key: "nerType", value: "PERSON" }, { key: "speakerDid", value: "did:plc:..." }, { key: "conceptUri", value: "at://..." }] }` (only applicable keys included). |
+| `-entities` | `"span"` | `"ner"` | One annotation per entity mention. `anchor: { textSpan: { byteStart, byteEnd } }`, `label`: entity name. `features: { entries: [{ key: "nerType", value: "PERSON" }, { key: "conceptUri", value: "at://..." }] }` — `nerType` always present, `conceptUri` if resolved, plus any future entity keys (e.g., `speakerDid`) forwarded as passthrough. |
 | `-topics` | `"span"` | `"topic-segment"` | One annotation per topic break. `anchor: { textSpan: { byteStart, byteEnd } }` where `byteEnd = byteStart` (zero-width span). `label`: `"topic-break"`. |
 
 `metadata` on all layers: `{ tool: "ionosphere-nlp-pipeline", timestamp: "<ISO 8601 datetime>" }`.
@@ -149,8 +149,9 @@ Add to `IONOSPHERE_COLLECTIONS`:
 
 ```sql
 layers_expressions:
-  rkey TEXT, did TEXT, expression_uri TEXT, transcript_uri TEXT,
+  uri TEXT PRIMARY KEY, rkey TEXT, did TEXT, transcript_uri TEXT,
   text TEXT, language TEXT, created_at TEXT
+  -- uri IS the expression URI; other tables reference it via expression_uri
 
 layers_segmentations:
   rkey TEXT, did TEXT, expression_uri TEXT,
