@@ -165,6 +165,26 @@ export function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_comments_subject ON comments(subject_uri);
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_did);
 
+    CREATE TABLE IF NOT EXISTS mentions (
+      uri TEXT PRIMARY KEY,
+      talk_uri TEXT,
+      author_did TEXT NOT NULL,
+      author_handle TEXT,
+      text TEXT,
+      created_at TEXT NOT NULL,
+      talk_offset_ms INTEGER,
+      byte_position INTEGER,
+      likes INTEGER DEFAULT 0,
+      reposts INTEGER DEFAULT 0,
+      replies INTEGER DEFAULT 0,
+      parent_uri TEXT,
+      mention_type TEXT DEFAULT 'during_talk',
+      indexed_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mentions_talk ON mentions(talk_uri, talk_offset_ms);
+    CREATE INDEX IF NOT EXISTS idx_mentions_parent ON mentions(parent_uri);
+
     CREATE TABLE IF NOT EXISTS profiles (
       did TEXT PRIMARY KEY,
       handle TEXT,
