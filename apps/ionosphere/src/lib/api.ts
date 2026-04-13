@@ -30,12 +30,26 @@ export async function getConcept(rkey: string) {
   return fetchApi<{ concept: any; talks: any[] }>(`/xrpc/tv.ionosphere.getConcept?rkey=${encodeURIComponent(rkey)}`);
 }
 
+export async function getMentions(talkRkey: string) {
+  return fetchApi<{ mentions: any[]; total: number }>(`/xrpc/tv.ionosphere.getMentions?talkRkey=${encodeURIComponent(talkRkey)}`);
+}
+
 export async function getIndex() {
   return fetchApi<{ entries: any[] }>("/xrpc/tv.ionosphere.getConcordance");
 }
 
 export async function getConceptClusters() {
   return fetchApi<{ clusters: any[] }>("/xrpc/tv.ionosphere.getConceptClusters");
+}
+
+export async function getDiscussion() {
+  return fetchApi<{
+    posts: any[];
+    blogs: any[];
+    videos: any[];
+    vodSites: string[];
+    stats: { totalPosts: number; blogCount: number; vodSiteCount: number; uniqueAuthors: number };
+  }>("/xrpc/tv.ionosphere.getDiscussion");
 }
 
 export async function getTracks() {

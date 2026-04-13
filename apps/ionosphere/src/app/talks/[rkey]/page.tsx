@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getTalk, getTalks } from "@/lib/api";
+import { getTalk, getTalks, getMentions } from "@/lib/api";
 import TalkContent from "./TalkContent";
 
 export async function generateStaticParams() {
@@ -33,7 +33,10 @@ export async function generateMetadata({ params }: { params: Promise<{ rkey: str
 
 export default async function TalkPage({ params }: { params: Promise<{ rkey: string }> }) {
   const { rkey } = await params;
-  const { talk, speakers, concepts } = await getTalk(rkey);
+  const [{ talk, speakers, concepts }, mentionsData] = await Promise.all([
+    getTalk(rkey),
+    getMentions(rkey).catch(() => ({ mentions: [], total: 0 })),
+  ]);
 
-  return <TalkContent talk={talk} speakers={speakers} concepts={concepts} />;
+  return <TalkContent talk={talk} speakers={speakers} concepts={concepts} mentions={mentionsData.mentions} />;
 }

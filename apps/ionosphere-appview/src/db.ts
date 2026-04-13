@@ -165,6 +165,26 @@ export function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_comments_subject ON comments(subject_uri);
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_did);
 
+    CREATE TABLE IF NOT EXISTS mentions (
+      uri TEXT PRIMARY KEY,
+      talk_uri TEXT,
+      author_did TEXT NOT NULL,
+      author_handle TEXT,
+      text TEXT,
+      created_at TEXT NOT NULL,
+      talk_offset_ms INTEGER,
+      byte_position INTEGER,
+      likes INTEGER DEFAULT 0,
+      reposts INTEGER DEFAULT 0,
+      replies INTEGER DEFAULT 0,
+      parent_uri TEXT,
+      mention_type TEXT DEFAULT 'during_talk',
+      indexed_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mentions_talk ON mentions(talk_uri, talk_offset_ms);
+    CREATE INDEX IF NOT EXISTS idx_mentions_parent ON mentions(parent_uri);
+
     CREATE TABLE IF NOT EXISTS profiles (
       did TEXT PRIMARY KEY,
       handle TEXT,
@@ -215,6 +235,14 @@ export function migrate(db: Database.Database): void {
   // Add chunk_index columns if missing (for existing DBs)
   try { db.exec("ALTER TABLE stream_transcripts ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
   try { db.exec("ALTER TABLE stream_diarizations ADD COLUMN chunk_index INTEGER NOT NULL DEFAULT 0"); } catch {}
+
+  // Mentions table extensions for discussion page
+  try { db.exec("ALTER TABLE mentions ADD COLUMN content_type TEXT DEFAULT 'post'"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN external_url TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN og_title TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN talk_rkey TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN image_url TEXT"); } catch {}
+  try { db.exec("ALTER TABLE mentions ADD COLUMN has_images INTEGER DEFAULT 0"); } catch {}
 
   db.exec(`
     -- Jetstream cursor for resumable indexing
