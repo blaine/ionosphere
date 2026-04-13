@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { openDb, migrate, getCursor, setCursor } from "./db.js";
 import { createRoutes } from "./routes.js";
-import { processEvent } from "./indexer.js";
+import { processEvent, setBotDid } from "./indexer.js";
 import { JetstreamClient } from "./jetstream.js";
 import { backfill } from "./backfill.js";
 import { startPublicJetstream } from "./public-jetstream.js";
@@ -39,6 +39,7 @@ async function init() {
   }
 
   if (did) {
+    setBotDid(did);
     console.log(`Backfilling from ${did}`);
     try {
       await backfill(db, PDS_URL, did);

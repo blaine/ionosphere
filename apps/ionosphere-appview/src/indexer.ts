@@ -1,5 +1,14 @@
 import type Database from "better-sqlite3";
 import { ensureProfile } from "./profiles.js";
+import {
+  indexExpression,
+  indexSegmentation,
+  indexAnnotationLayer,
+  deleteExpression,
+  deleteSegmentation,
+  deleteAnnotationLayer,
+  rebuildDocument,
+} from "./layers-indexer.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +26,15 @@ export interface JetstreamEvent {
   time_us: number;
 }
 
+// ─── Bot DID filter ──────────────────────────────────────────────────────────
+
+let _botDid = "";
+
+/** Set the bot DID for filtering layers.pub records. Called from appview.ts. */
+export function setBotDid(did: string): void {
+  _botDid = did;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const IONOSPHERE_COLLECTIONS = [
@@ -30,9 +48,18 @@ export const IONOSPHERE_COLLECTIONS = [
   "tv.ionosphere.streamTranscript",
   "tv.ionosphere.diarization",
   "org.relationaltext.lens",
+  "pub.layers.expression.expression",
+  "pub.layers.segmentation.segmentation",
+  "pub.layers.annotation.annotationLayer",
 ];
 
 const COLLECTIONS_SET = new Set(IONOSPHERE_COLLECTIONS);
+
+const LAYERS_PUB_COLLECTIONS = new Set([
+  "pub.layers.expression.expression",
+  "pub.layers.segmentation.segmentation",
+  "pub.layers.annotation.annotationLayer",
+]);
 
 // ─── Event processor ──────────────────────────────────────────────────────────
 
@@ -43,6 +70,11 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
   if (!COLLECTIONS_SET.has(collection)) return;
 
   const uri = `at://${event.did}/${collection}/${rkey}`;
+
+  // Only process layers.pub records from the bot DID
+  if (LAYERS_PUB_COLLECTIONS.has(collection) && _botDid && event.did !== _botDid) {
+    return;
+  }
 
   // ── Deletes ───────────────────────────────────────────────────────────────
 
@@ -83,6 +115,15 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       case "org.relationaltext.lens":
         db.prepare("DELETE FROM lenses WHERE uri = ?").run(uri);
         break;
+      case "pub.layers.expression.expression":
+        deleteExpression(db, uri);
+        break;
+      case "pub.layers.segmentation.segmentation":
+        deleteSegmentation(db, uri);
+        break;
+      case "pub.layers.annotation.annotationLayer":
+        deleteAnnotationLayer(db, uri);
+        break;
     }
     return;
   }
@@ -121,6 +162,24 @@ export function processEvent(db: Database.Database, event: JetstreamEvent): void
       break;
     case "org.relationaltext.lens":
       indexLens(db, event.did, rkey, uri, record);
+      break;
+    case "pub.layers.expression.expression":
+      indexExpression(db, event.did, rkey, uri, record);
+      rebuildDocument(db, uri).catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
+      break;
+    case "pub.layers.segmentation.segmentation":
+      indexSegmentation(db, event.did, rkey, uri, record);
+      rebuildDocument(db, (record.expression as string) || "").catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
+      break;
+    case "pub.layers.annotation.annotationLayer":
+      indexAnnotationLayer(db, event.did, rkey, uri, record);
+      rebuildDocument(db, (record.expression as string) || "").catch((err) =>
+        console.error("rebuildDocument error:", err),
+      );
       break;
   }
 }
