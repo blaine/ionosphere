@@ -27,7 +27,7 @@ describe('Lens 1: transcript → expression + segmentation', () => {
     expect(expression.createdAt).toBeDefined();
   });
 
-  it('produces a segmentation record with word tokens', async () => {
+  it('produces a segmentation record with textSpan-only tokens', async () => {
     const { segmentation } = await transcriptToLayersPub(transcript, did, talkRkey);
     expect(segmentation.$type).toBe('pub.layers.segmentation.segmentation');
     expect(segmentation.expression).toBe(
@@ -39,18 +39,33 @@ describe('Lens 1: transcript → expression + segmentation', () => {
     expect(tok.kind).toBe('word');
     expect(tok.tokens).toHaveLength(4);
 
-    // Check first token
+    // Check first token — textSpan only, no temporalSpan
     expect(tok.tokens[0].tokenIndex).toBe(0);
     expect(tok.tokens[0].text).toBe('Hello');
     expect(tok.tokens[0].textSpan.byteStart).toBe(0);
     expect(tok.tokens[0].textSpan.byteEnd).toBe(5);
-    expect(tok.tokens[0].temporalSpan.start).toBe(1000);
-    expect(tok.tokens[0].temporalSpan.ending).toBe(1200);
 
-    // Check third token (after gap) — byte offsets and temporal span
+    // Check third token (after gap) — byte offsets
     expect(tok.tokens[2].text).toBe('foo');
     expect(tok.tokens[2].textSpan.byteStart).toBe(12); // "Hello world " = 12 bytes
     expect(tok.tokens[2].textSpan.byteEnd).toBe(15);
+  });
+
+  it('produces a separate temporal segmentation record', async () => {
+    const { temporal } = await transcriptToLayersPub(transcript, did, talkRkey);
+    expect(temporal.$type).toBe('pub.layers.segmentation.segmentation');
+    expect(temporal.tokenizations).toHaveLength(1);
+
+    const tok = temporal.tokenizations[0];
+    expect(tok.kind).toBe('word-temporal');
+    expect(tok.tokens).toHaveLength(4);
+
+    // First token temporal span
+    expect(tok.tokens[0].tokenIndex).toBe(0);
+    expect(tok.tokens[0].temporalSpan.start).toBe(1000);
+    expect(tok.tokens[0].temporalSpan.ending).toBe(1200);
+
+    // Third token (after gap)
     expect(tok.tokens[2].temporalSpan.start).toBe(1600); // 1000+200+300+100gap
     expect(tok.tokens[2].temporalSpan.ending).toBe(1750);
   });
@@ -156,13 +171,14 @@ describe('Stage 6 integration: full record production', () => {
       talkUri: `at://${did}/tv.ionosphere.talk/${rkey}`,
     };
 
-    const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, rkey);
+    const { expression, segmentation, temporal } = await transcriptToLayersPub(transcriptRecord, did, rkey);
     const expressionUri = `at://${did}/pub.layers.expression.expression/${rkey}-expression`;
     const layers = await nlpToAnnotationLayers(nlpData, did, rkey, expressionUri);
 
-    // Verify all 6 records have correct $type
+    // Verify all 7 records have correct $type
     expect(expression.$type).toBe('pub.layers.expression.expression');
     expect(segmentation.$type).toBe('pub.layers.segmentation.segmentation');
+    expect(temporal.$type).toBe('pub.layers.segmentation.segmentation');
     expect(layers.sentences.$type).toBe('pub.layers.annotation.annotationLayer');
     expect(layers.paragraphs.$type).toBe('pub.layers.annotation.annotationLayer');
     expect(layers.entities.$type).toBe('pub.layers.annotation.annotationLayer');
@@ -170,6 +186,7 @@ describe('Stage 6 integration: full record production', () => {
 
     // Verify real data produces non-trivial results
     expect(segmentation.tokenizations[0].tokens.length).toBeGreaterThan(100);
+    expect(temporal.tokenizations[0].tokens.length).toBeGreaterThan(100);
     expect(layers.sentences.annotations.length).toBeGreaterThan(10);
     expect(layers.entities.annotations.length).toBeGreaterThan(10);
   });
@@ -215,7 +232,7 @@ describe('Lens 3: round-trip correctness', () => {
     const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, rkey);
     const expressionUri = `at://${did}/pub.layers.expression.expression/${rkey}-expression`;
     const layers = await nlpToAnnotationLayers(nlpData, did, rkey, expressionUri);
-    const lensDoc = await layersPubToDocument(expression, segmentation, layers);
+    const lensDoc = await layersPubToDocument(expression, segmentation, layers, compact);
 
     // Compare text
     expect(lensDoc.text).toBe(directDoc.text);

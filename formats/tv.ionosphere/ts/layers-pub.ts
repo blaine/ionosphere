@@ -16,7 +16,7 @@
  * and indexOf with searchFrom for word position tracking.
  */
 
-import type { Document, DocumentFacet } from './transcript-encoding.js';
+import type { Document, DocumentFacet, CompactTranscript } from './transcript-encoding.js';
 
 export interface TranscriptRecord {
   $type: string;
@@ -50,28 +50,45 @@ export interface TemporalSpan {
   ending: number;
 }
 
-export interface Token {
+export interface TextToken {
   tokenIndex: number;
   text: string;
   textSpan: TokenSpan;
+}
+
+export interface TemporalToken {
+  tokenIndex: number;
   temporalSpan: TemporalSpan;
 }
 
-export interface Tokenization {
+export interface TextTokenization {
   kind: string;
-  tokens: Token[];
+  tokens: TextToken[];
+}
+
+export interface TemporalTokenization {
+  kind: string;
+  tokens: TemporalToken[];
 }
 
 export interface SegmentationRecord {
   $type: 'pub.layers.segmentation.segmentation';
   expression: string;
-  tokenizations: Tokenization[];
+  tokenizations: TextTokenization[];
+  createdAt: string;
+}
+
+export interface TemporalSegmentationRecord {
+  $type: 'pub.layers.segmentation.segmentation';
+  expression: string;
+  tokenizations: TemporalTokenization[];
   createdAt: string;
 }
 
 export interface LayersPubResult {
   expression: ExpressionRecord;
   segmentation: SegmentationRecord;
+  temporal: TemporalSegmentationRecord;
 }
 
 /**
@@ -107,11 +124,13 @@ export async function transcriptToLayersPub(
     createdAt: now,
   };
 
-  // Build segmentation record using timings replay algorithm
+  // Build segmentation records using timings replay algorithm
   // (matches decodeToDocument in transcript-encoding.ts)
+  // Two records: textSpan-only (word boundaries) and temporalSpan-only (timing)
   const encoder = new TextEncoder();
   const words = transcript.text.split(/\s+/).filter((w) => w.length > 0);
-  const tokens: Token[] = [];
+  const textTokens: TextToken[] = [];
+  const temporalTokens: TemporalToken[] = [];
 
   let cursor = transcript.startMs; // ms
   let wordIndex = 0;
@@ -132,10 +151,14 @@ export async function transcriptToLayersPub(
             transcript.text.slice(0, idx + word.length),
           ).length;
 
-          tokens.push({
+          textTokens.push({
             tokenIndex: wordIndex,
             text: word,
             textSpan: { byteStart, byteEnd },
+          });
+
+          temporalTokens.push({
+            tokenIndex: wordIndex,
             temporalSpan: { start: cursor, ending: cursor + value },
           });
 
@@ -147,19 +170,23 @@ export async function transcriptToLayersPub(
     }
   }
 
+  const expressionUri = `at://${did}/pub.layers.expression.expression/${talkRkey}-expression`;
+
   const segmentation: SegmentationRecord = {
     $type: 'pub.layers.segmentation.segmentation',
-    expression: `at://${did}/pub.layers.expression.expression/${talkRkey}-expression`,
-    tokenizations: [
-      {
-        kind: 'word',
-        tokens,
-      },
-    ],
+    expression: expressionUri,
+    tokenizations: [{ kind: 'word', tokens: textTokens }],
     createdAt: now,
   };
 
-  return { expression, segmentation };
+  const temporal: TemporalSegmentationRecord = {
+    $type: 'pub.layers.segmentation.segmentation',
+    expression: expressionUri,
+    tokenizations: [{ kind: 'word-temporal', tokens: temporalTokens }],
+    createdAt: now,
+  };
+
+  return { expression, segmentation, temporal };
 }
 
 /**
@@ -305,6 +332,11 @@ export async function nlpToAnnotationLayers(
  * This is the materialized view builder — used by the appview indexer to
  * rebuild the talk document when layers.pub records arrive via Jetstream.
  *
+ * Timestamp facets are generated from the compact transcript (text + startMs
+ * + timings), not from segmentation temporalSpans. This allows the
+ * segmentation record to remain small (textSpan only) while keeping temporal
+ * data available separately.
+ *
  * Round-trip property:
  *   transcriptToLayersPub + nlpToAnnotationLayers + layersPubToDocument
  *   should produce the SAME document as decodeToDocumentWithStructure.
@@ -313,24 +345,42 @@ export async function layersPubToDocument(
   expression: ExpressionRecord,
   segmentation: SegmentationRecord,
   annotationLayers: AnnotationLayersResult,
+  compact?: CompactTranscript,
 ): Promise<Document> {
   const facets: DocumentFacet[] = [];
 
-  // 1. Timestamp facets from segmentation tokens
-  for (const token of segmentation.tokenizations[0].tokens) {
-    facets.push({
-      index: {
-        byteStart: token.textSpan.byteStart,
-        byteEnd: token.textSpan.byteEnd,
-      },
-      features: [
-        {
-          $type: 'tv.ionosphere.facet#timestamp',
-          startTime: token.temporalSpan.start * 1_000_000, // ms → ns
-          endTime: token.temporalSpan.ending * 1_000_000,
-        },
-      ],
-    });
+  // 1. Timestamp facets from compact transcript timings
+  //    Uses the same replay algorithm as decodeToDocument() — the segmentation
+  //    provides byte offsets, the compact transcript provides timing.
+  if (compact) {
+    const tokens = segmentation.tokenizations[0].tokens;
+    let cursor = compact.startMs;
+    let tokenIdx = 0;
+
+    for (const value of compact.timings) {
+      if (value < 0) {
+        cursor += Math.abs(value);
+      } else {
+        if (tokenIdx < tokens.length) {
+          const token = tokens[tokenIdx];
+          facets.push({
+            index: {
+              byteStart: token.textSpan.byteStart,
+              byteEnd: token.textSpan.byteEnd,
+            },
+            features: [
+              {
+                $type: 'tv.ionosphere.facet#timestamp',
+                startTime: cursor * 1_000_000, // ms → ns
+                endTime: (cursor + value) * 1_000_000,
+              },
+            ],
+          });
+          cursor += value;
+          tokenIdx++;
+        }
+      }
+    }
   }
 
   // 2. Sentence facets

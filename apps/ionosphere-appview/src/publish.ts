@@ -214,20 +214,21 @@ async function main() {
       talkUri: `at://${did}/tv.ionosphere.talk/${talk.rkey}`,
     };
 
-    const { expression, segmentation } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
+    const { expression, segmentation, temporal } = await transcriptToLayersPub(transcriptRecord, did, talk.rkey);
     const expressionUri = `at://${did}/pub.layers.expression.expression/${talk.rkey}-expression`;
     const layers = await nlpToAnnotationLayers(nlpData, did, talk.rkey, expressionUri);
 
     await Promise.all([
       pds.putRecord("pub.layers.expression.expression", `${talk.rkey}-expression`, expression),
       pds.putRecord("pub.layers.segmentation.segmentation", `${talk.rkey}-segmentation`, segmentation),
+      pds.putRecord("pub.layers.segmentation.segmentation", `${talk.rkey}-temporal`, temporal),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-sentences`, layers.sentences),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-paragraphs`, layers.paragraphs),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-entities`, layers.entities),
       pds.putRecord("pub.layers.annotation.annotationLayer", `${talk.rkey}-topics`, layers.topics),
     ]);
 
-    console.log(`  layers.pub: ${talk.rkey} (6 records)`);
+    console.log(`  layers.pub: ${talk.rkey} (7 records)`);
     layersCount++;
   }
   console.log(`Published layers.pub records for ${layersCount} talks.`);

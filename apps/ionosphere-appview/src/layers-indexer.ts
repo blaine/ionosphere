@@ -191,18 +191,25 @@ export async function rebuildDocument(
     topics: annotationLayers.topics ?? emptyLayer("span", "topic-segment"),
   };
 
-  // 5. Run Lens 3
+  // 5. Look up the transcript for timing data + talk_uri
+  const transcript = db
+    .prepare("SELECT * FROM transcripts WHERE uri = ?")
+    .get(expr.transcript_uri) as any;
+  if (!transcript) return;
+
+  // 6. Run Lens 3 with compact transcript for timestamp facets
+  const compact = {
+    text: transcript.text,
+    startMs: transcript.start_ms,
+    timings: JSON.parse(transcript.timings),
+  };
+
   const document = await layersPubToDocument(
     expressionRecord,
     segmentationRecord,
     fullLayers,
+    compact,
   );
-
-  // 6. Find the talk_uri from the transcript table
-  const transcript = db
-    .prepare("SELECT talk_uri FROM transcripts WHERE uri = ?")
-    .get(expr.transcript_uri) as any;
-  if (!transcript) return;
 
   // 7. Update the talk's document field
   db.prepare("UPDATE talks SET document = ? WHERE uri = ?").run(
