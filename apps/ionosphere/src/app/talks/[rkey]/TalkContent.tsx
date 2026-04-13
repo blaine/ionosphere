@@ -58,6 +58,27 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
     return doc?.facets?.length > 0 ? doc : null;
   }, [talk.document]);
 
+  // Derive concepts from document facets (concept-ref entities)
+  const docConcepts = useMemo(() => {
+    if (!document) return [];
+    const seen = new Map<string, { name: string; uri: string; rkey: string }>();
+    for (const f of document.facets) {
+      for (const feat of f.features) {
+        if (feat.$type === "tv.ionosphere.facet#concept-ref" && feat.conceptUri) {
+          if (!seen.has(feat.conceptUri)) {
+            const rkey = feat.conceptUri.split("/").pop() || "";
+            seen.set(feat.conceptUri, {
+              name: feat.conceptName || feat.label || rkey,
+              uri: feat.conceptUri,
+              rkey,
+            });
+          }
+        }
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [document]);
+
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const [videoWidth, setVideoWidth] = useState<number | null>(null);
 
@@ -194,11 +215,11 @@ export default function TalkContent({ talk, speakers, concepts }: TalkContentPro
 
         {/* Right sidebar — concepts + cross-refs (hidden on mobile, scrollable on desktop) */}
         <aside className="hidden lg:flex lg:flex-col lg:w-56 xl:w-64 shrink-0 border-l border-neutral-800 overflow-y-auto p-4 gap-5">
-          {concepts.length > 0 && (
+          {(concepts.length > 0 || docConcepts.length > 0) && (
             <section>
               <h2 className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">Concepts</h2>
               <div className="flex flex-wrap gap-1.5">
-                {concepts.map((c: any) => (
+                {(concepts.length > 0 ? concepts : docConcepts).map((c: any) => (
                   <a
                     key={c.rkey}
                     href={`/concepts/${c.rkey}`}
