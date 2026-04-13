@@ -17,4 +17,6 @@ apps/ionosphere-appview/data/tap
 apps/ionosphere-appview/data/boundary-timings*
 apps/ionosphere-appview/tools
 apps/data
+!apps/data/atmosphere-projects.json
+!apps/data/highlights.json
 docs
