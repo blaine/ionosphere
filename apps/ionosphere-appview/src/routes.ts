@@ -271,6 +271,40 @@ export function createRoutes(db: Database.Database): Hono {
     return c.json({ comments: [] });
   });
 
+  app.get("/xrpc/tv.ionosphere.getMentions", (c) => {
+    const talkRkey = c.req.query("talkRkey");
+    if (!talkRkey) return c.json({ mentions: [], total: 0 });
+
+    const talk = db.prepare("SELECT uri FROM talks WHERE rkey = ?").get(talkRkey) as any;
+    if (!talk) return c.json({ mentions: [], total: 0 });
+
+    const topLevel = db.prepare(
+      `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE m.talk_uri = ? AND m.parent_uri IS NULL
+       ORDER BY
+         CASE m.mention_type WHEN 'during_talk' THEN 0 ELSE 1 END,
+         m.talk_offset_ms ASC,
+         m.created_at ASC`
+    ).all(talk.uri);
+
+    const replyStmt = db.prepare(
+      `SELECT m.*, p.handle as author_handle, p.display_name as author_display_name, p.avatar_url as author_avatar_url
+       FROM mentions m
+       LEFT JOIN profiles p ON m.author_did = p.did
+       WHERE m.parent_uri = ?
+       ORDER BY m.created_at ASC`
+    );
+
+    const mentions = topLevel.map((m: any) => ({
+      ...m,
+      thread: replyStmt.all(m.uri),
+    }));
+
+    return c.json({ mentions, total: mentions.length });
+  });
+
   app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
