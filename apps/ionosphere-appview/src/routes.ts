@@ -25,6 +25,7 @@ export function createRoutes(db: Database.Database): Hono {
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   app.get("/xrpc/tv.ionosphere.getTalks", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     // Exclude 'document' column — it's the full faceted transcript (up to 2MB per talk)
     // and not needed for list views. Individual talks are fetched via getTalk.
     const talks = db
@@ -144,6 +145,7 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   app.get("/xrpc/tv.ionosphere.getSpeakers", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     const speakers = db
       .prepare("SELECT * FROM speakers ORDER BY name ASC")
       .all();
@@ -171,6 +173,7 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   app.get("/xrpc/tv.ionosphere.getConcepts", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     const concepts = db
       .prepare("SELECT * FROM concepts ORDER BY name ASC")
       .all();
@@ -265,6 +268,7 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   app.get("/xrpc/tv.ionosphere.getDiscussion", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     const BLOCKED_HANDLES = new Set(['nowbreezing.ntw.app']);
     const filterBlocked = (rows: any[]) => rows.filter((r: any) => !BLOCKED_HANDLES.has(r.author_handle));
 
@@ -385,6 +389,7 @@ export function createRoutes(db: Database.Database): Hono {
   });
 
   app.get("/xrpc/tv.ionosphere.getConceptClusters", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     try {
       const clustersPath = path.resolve(import.meta.dirname, "../data/concept-clusters.json");
       const data = JSON.parse(readFileSync(clustersPath, "utf-8"));
@@ -534,6 +539,8 @@ export function createRoutes(db: Database.Database): Hono {
   let indexCache: { entries: any[]; builtAt: number } | null = null;
 
   app.get("/xrpc/tv.ionosphere.getConcordance", (c) => {
+    c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+
     // Serve from cache if available
     if (indexCache) {
       return c.json({ entries: indexCache.entries });
