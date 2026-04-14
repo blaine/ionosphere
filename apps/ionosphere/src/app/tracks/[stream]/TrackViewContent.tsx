@@ -255,6 +255,8 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
   const [panCenter, setPanCenter] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(800);
 
+  // WaveformBand now derives density from diarization — no words array needed
+
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const timelineBarRef = useRef<HTMLDivElement>(null);
   const saveRef = useRef<(() => void) | null>(null);
@@ -443,7 +445,6 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
               {track.diarization.length > 0 && (
                 <div className="mt-1">
                   <WaveformBand
-                    words={track.words ?? []}
                     diarization={track.diarization}
                     allSpeakers={allSpeakers}
                     zoomLevel={zoomLevel}

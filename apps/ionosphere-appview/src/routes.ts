@@ -675,16 +675,15 @@ export function createRoutes(db: Database.Database): Hono {
       });
     }
 
-    // Default: exclude transcript (9MB+ facets) — fetched lazily via ?include=transcript
-    const include = c.req.query("include");
-    if (include !== "transcript") {
-      c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-      const { transcript, ...rest } = data;
-      return c.json(rest);
-    }
-
+    // Default: exclude transcript (9MB+ facets) and words (3MB, empty speakers)
+    // Transcript fetched lazily via chunked endpoint; words only used at high zoom
+    const include = c.req.query("include")?.split(",") ?? [];
     c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
-    return c.json(data);
+    const { transcript, words, ...rest } = data;
+    const result: any = { ...rest };
+    if (include.includes("transcript")) result.transcript = transcript;
+    if (include.includes("words")) result.words = words;
+    return c.json(result);
   });
 
   // --- Chunked track transcript (HLS-inspired) ---

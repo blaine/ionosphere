@@ -5,7 +5,6 @@ import { speakerColor, buildIndexMap } from "@/lib/track-colors";
 import { useTimelineEngine } from "@/lib/timeline-engine";
 
 interface WaveformBandProps {
-  words: Array<{ start: number; end: number; speaker: string }>;
   diarization: Array<{ start: number; end: number; speaker: string }>;
   allSpeakers: string[];
   zoomLevel: number;
@@ -15,12 +14,11 @@ interface WaveformBandProps {
 interface Bin {
   startTime: number;
   endTime: number;
-  wordCount: number;
+  speechDensity: number; // 0-1: fraction of bin covered by speech
   dominantSpeaker: string;
 }
 
 export default function WaveformBand({
-  words,
   diarization,
   allSpeakers,
   zoomLevel,
@@ -33,8 +31,9 @@ export default function WaveformBand({
 
   const useWaveform = zoomLevel >= 4;
 
+  // Compute speech density bins from diarization segments (no words array needed)
   const bins = useMemo(() => {
-    if (!useWaveform || words.length === 0) return [];
+    if (!useWaveform || diarization.length === 0) return [];
 
     const binCount = Math.min(400, Math.max(50, Math.round(windowDuration * 2)));
     const binDuration = windowDuration / binCount;
@@ -43,32 +42,38 @@ export default function WaveformBand({
     for (let i = 0; i < binCount; i++) {
       const binStart = windowStart + i * binDuration;
       const binEnd = binStart + binDuration;
-      const speakerCounts = new Map<string, number>();
-      let count = 0;
+      const speakerDurations = new Map<string, number>();
+      let totalSpeech = 0;
 
-      for (const w of words) {
-        if (w.end < binStart) continue;
-        if (w.start > binEnd) break;
-        count++;
-        speakerCounts.set(w.speaker, (speakerCounts.get(w.speaker) || 0) + 1);
+      for (const seg of diarization) {
+        if (seg.end <= binStart) continue;
+        if (seg.start >= binEnd) break;
+        // Overlap between segment and bin
+        const overlapStart = Math.max(seg.start, binStart);
+        const overlapEnd = Math.min(seg.end, binEnd);
+        const overlap = overlapEnd - overlapStart;
+        if (overlap > 0) {
+          totalSpeech += overlap;
+          speakerDurations.set(seg.speaker, (speakerDurations.get(seg.speaker) || 0) + overlap);
+        }
       }
 
       let dominant = "";
-      let maxCount = 0;
-      for (const [spk, cnt] of speakerCounts) {
-        if (cnt > maxCount) { dominant = spk; maxCount = cnt; }
+      let maxDur = 0;
+      for (const [spk, dur] of speakerDurations) {
+        if (dur > maxDur) { dominant = spk; maxDur = dur; }
       }
 
-      result.push({ startTime: binStart, endTime: binEnd, wordCount: count, dominantSpeaker: dominant });
+      result.push({
+        startTime: binStart,
+        endTime: binEnd,
+        speechDensity: totalSpeech / binDuration,
+        dominantSpeaker: dominant,
+      });
     }
 
     return result;
-  }, [words, windowStart, windowEnd, windowDuration, useWaveform]);
-
-  const maxWordCount = useMemo(
-    () => Math.max(1, ...bins.map((b) => b.wordCount)),
-    [bins],
-  );
+  }, [diarization, windowStart, windowEnd, windowDuration, useWaveform]);
 
   const visibleDiarization = useMemo(() => {
     if (useWaveform) return [];
@@ -122,10 +127,10 @@ export default function WaveformBand({
     >
       {useWaveform
         ? bins.map((bin, i) => {
-            if (bin.wordCount === 0) return null;
+            if (bin.speechDensity === 0) return null;
             const left = ((bin.startTime - windowStart) / windowDuration) * 100;
             const width = ((bin.endTime - bin.startTime) / windowDuration) * 100;
-            const height = (bin.wordCount / maxWordCount) * 100;
+            const height = Math.min(bin.speechDensity, 1) * 100;
 
             return (
               <div
