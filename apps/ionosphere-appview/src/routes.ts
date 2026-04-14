@@ -23,9 +23,14 @@ export function createRoutes(db: Database.Database): Hono {
   app.get("/health", (c) => c.json({ status: "ok" }));
 
   app.get("/xrpc/tv.ionosphere.getTalks", (c) => {
+    // Exclude 'document' column — it's the full faceted transcript (up to 2MB per talk)
+    // and not needed for list views. Individual talks are fetched via getTalk.
     const talks = db
       .prepare(
-        `SELECT t.*, GROUP_CONCAT(s.name) as speaker_names
+        `SELECT t.uri, t.did, t.rkey, t.title, t.description, t.video_uri,
+                t.video_offset_ns, t.video_segments, t.schedule_uri, t.event_uri,
+                t.room, t.category, t.talk_type, t.starts_at, t.ends_at, t.duration,
+                t.created_at, GROUP_CONCAT(s.name) as speaker_names
          FROM talks t
          LEFT JOIN talk_speakers ts ON t.uri = ts.talk_uri
          LEFT JOIN speakers s ON ts.speaker_uri = s.uri
