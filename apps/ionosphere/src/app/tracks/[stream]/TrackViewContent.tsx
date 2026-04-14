@@ -126,28 +126,105 @@ function SaveHandler({ saveRef, streamSlug }: { saveRef: React.MutableRefObject<
 function TrackViewInner({ track, stream }: { track: TrackData; stream: string }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
   const [transcript, setTranscript] = useState(track.transcript ?? null);
-  const [transcriptFetched, setTranscriptFetched] = useState(!!track.transcript);
   const [loadingTranscript, setLoadingTranscript] = useState(false);
 
-  // Lazy-load transcript when tab is first activated
+  // Chunked transcript state
+  const manifestRef = useRef<any>(null);
+  const loadedChunksRef = useRef<Map<number, any>>(new Map());
+  const lastChunkIndexRef = useRef(-1);
+
+  const { currentTimeNs } = useTimestamp();
+  const currentTimeSec = currentTimeNs / 1e9;
+
+  // HLS-inspired chunked transcript loading
   useEffect(() => {
-    if (activeTab !== "transcript" || transcriptFetched || loadingTranscript) return;
-    setLoadingTranscript(true);
-    fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`)
-      .then(res => res.json())
-      .then(data => { if (data.transcript) setTranscript(data.transcript); })
-      .catch(() => {})
-      .finally(() => { setLoadingTranscript(false); setTranscriptFetched(true); });
-  }, [activeTab, transcriptFetched, loadingTranscript, stream]);
+    if (activeTab !== "transcript") return;
+    if (transcript) return; // already have full transcript
+
+    const CHUNK_DURATION_S = 300; // 5 minutes
+
+    async function loadManifest() {
+      if (manifestRef.current) return manifestRef.current;
+      setLoadingTranscript(true);
+      const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}`);
+      const data = await res.json();
+      if (data.chunkCount) {
+        manifestRef.current = data;
+        return data;
+      }
+      // Fallback: load full transcript the old way
+      const fullRes = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`);
+      const fullData = await fullRes.json();
+      if (fullData.transcript) setTranscript(fullData.transcript);
+      setLoadingTranscript(false);
+      return null;
+    }
+
+    async function loadChunk(index: number) {
+      if (loadedChunksRef.current.has(index)) return;
+      const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}&chunk=${index}`);
+      const chunk = await res.json();
+      if (chunk.text !== undefined) {
+        loadedChunksRef.current.set(index, chunk);
+      }
+    }
+
+    function assembleDocument() {
+      const chunks = loadedChunksRef.current;
+      if (chunks.size === 0) return;
+
+      // Sort by index and stitch together
+      const sorted = [...chunks.entries()].sort((a, b) => a[0] - b[0]);
+      let text = "";
+      const facets: any[] = [];
+      let byteOffset = 0;
+
+      for (const [, chunk] of sorted) {
+        const encoder = new TextEncoder();
+        const chunkBytes = encoder.encode(chunk.text);
+
+        for (const facet of chunk.facets) {
+          facets.push({
+            index: {
+              byteStart: facet.index.byteStart + byteOffset,
+              byteEnd: facet.index.byteEnd + byteOffset,
+            },
+            features: facet.features,
+          });
+        }
+
+        text += chunk.text;
+        byteOffset += chunkBytes.length;
+      }
+
+      setTranscript({ text, facets });
+      setLoadingTranscript(false);
+    }
+
+    async function tick() {
+      const manifest = await loadManifest();
+      if (!manifest) return;
+
+      const currentChunk = Math.floor(currentTimeSec / CHUNK_DURATION_S);
+      if (currentChunk === lastChunkIndexRef.current && loadedChunksRef.current.size > 0) return;
+      lastChunkIndexRef.current = currentChunk;
+
+      // Load current chunk + neighbors
+      const toLoad = [currentChunk - 1, currentChunk, currentChunk + 1]
+        .filter(i => i >= 0 && i < manifest.chunkCount);
+
+      await Promise.all(toLoad.map(loadChunk));
+      assembleDocument();
+    }
+
+    tick();
+  }, [activeTab, currentTimeSec, stream, transcript]);
   const [speakerPopover, setSpeakerPopover] = useState<{ speakerId: string; position: { x: number; y: number } } | null>(null);
 
   // Zoom state
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panCenter, setPanCenter] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState(800);
-
-  const { currentTimeNs } = useTimestamp();
-  const currentTimeSec = currentTimeNs / 1e9;
 
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const timelineBarRef = useRef<HTMLDivElement>(null);
