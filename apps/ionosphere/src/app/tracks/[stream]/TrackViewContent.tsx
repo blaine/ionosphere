@@ -123,9 +123,22 @@ function SaveHandler({ saveRef, streamSlug }: { saveRef: React.MutableRefObject<
 
 // --- Main Inner (inside engine provider) ---
 
-function TrackViewInner({ track }: { track: TrackData }) {
+function TrackViewInner({ track, stream }: { track: TrackData; stream: string }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
-  const hasTranscript = !!(track.transcript?.facets?.length);
+  const [transcript, setTranscript] = useState(track.transcript ?? null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const hasTranscript = !!(transcript?.facets?.length);
+
+  // Lazy-load transcript when tab is first activated
+  useEffect(() => {
+    if (activeTab !== "transcript" || transcript || loadingTranscript) return;
+    setLoadingTranscript(true);
+    fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`)
+      .then(res => res.json())
+      .then(data => { if (data.transcript) setTranscript(data.transcript); })
+      .catch(() => {})
+      .finally(() => setLoadingTranscript(false));
+  }, [activeTab, transcript, loadingTranscript, stream]);
   const [speakerPopover, setSpeakerPopover] = useState<{ speakerId: string; position: { x: number; y: number } } | null>(null);
 
   // Zoom state
@@ -356,12 +369,11 @@ function TrackViewInner({ track }: { track: TrackData }) {
               </button>
               <button
                 onClick={() => setActiveTab("transcript")}
-                disabled={!hasTranscript}
                 className={`pb-2 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === "transcript"
                     ? "border-neutral-300 text-neutral-100"
                     : "border-transparent text-neutral-500 hover:text-neutral-300"
-                } ${!hasTranscript ? "opacity-30 cursor-not-allowed" : ""}`}
+                }`}
               >
                 Transcript
               </button>
@@ -377,8 +389,12 @@ function TrackViewInner({ track }: { track: TrackData }) {
                 <TalkList />
               </div>
             )}
-            {activeTab === "transcript" && hasTranscript && (
-              <WindowedTranscriptView document={track.transcript!} />
+            {activeTab === "transcript" && (
+              loadingTranscript
+                ? <div className="flex items-center justify-center h-32 text-neutral-500">Loading transcript...</div>
+                : hasTranscript
+                  ? <WindowedTranscriptView document={transcript!} />
+                  : <div className="flex items-center justify-center h-32 text-neutral-500">No transcript available</div>
             )}
           </div>
         </div>
@@ -391,12 +407,11 @@ export default function TrackViewContent({ trackMeta, stream }: { trackMeta: Tra
   const [track, setTrack] = useState<TrackData | null>(null);
 
   useEffect(() => {
-    // Fetch the heavy data (diarization, transcript, words) client-side
+    // Fetch track data without transcript (saves ~10MB) — transcript loads lazily on tab switch
     fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}`)
       .then(res => res.json())
       .then(data => setTrack(data))
       .catch(() => {
-        // Fallback: use meta without heavy data
         setTrack({ ...trackMeta, diarization: [], words: [] });
       });
   }, [stream, trackMeta]);
@@ -411,7 +426,7 @@ export default function TrackViewContent({ trackMeta, stream }: { trackMeta: Tra
 
   return (
     <TimestampProvider>
-      <TrackViewInner track={track} />
+      <TrackViewInner track={track} stream={stream} />
     </TimestampProvider>
   );
 }
