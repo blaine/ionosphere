@@ -126,19 +126,19 @@ function SaveHandler({ saveRef, streamSlug }: { saveRef: React.MutableRefObject<
 function TrackViewInner({ track, stream }: { track: TrackData; stream: string }) {
   const [activeTab, setActiveTab] = useState<"talks" | "transcript">("talks");
   const [transcript, setTranscript] = useState(track.transcript ?? null);
+  const [transcriptFetched, setTranscriptFetched] = useState(!!track.transcript);
   const [loadingTranscript, setLoadingTranscript] = useState(false);
-  const hasTranscript = !!(transcript?.facets?.length);
 
   // Lazy-load transcript when tab is first activated
   useEffect(() => {
-    if (activeTab !== "transcript" || transcript || loadingTranscript) return;
+    if (activeTab !== "transcript" || transcriptFetched || loadingTranscript) return;
     setLoadingTranscript(true);
     fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`)
       .then(res => res.json())
       .then(data => { if (data.transcript) setTranscript(data.transcript); })
       .catch(() => {})
-      .finally(() => setLoadingTranscript(false));
-  }, [activeTab, transcript, loadingTranscript, stream]);
+      .finally(() => { setLoadingTranscript(false); setTranscriptFetched(true); });
+  }, [activeTab, transcriptFetched, loadingTranscript, stream]);
   const [speakerPopover, setSpeakerPopover] = useState<{ speakerId: string; position: { x: number; y: number } } | null>(null);
 
   // Zoom state
@@ -390,10 +390,10 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
               </div>
             )}
             {activeTab === "transcript" && (
-              loadingTranscript
+              loadingTranscript || (!transcriptFetched && !transcript)
                 ? <div className="flex items-center justify-center h-32 text-neutral-500">Loading transcript...</div>
-                : hasTranscript
-                  ? <WindowedTranscriptView document={transcript!} />
+                : transcript?.facets?.length
+                  ? <WindowedTranscriptView document={transcript} />
                   : <div className="flex items-center justify-center h-32 text-neutral-500">No transcript available</div>
             )}
           </div>
