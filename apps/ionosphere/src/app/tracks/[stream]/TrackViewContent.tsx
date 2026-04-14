@@ -131,49 +131,66 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
   // Chunked transcript state
   const manifestRef = useRef<any>(null);
   const loadedChunksRef = useRef<Map<number, any>>(new Map());
-  const lastChunkIndexRef = useRef(-1);
+  const loadingChunksRef = useRef<Set<number>>(new Set());
+  const chunkCountRef = useRef(0);
 
   const { currentTimeNs } = useTimestamp();
   const currentTimeSec = currentTimeNs / 1e9;
 
+  // Throttle chunk loading to once per second (not 60fps)
+  const [chunkTimeSec, setChunkTimeSec] = useState(0);
+  useEffect(() => {
+    const rounded = Math.floor(currentTimeSec);
+    if (rounded !== chunkTimeSec) setChunkTimeSec(rounded);
+  }, [currentTimeSec, chunkTimeSec]);
+
   // HLS-inspired chunked transcript loading
   useEffect(() => {
     if (activeTab !== "transcript") return;
-    if (transcript) return; // already have full transcript
 
     const CHUNK_DURATION_S = 300; // 5 minutes
+    let cancelled = false;
 
     async function loadManifest() {
       if (manifestRef.current) return manifestRef.current;
       setLoadingTranscript(true);
-      const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}`);
-      const data = await res.json();
-      if (data.chunkCount) {
-        manifestRef.current = data;
-        return data;
-      }
+      try {
+        const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}`);
+        const data = await res.json();
+        if (data.chunkCount) {
+          manifestRef.current = data;
+          return data;
+        }
+      } catch {}
       // Fallback: load full transcript the old way
-      const fullRes = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`);
-      const fullData = await fullRes.json();
-      if (fullData.transcript) setTranscript(fullData.transcript);
+      try {
+        const fullRes = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&include=transcript`);
+        const fullData = await fullRes.json();
+        if (fullData.transcript) setTranscript(fullData.transcript);
+      } catch {}
       setLoadingTranscript(false);
       return null;
     }
 
     async function loadChunk(index: number) {
-      if (loadedChunksRef.current.has(index)) return;
-      const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}&chunk=${index}`);
-      const chunk = await res.json();
-      if (chunk.text !== undefined) {
-        loadedChunksRef.current.set(index, chunk);
+      if (loadedChunksRef.current.has(index) || loadingChunksRef.current.has(index)) return;
+      loadingChunksRef.current.add(index);
+      try {
+        const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getTrackTranscript?stream=${encodeURIComponent(stream)}&chunk=${index}`);
+        const chunk = await res.json();
+        if (chunk.text !== undefined) {
+          loadedChunksRef.current.set(index, chunk);
+        }
+      } finally {
+        loadingChunksRef.current.delete(index);
       }
     }
 
     function assembleDocument() {
       const chunks = loadedChunksRef.current;
-      if (chunks.size === 0) return;
+      if (chunks.size === 0 || chunks.size === chunkCountRef.current) return;
+      chunkCountRef.current = chunks.size;
 
-      // Sort by index and stitch together
       const sorted = [...chunks.entries()].sort((a, b) => a[0] - b[0]);
       let text = "";
       const facets: any[] = [];
@@ -203,22 +220,34 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
 
     async function tick() {
       const manifest = await loadManifest();
-      if (!manifest) return;
+      if (!manifest || cancelled) return;
 
-      const currentChunk = Math.floor(currentTimeSec / CHUNK_DURATION_S);
-      if (currentChunk === lastChunkIndexRef.current && loadedChunksRef.current.size > 0) return;
-      lastChunkIndexRef.current = currentChunk;
+      const currentChunk = Math.floor(chunkTimeSec / CHUNK_DURATION_S);
 
-      // Load current chunk + neighbors
-      const toLoad = [currentChunk - 1, currentChunk, currentChunk + 1]
-        .filter(i => i >= 0 && i < manifest.chunkCount);
+      // Immediate: current ± 1 (must have for smooth scrolling)
+      const immediate = [currentChunk - 1, currentChunk, currentChunk + 1]
+        .filter(i => i >= 0 && i < manifest.chunkCount && !loadedChunksRef.current.has(i));
 
-      await Promise.all(toLoad.map(loadChunk));
-      assembleDocument();
+      if (immediate.length > 0) {
+        await Promise.all(immediate.map(loadChunk));
+        if (!cancelled) assembleDocument();
+      }
+
+      // Prefetch: ± 3 behind, + 5 ahead (non-blocking, background)
+      const prefetch = [-2, -3, 2, 3, 4, 5]
+        .map(d => currentChunk + d)
+        .filter(i => i >= 0 && i < manifest.chunkCount && !loadedChunksRef.current.has(i));
+
+      if (prefetch.length > 0 && !cancelled) {
+        Promise.all(prefetch.map(loadChunk)).then(() => {
+          if (!cancelled) assembleDocument();
+        });
+      }
     }
 
     tick();
-  }, [activeTab, currentTimeSec, stream, transcript]);
+    return () => { cancelled = true; };
+  }, [activeTab, chunkTimeSec, stream]);
   const [speakerPopover, setSpeakerPopover] = useState<{ speakerId: string; position: { x: number; y: number } } | null>(null);
 
   // Zoom state
@@ -467,7 +496,7 @@ function TrackViewInner({ track, stream }: { track: TrackData; stream: string })
               </div>
             )}
             {activeTab === "transcript" && (
-              loadingTranscript || (!transcriptFetched && !transcript)
+              loadingTranscript || (!transcript)
                 ? <div className="flex items-center justify-center h-32 text-neutral-500">Loading transcript...</div>
                 : transcript?.facets?.length
                   ? <WindowedTranscriptView document={transcript} />

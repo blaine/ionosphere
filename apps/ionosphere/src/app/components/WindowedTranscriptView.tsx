@@ -298,7 +298,9 @@ export default function WindowedTranscriptView({ document }: WindowedTranscriptV
         scrollVelocity.current = scrollVelocity.current * 0.7 + newVelocity * 0.3;
       }
     } else {
-      // Seek or pause — stop velocity
+      // Seek or large jump — snap to new position, stop velocity
+      const viewportH = containerRef.current.clientHeight;
+      scrollTargetRef.current = timeToScrollY(currentTimeNs) - viewportH * playheadFrac;
       scrollVelocity.current = 0;
     }
 

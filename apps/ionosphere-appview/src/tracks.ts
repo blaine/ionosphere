@@ -124,8 +124,10 @@ export interface TranscriptChunk {
 export function getTranscriptManifest(db: Database.Database, slug: string): TranscriptManifest | null {
   const dbStream = getStreamFromDb(db, slug);
   const hardcoded = STREAMS.find((s) => s.slug === slug);
-  const streamUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
-  if (!streamUri) return null;
+  // stream_transcripts reference the tv.ionosphere.stream URI, not the place.stream.video URI
+  const streamUri = dbStream?.uri ?? null;
+  const streamVideoUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
+  if (!streamUri && !streamVideoUri) return null;
 
   const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
   const totalDurationMs = durationSeconds * 1000;
@@ -159,8 +161,9 @@ export function getTranscriptManifest(db: Database.Database, slug: string): Tran
 export function getTranscriptChunk(db: Database.Database, slug: string, chunkIndex: number): TranscriptChunk | null {
   const dbStream = getStreamFromDb(db, slug);
   const hardcoded = STREAMS.find((s) => s.slug === slug);
-  const streamUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
-  if (!streamUri) return null;
+  const streamUri = dbStream?.uri ?? null;
+  const streamVideoUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
+  if (!streamUri && !streamVideoUri) return null;
 
   const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
   const totalDurationMs = durationSeconds * 1000;
