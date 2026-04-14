@@ -50,6 +50,12 @@ async function init() {
     console.warn("No DID resolved, skipping backfill");
   }
 
+  // Pre-warm the concordance cache in the background
+  console.log("[init] Pre-warming concordance cache...");
+  fetch(`http://localhost:${PORT}/xrpc/tv.ionosphere.getConcordance`)
+    .then(() => console.log("[init] Concordance cache warm"))
+    .catch(() => console.warn("[init] Concordance pre-warm failed (will build on first request)"));
+
   // ── Jetstream for live updates ──────────────────────────────────────────────
 
   const jetstream = new JetstreamClient({
