@@ -5,8 +5,10 @@ import type Database from "better-sqlite3";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import {
+  decode,
   decodeToDocument,
 } from "@ionosphere/format/transcript-encoding";
+import { lemmatize } from "./lemmatize.js";
 
 export function createRoutes(db: Database.Database): Hono {
   const app = new Hono();
@@ -534,7 +536,7 @@ export function createRoutes(db: Database.Database): Hono {
   app.get("/xrpc/tv.ionosphere.getConcordance", (c) => {
     // Serve from cache if available
     if (indexCache) {
-      return c.json({ entries: stripTimestamps(indexCache.entries) });
+      return c.json({ entries: indexCache.entries });
     }
 
     console.log("[index] Building concordance (this takes a couple minutes the first time)...");
@@ -577,37 +579,52 @@ export function createRoutes(db: Database.Database): Hono {
     }));
 
     const entries = buildConcordance(transcripts, concepts);
-    indexCache = { entries, builtAt: Date.now() };
-    console.log(`[index] Concordance built: ${entries.length} entries in ${((Date.now() - start) / 1000).toFixed(1)}s`);
+    // Strip timestampsNs from cache to save memory — they're computed on demand by getTimecodes
+    const stripped = stripTimestamps(entries);
+    indexCache = { entries: stripped, builtAt: Date.now() };
+    console.log(`[index] Concordance built: ${stripped.length} entries in ${((Date.now() - start) / 1000).toFixed(1)}s`);
 
-    return c.json({ entries: stripTimestamps(entries) });
+    return c.json({ entries: stripped });
   });
 
   // On-demand timecodes for a specific term + talk
+  // Computed from the transcript rather than cached — keeps memory low
   app.get("/xrpc/tv.ionosphere.getTimecodes", (c) => {
     const term = c.req.query("term");
     const rkey = c.req.query("rkey");
     if (!term || !rkey) return c.json({ error: "missing term or rkey" }, 400);
-    if (!indexCache) return c.json({ timestamps: [] });
 
-    // Search entries and subentries for the matching term + talk
-    for (const entry of indexCache.entries) {
-      if (entry.term.toLowerCase() === term.toLowerCase()) {
-        for (const talk of entry.talks) {
-          if (talk.rkey === rkey && talk.timestampsNs) {
-            return c.json({ timestamps: talk.timestampsNs });
-          }
+    const row = db.prepare(
+      `SELECT tr.text, tr.start_ms, tr.timings
+       FROM transcripts tr
+       JOIN talks t ON tr.talk_uri = t.uri
+       WHERE t.rkey = ?`
+    ).get(rkey) as any;
+
+    if (!row) return c.json({ timestamps: [] });
+
+    const decoded = decode({ text: row.text, startMs: row.start_ms, timings: JSON.parse(row.timings) });
+    const words = row.text.split(/\s+/).filter((w: string) => w.length > 0);
+    const termLower = term.toLowerCase();
+    const termWords = termLower.split(" ");
+    const timestamps: number[] = [];
+
+    for (let i = 0; i < words.length; i++) {
+      const wordLower = words[i].toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/^['-]+/, "").replace(/['-]+$/, "");
+      // Match single words or bigrams
+      if (termWords.length === 1) {
+        if (wordLower === termLower || lemmatize(wordLower) === termLower) {
+          if (i < decoded.words.length) timestamps.push(Math.round(decoded.words[i].start * 1e9));
         }
-        for (const sub of entry.subentries || []) {
-          for (const talk of sub.talks) {
-            if (talk.rkey === rkey && talk.timestampsNs) {
-              return c.json({ timestamps: talk.timestampsNs });
-            }
-          }
+      } else if (termWords.length === 2 && i < words.length - 1) {
+        const nextLower = words[i + 1].toLowerCase().replace(/[^a-z0-9'-]/g, "").replace(/^['-]+/, "").replace(/['-]+$/, "");
+        if (wordLower === termWords[0] && nextLower === termWords[1]) {
+          if (i < decoded.words.length) timestamps.push(Math.round(decoded.words[i].start * 1e9));
         }
       }
     }
-    return c.json({ timestamps: [] });
+
+    return c.json({ timestamps: timestamps.sort((a, b) => a - b) });
   });
 
   // Invalidate all caches (call after data changes)
