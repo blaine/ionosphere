@@ -99,6 +99,115 @@ function getStreamTranscriptFromDb(db: Database.Database, streamUri: string): { 
   return { text, facets };
 }
 
+/** Chunk duration for HLS-inspired transcript streaming (5 minutes in ms) */
+const CHUNK_DURATION_MS = 300_000;
+
+export interface TranscriptManifest {
+  totalDurationMs: number;
+  chunkDurationMs: number;
+  chunkCount: number;
+  chunks: Array<{ index: number; startMs: number; endMs: number; wordCount: number }>;
+}
+
+export interface TranscriptChunk {
+  index: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+  facets: any[];
+}
+
+/**
+ * Build a manifest of time-based transcript chunks for a stream.
+ * Each chunk covers CHUNK_DURATION_MS of the stream.
+ */
+export function getTranscriptManifest(db: Database.Database, slug: string): TranscriptManifest | null {
+  const dbStream = getStreamFromDb(db, slug);
+  const hardcoded = STREAMS.find((s) => s.slug === slug);
+  const streamUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
+  if (!streamUri) return null;
+
+  const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
+  const totalDurationMs = durationSeconds * 1000;
+  const chunkCount = Math.ceil(totalDurationMs / CHUNK_DURATION_MS);
+
+  // Decode full transcript to get word timings (we need these for the manifest)
+  const dbChunks = db.prepare(
+    "SELECT * FROM stream_transcripts WHERE stream_uri = ? ORDER BY chunk_index ASC"
+  ).all(streamUri) as any[];
+
+  if (dbChunks.length === 0) return null;
+
+  const { words } = decodeChunkedTranscript(dbChunks);
+
+  // Count words per time chunk
+  const chunks: TranscriptManifest["chunks"] = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const startMs = i * CHUNK_DURATION_MS;
+    const endMs = Math.min((i + 1) * CHUNK_DURATION_MS, totalDurationMs);
+    const wordCount = words.filter((w) => w.start * 1000 >= startMs && w.start * 1000 < endMs).length;
+    chunks.push({ index: i, startMs, endMs, wordCount });
+  }
+
+  return { totalDurationMs, chunkDurationMs: CHUNK_DURATION_MS, chunkCount, chunks };
+}
+
+/**
+ * Get a single time-based transcript chunk for a stream.
+ * Returns text + facets for words within the time window.
+ */
+export function getTranscriptChunk(db: Database.Database, slug: string, chunkIndex: number): TranscriptChunk | null {
+  const dbStream = getStreamFromDb(db, slug);
+  const hardcoded = STREAMS.find((s) => s.slug === slug);
+  const streamUri = dbStream?.stream_video_uri ?? hardcoded?.uri;
+  if (!streamUri) return null;
+
+  const durationSeconds = dbStream?.duration_seconds ?? hardcoded?.durationSeconds ?? 0;
+  const totalDurationMs = durationSeconds * 1000;
+  const startMs = chunkIndex * CHUNK_DURATION_MS;
+  const endMs = Math.min((chunkIndex + 1) * CHUNK_DURATION_MS, totalDurationMs);
+
+  if (startMs >= totalDurationMs) return null;
+
+  // Decode full transcript and slice by time window
+  const dbChunks = db.prepare(
+    "SELECT * FROM stream_transcripts WHERE stream_uri = ? ORDER BY chunk_index ASC"
+  ).all(streamUri) as any[];
+
+  if (dbChunks.length === 0) return null;
+
+  const { text: fullText, facets: allFacets } = decodeChunkedTranscript(dbChunks);
+
+  // Filter facets to this time window
+  const chunkFacets = allFacets.filter((f: any) => {
+    const ts = f.features?.[0];
+    if (!ts || ts.$type !== "tv.ionosphere.facet#timestamp") return false;
+    const wordStartMs = ts.startTime / 1e6;
+    return wordStartMs >= startMs && wordStartMs < endMs;
+  });
+
+  if (chunkFacets.length === 0) return { index: chunkIndex, startMs, endMs, text: "", facets: [] };
+
+  // Extract the text slice covered by these facets
+  const firstByte = chunkFacets[0].index.byteStart;
+  const lastByte = chunkFacets[chunkFacets.length - 1].index.byteEnd;
+  const encoder = new TextEncoder();
+  const fullBytes = encoder.encode(fullText);
+  const decoder = new TextDecoder();
+  const chunkText = decoder.decode(fullBytes.slice(firstByte, lastByte));
+
+  // Rebase facet byte offsets to be relative to chunkText
+  const rebasedFacets = chunkFacets.map((f: any) => ({
+    ...f,
+    index: {
+      byteStart: f.index.byteStart - firstByte,
+      byteEnd: f.index.byteEnd - firstByte,
+    },
+  }));
+
+  return { index: chunkIndex, startMs, endMs, text: chunkText, facets: rebasedFacets };
+}
+
 function getStreamWordsFromDb(db: Database.Database, streamUri: string): Array<{ start: number; end: number; speaker: string }> {
   const chunks = db.prepare(
     "SELECT * FROM stream_transcripts WHERE stream_uri = ? ORDER BY chunk_index ASC"

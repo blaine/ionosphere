@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { buildConcordance } from "./concordance.js";
-import { getTracksIndex, getTrackData, STREAMS } from "./tracks.js";
+import { getTracksIndex, getTrackData, getTranscriptManifest, getTranscriptChunk, STREAMS } from "./tracks.js";
 import type Database from "better-sqlite3";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -685,6 +685,34 @@ export function createRoutes(db: Database.Database): Hono {
 
     c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
     return c.json(data);
+  });
+
+  // --- Chunked track transcript (HLS-inspired) ---
+
+  app.get("/xrpc/tv.ionosphere.getTrackTranscript", (c) => {
+    const stream = c.req.query("stream");
+    if (!stream) return c.json({ error: "missing stream parameter" }, 400);
+
+    const chunkParam = c.req.query("chunk");
+
+    if (chunkParam === undefined || chunkParam === null) {
+      // Return manifest (chunk list without data)
+      const manifest = getTranscriptManifest(db, stream);
+      if (!manifest) return c.json({ error: "no transcript" }, 404);
+      c.header("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+      return c.json(manifest);
+    }
+
+    // Return a single chunk
+    const chunkIndex = parseInt(chunkParam, 10);
+    if (isNaN(chunkIndex) || chunkIndex < 0) return c.json({ error: "invalid chunk" }, 400);
+
+    const chunk = getTranscriptChunk(db, stream, chunkIndex);
+    if (!chunk) return c.json({ error: "chunk not found" }, 404);
+
+    // Chunks are immutable once built — cache aggressively
+    c.header("Cache-Control", "public, max-age=86400, immutable");
+    return c.json(chunk);
   });
 
   // --- Corrections sidecar ---
