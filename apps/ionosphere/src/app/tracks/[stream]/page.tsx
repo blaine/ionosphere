@@ -1,4 +1,4 @@
-import { getTrack, getTracks } from "@/lib/api";
+import { getTrackMeta, getTracks } from "@/lib/api";
 import type { Metadata } from "next";
 import TrackViewContent from "./TrackViewContent";
 
@@ -13,7 +13,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Promise<{ stream: string }> }): Promise<Metadata> {
   const { stream } = await params;
-  const data = await getTrack(stream);
+  const data = await getTrackMeta(stream);
   return {
     title: `${data.name} — Ionosphere`,
     description: `${data.talks.length} talks from ${data.room}, ATmosphereConf 2026`,
@@ -25,7 +25,7 @@ export default async function TrackPage({ params }: { params: Promise<{ stream: 
 
   // Only pass lightweight metadata as props — the heavy data (words, diarization,
   // transcript) is fetched client-side to avoid serializing 10MB+ into the HTML.
-  const data = await getTrack(stream);
+  const data = await getTrackMeta(stream);
   const meta = {
     slug: data.slug,
     name: data.name,

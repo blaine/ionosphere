@@ -62,6 +62,10 @@ export async function getTrack(stream: string) {
   return fetchApi<any>(`/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}`);
 }
 
+export async function getTrackMeta(stream: string) {
+  return fetchApi<any>(`/xrpc/tv.ionosphere.getTrack?stream=${encodeURIComponent(stream)}&meta=true`);
+}
+
 export async function getCorrections(stream: string) {
   const res = await fetch(`${API_BASE}/xrpc/tv.ionosphere.getCorrections?stream=${encodeURIComponent(stream)}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`API error: ${res.status}`);

@@ -631,6 +631,21 @@ export function createRoutes(db: Database.Database): Hono {
     if (!stream) return c.json({ error: "missing stream parameter" }, 400);
     const data = getTrackData(db, stream);
     if (!data) return c.json({ error: "stream not found" }, 404);
+
+    // ?meta=true returns only lightweight fields (for SSR — avoids 12MB+ responses)
+    if (c.req.query("meta") === "true") {
+      return c.json({
+        slug: data.slug,
+        name: data.name,
+        room: data.room,
+        dayLabel: data.dayLabel,
+        streamUri: data.streamUri,
+        durationSeconds: data.durationSeconds,
+        playbackUrl: data.playbackUrl,
+        talks: data.talks,
+      });
+    }
+
     return c.json(data);
   });
 
