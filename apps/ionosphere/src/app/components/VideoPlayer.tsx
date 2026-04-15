@@ -16,11 +16,18 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
   const offsetS = offsetNs / 1e9;
   const playlistUrl = `${VOD_ENDPOINT}?uri=${encodeURIComponent(videoUri)}`;
 
+  // Ref-based auto-play guard survives React Strict Mode double-invocation.
+  // A closure variable would get a fresh copy per effect invocation, allowing
+  // a stale setTimeout from the first invocation to call play() with its own
+  // hasAutoPlayed=false even after the second invocation already auto-played.
+  const hasAutoPlayedRef = useRef(false);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     let hls: any;
+    let manifestTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     async function setupHls() {
       const { default: Hls } = await import("hls.js");
@@ -29,27 +36,18 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
         hls.loadSource(playlistUrl);
         hls.attachMedia(video!);
 
-        // Select AAC audio track before playback starts to avoid mid-play rebuffer.
-        // Streamplace serves both original + AAC renditions — switching after
-        // playback begins causes a visible stall.
-        //
-        // Strategy: wait for MANIFEST_PARSED, then select the audio track
-        // before any playback begins. Only auto-play after the track is set
-        // and the first fragment is buffered — this avoids the reload cycle
-        // caused by switching tracks mid-stream.
         let audioSettled = false;
-        let seekSettled = offsetS <= 0; // no seek needed if no offset
-        let hasAutoPlayed = false;
+        let seekSettled = offsetS <= 0;
 
         const tryAutoPlay = () => {
-          if (!hasAutoPlayed && video!.paused && audioSettled && seekSettled) {
-            hasAutoPlayed = true;
+          if (!hasAutoPlayedRef.current && video!.paused && audioSettled && seekSettled) {
+            hasAutoPlayedRef.current = true;
             video!.play().catch(() => {});
           }
         };
 
         hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
-          if (audioSettled) return; // only run once
+          if (audioSettled) return;
           const tracks = hls!.audioTracks;
           if (tracks.length > 1) {
             const aacTrack = tracks.findIndex((t: any) =>
@@ -65,7 +63,7 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           // If no audio tracks event fires within 200ms, consider audio settled
-          setTimeout(() => {
+          manifestTimeoutId = setTimeout(() => {
             if (!audioSettled) {
               audioSettled = true;
               tryAutoPlay();
@@ -75,7 +73,6 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           // Seek to offset before playback starts
           if (offsetS > 0) {
             video!.currentTime = offsetS;
-            // Wait for seek to complete before allowing auto-play
             video!.addEventListener("seeked", () => {
               seekSettled = true;
               tryAutoPlay();
@@ -83,28 +80,21 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
           }
         });
 
-        // Auto-play once audio is settled, seek is done, and we have buffered data
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          tryAutoPlay();
+          if (!hasAutoPlayedRef.current) tryAutoPlay();
         });
 
-        // Error recovery — conservative approach to avoid reload cycles.
-        // Only recover from fatal errors; non-fatal errors are handled by HLS.js internally.
         hls.on(Hls.Events.ERROR, (_: any, data: any) => {
           if (!data.fatal) return;
-
           console.warn("[HLS] Fatal error:", data.type, data.details);
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              // Network errors: retry loading
               hls!.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              // Media errors: single recovery attempt
               hls!.recoverMediaError();
               break;
             default:
-              // Unrecoverable: destroy and give up
               hls!.destroy();
               break;
           }
@@ -120,12 +110,13 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
     }
 
     setupHls();
-    return () => { if (hls) hls.destroy(); };
+    return () => {
+      if (manifestTimeoutId !== null) clearTimeout(manifestTimeoutId);
+      if (hls) hls.destroy();
+    };
   }, [playlistUrl, offsetS]);
 
   // Broadcast current time at 60fps via RAF (instead of ~4Hz timeupdate).
-  // This eliminates up to 250ms of stale time data and makes the
-  // transcript highlight track the audio much more tightly.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -147,10 +138,8 @@ export default function VideoPlayer({ videoUri, offsetNs = 0 }: VideoPlayerProps
       isPlaying = false;
       setPaused(true);
       cancelAnimationFrame(rafId);
-      // One final update to capture exact pause position
       setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
     };
-    // Also update on seek (click-to-seek while paused)
     const onSeeked = () => {
       setCurrentTimeNs((video.currentTime - offsetS) * 1e9);
     };
