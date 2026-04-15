@@ -17,16 +17,17 @@ export function startPublicJetstream(db: Database.Database): JetstreamClient {
     const row = db.prepare("SELECT cursor_us FROM _public_cursor WHERE id = 1").get() as any;
     const cursor = row?.cursor_us ?? null;
 
-    // If cursor is more than 60 seconds behind, skip to now.
-    // The public firehose is too large to replay — we'd rather miss
-    // old comments than be permanently behind.
+    // The public Jetstream is filtered to tv.ionosphere.* collections only,
+    // so volume is tiny — safe to replay up to 72h (Jetstream retention limit).
+    // Only skip if cursor is older than that.
     if (cursor !== null) {
       const nowUs = Date.now() * 1000;
       const behindS = (nowUs - cursor) / 1e6;
-      if (behindS > 60) {
-        console.log(`[Public Jetstream] Cursor ${behindS.toFixed(0)}s behind, skipping to now`);
-        return null; // null = start from live
+      if (behindS > 72 * 3600) {
+        console.log(`[Public Jetstream] Cursor ${(behindS / 3600).toFixed(0)}h behind (>72h), skipping to now`);
+        return null;
       }
+      console.log(`[Public Jetstream] Replaying from ${(behindS / 60).toFixed(0)}min ago`);
     }
 
     return cursor;
@@ -38,7 +39,19 @@ export function startPublicJetstream(db: Database.Database): JetstreamClient {
 
   const client = new JetstreamClient({
     url: PUBLIC_JETSTREAM_URL,
-    wantedCollections: ["tv.ionosphere.comment"],
+    // Subscribe to ALL ionosphere collections from any DID — discovers
+    // commenters, reactions, and any future record types automatically
+    wantedCollections: [
+      "tv.ionosphere.comment",
+      "tv.ionosphere.event",
+      "tv.ionosphere.talk",
+      "tv.ionosphere.speaker",
+      "tv.ionosphere.concept",
+      "tv.ionosphere.transcript",
+      "tv.ionosphere.stream",
+      "tv.ionosphere.streamTranscript",
+      "tv.ionosphere.diarization",
+    ],
     getCursor,
     setCursor,
     onEvent: (event) => {

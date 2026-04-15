@@ -76,7 +76,7 @@ async function init() {
 
   const publicJetstream = startPublicJetstream(db);
   publicJetstream.start();
-  console.log("Public Jetstream: listening for tv.ionosphere.comment");
+  console.log("Public Jetstream: listening for tv.ionosphere.* from all DIDs");
 }
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
