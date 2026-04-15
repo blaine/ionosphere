@@ -60,14 +60,27 @@ export function startPublicJetstream(db: Database.Database): JetstreamClient {
 }
 
 /**
- * Backfill comments from DIDs that already have comments in the DB.
+ * Backfill comments from known authors + any DIDs already in the DB.
  * Fetches their tv.ionosphere.comment records directly from their PDS
  * to catch anything the Jetstream missed.
+ *
+ * Seed DIDs ensure comments are recovered even after a fresh DB.
  */
+const SEED_COMMENT_AUTHORS = [
+  "did:plc:2zmxikig2sj7gqaezl5gntae",
+  "did:plc:3vdrgzr2zybocs45yfhcr6ur",
+];
+
 async function backfillComments(db: Database.Database): Promise<void> {
-  const authors = db
+  const dbAuthors = db
     .prepare("SELECT DISTINCT author_did FROM comments")
     .all() as { author_did: string }[];
+
+  const authorSet = new Set([
+    ...SEED_COMMENT_AUTHORS,
+    ...dbAuthors.map((a) => a.author_did),
+  ]);
+  const authors = [...authorSet].map((did) => ({ author_did: did }));
 
   if (authors.length === 0) return;
 
