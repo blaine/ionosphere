@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
+import { useTimestamp } from "./TimestampProvider";
 import { publishComment, type CommentData, isEmojiReaction } from "@/lib/comments";
 
 const QUICK_EMOJI = ["\u{1F525}", "\u{1F44F}", "\u{1F4A1}", "\u2753", "\u{1F4AF}", "\u2764\uFE0F"];
@@ -10,10 +11,28 @@ interface ReactionBarProps {
   subjectUri: string;
   comments: CommentData[];
   onCommentPublished?: () => void;
+  /** Document with timestamp facets — used to anchor text comments to playback position */
+  document?: { text: string; facets: any[] } | null;
 }
 
-export default function ReactionBar({ subjectUri, comments, onCommentPublished }: ReactionBarProps) {
+export default function ReactionBar({ subjectUri, comments, onCommentPublished, document }: ReactionBarProps) {
   const { agent, did } = useAuth();
+  const { currentTimeNs } = useTimestamp();
+
+  /** Find the word at the current playback position and return its byte range */
+  const getPlaybackAnchor = useCallback((): { byteStart: number; byteEnd: number } | undefined => {
+    if (!document?.facets) return undefined;
+    let closest: { byteStart: number; byteEnd: number; diff: number } | null = null;
+    for (const f of document.facets) {
+      const ts = f.features?.[0];
+      if (ts?.$type !== "tv.ionosphere.facet#timestamp") continue;
+      const diff = Math.abs(ts.startTime - currentTimeNs);
+      if (!closest || diff < closest.diff) {
+        closest = { byteStart: f.index.byteStart, byteEnd: f.index.byteEnd, diff };
+      }
+    }
+    return closest ? { byteStart: closest.byteStart, byteEnd: closest.byteEnd } : undefined;
+  }, [document, currentTimeNs]);
   const [showInput, setShowInput] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
@@ -44,7 +63,8 @@ export default function ReactionBar({ subjectUri, comments, onCommentPublished }
     if (!agent || !commentText.trim()) return;
     setPosting(true);
     try {
-      await publishComment(agent, subjectUri, commentText.trim());
+      const anchor = getPlaybackAnchor();
+      await publishComment(agent, subjectUri, commentText.trim(), anchor);
       setCommentText("");
       setShowInput(false);
       onCommentPublished?.();

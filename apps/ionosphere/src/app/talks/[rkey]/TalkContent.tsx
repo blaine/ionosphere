@@ -242,7 +242,28 @@ export default function TalkContent({ talk, speakers, concepts, mentions }: Talk
             subjectUri={talk.uri}
             comments={comments}
             onCommentPublished={handleCommentPublished}
+            document={document}
           />
+
+          {/* Unanchored text comments (no byte range — can't show inline in transcript) */}
+          {(() => {
+            const unanchored = (comments || []).filter(
+              (c) => c.byte_start === null && c.text.length > 2 && /[a-zA-Z]/.test(c.text)
+            );
+            if (unanchored.length === 0) return null;
+            return (
+              <div className="px-4 py-2 space-y-2 border-b border-neutral-800">
+                {unanchored.map((c) => (
+                  <div key={c.uri} className="flex gap-2 text-sm">
+                    <span className="text-neutral-500 shrink-0">
+                      {c.author_display_name || c.author_handle || c.author_did?.slice(0, 16) + "…"}
+                    </span>
+                    <span className="text-neutral-300">{c.text}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {/* Transcript — fills remaining space, width pinned to video */}
           <div className="flex-1 min-h-0 px-4 pb-4 pt-1 flex justify-center">
